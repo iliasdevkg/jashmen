@@ -1,0 +1,20 @@
+{
+  "rewrites": [
+    {
+      "source": "/admin/api/:path*",
+      "destination": "https://jashmen-api.vercel.app/admin/api/:path*"
+    },
+    {
+      "source": "/admin",
+      "destination": "/admin/index.html"
+    },
+    {
+      "source": "/admin/",
+      "destination": "/admin/index.html"
+    },
+    {
+      "source": "/((?!admin/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
