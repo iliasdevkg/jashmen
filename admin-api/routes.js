@@ -8,8 +8,13 @@ import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { hashPassword, verifyPassword, signToken, requireAuth } from './auth.js';
 import * as db from './db.js';
-import { CONTENT, findLesson, findShopItem, checkNewAchievements, TOTAL_LESSONS } from './content.js';
-import { computeLiveHearts, setHearts, MAX_HEARTS } from './hearts.js';
+import {
+  getContent, findLesson, findShopItem, findPrize,
+  checkNewAchievements, totalLessons, getLimits,
+} from './contentStore.js';
+import { computeLiveEnergy, spendEnergy, grantBonusEnergy } from './energy.js';
+import { logEvent } from './events.js';
+import { getPublicKey } from './push.js';
 
 const router = Router();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -27,10 +32,11 @@ function daysBetween(isoA, isoB) {
 function defaultState() {
   return {
     xp: 0,
-    gems: 50, // starter balance
+    coins: 50, // starter balance — "Jashmen Coins"
     streak: 0,
-    hearts: MAX_HEARTS,
-    heartsRefilledAt: Date.now(),
+    lessonsToday: 0,
+    energyDate: null,
+    bonusEnergyToday: 0,
     completedLessons: [],
     achievements: [],
     ownedShop: [],
@@ -39,6 +45,7 @@ function defaultState() {
     hasStreakShield: false,
     hasXpBoost: false,
     vipBadge: false,
+    pushSubscriptions: [],
   };
 }
 
@@ -51,7 +58,11 @@ function toPublicUser(user) {
 // ── Public content & leaderboard ────────────────────────────────────────────
 
 router.get('/public/content', (req, res) => {
-  res.json(CONTENT);
+  res.json(getContent());
+});
+
+router.get('/public/push-key', (req, res) => {
+  res.json({ publicKey: getPublicKey() });
 });
 
 router.get('/u/leaderboard', (req, res) => {
@@ -136,8 +147,8 @@ router.post('/u/me/daily', requireAuth, async (req, res, next) => {
           state.streak = state.hasStreakShield ? Math.max(1, state.streak || 0) : 1;
         }
       }
-      state.gems = (state.gems || 0) + 5; // small daily login bonus
-      if (state.streak > 0 && state.streak % 7 === 0) state.gems += 10; // weekly milestone bonus
+      state.coins = (state.coins || 0) + 5; // small daily login bonus
+      if (state.streak > 0 && state.streak % 7 === 0) state.coins += 10; // weekly milestone bonus
       state.lastActiveDate = today;
       await db.saveUser(user);
     }
@@ -169,24 +180,31 @@ router.post('/u/me/lesson', requireAuth, async (req, res, next) => {
 
     let reward;
     if (isReview) {
-      reward = { xp: 0, gems: 0, perfect: false, isReview: true };
+      reward = { xp: 0, coins: 0, perfect: false, isReview: true };
     } else {
+      // Daily energy gate — checked once per genuine attempt, not per
+      // mistake. Re-verified server-side; the client only uses this to
+      // decide whether to show the lesson's start button at all.
+      const { dailyFreeLessons } = getLimits();
+      const { remaining } = computeLiveEnergy(state, dailyFreeLessons);
+      if (remaining <= 0) {
+        return res.status(403).json({ error: 'Бүгүнкү акысыз сабактарың бүттү. Эртең кайра келиңиз же энергия сатып алыңыз.' });
+      }
+
       const baseXp = questionCount * 10;
       const perfect = mistakes === 0;
       let xp = Math.max(Math.round(baseXp * 0.4), baseXp - mistakes * 3);
       if (perfect) xp += Math.round(baseXp * 0.2);
       if (state.hasXpBoost) xp = Math.round(xp * 1.25);
-      const gems = perfect ? 10 : 5;
-      reward = { xp, gems, perfect, isReview: false };
+      const coins = perfect ? 10 : 5;
+      reward = { xp, coins, perfect, isReview: false };
 
       state.completedLessons = [...(state.completedLessons || []), lessonId];
       state.xp = (state.xp || 0) + xp;
-      state.gems = (state.gems || 0) + gems;
+      state.coins = (state.coins || 0) + coins;
+      spendEnergy(state);
+      logEvent('lesson_complete', { lessonId, userId: user.id }).catch(() => {});
     }
-
-    // Hearts only take live damage on a genuine (non-review) attempt.
-    const live = computeLiveHearts(state);
-    setHearts(state, isReview ? live.hearts : live.hearts - mistakes);
 
     user._lastReward = reward; // consumed by PATCH /u/me/state right after this
     await db.saveUser(user);
@@ -195,7 +213,16 @@ router.post('/u/me/lesson', requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── Shop ─────────────────────────────────────────────────────────────────────
+// ── Analytics event logging (fire-and-forget from the client) ──────────────
+
+router.post('/u/log-event', requireAuth, async (req, res) => {
+  const { type, lessonId, questionIndex, correct } = req.body || {};
+  // Never let telemetry block or fail the UI — best-effort, always 204.
+  logEvent(type, { userId: req.userId, lessonId, questionIndex, correct }).catch(() => {});
+  res.status(204).end();
+});
+
+// ── Shop / Marketplace ───────────────────────────────────────────────────────
 
 router.post('/u/me/buy', requireAuth, async (req, res, next) => {
   try {
@@ -207,19 +234,22 @@ router.post('/u/me/buy', requireAuth, async (req, res, next) => {
     if (!item) return res.status(404).json({ error: 'Товар табылган жок' });
 
     const { state } = user;
-    const isHeart = item.id === 'hearts';
-    if (!isHeart && (state.ownedShop || []).includes(item.id)) {
+    const isEnergyRefill = item.id === 'energy_refill';
+    if (!isEnergyRefill && (state.ownedShop || []).includes(item.id)) {
       return res.status(400).json({ error: 'Бул товар мурунтан сатылып алынган' });
     }
     // Price is always looked up server-side — never trust what the client sent.
-    if ((state.gems || 0) < item.price) {
-      return res.status(400).json({ error: 'Гем жетишсиз' });
+    if ((state.coins || 0) < item.price) {
+      return res.status(400).json({ error: 'Монета жетишсиз' });
     }
 
-    state.gems -= item.price;
-    if (isHeart) {
-      setHearts(state, MAX_HEARTS);
+    if (isEnergyRefill) {
+      if (!grantBonusEnergy(state)) {
+        return res.status(400).json({ error: 'Бүгүн үчүн максимум энергия толтурулду' });
+      }
+      state.coins -= item.price;
     } else {
+      state.coins -= item.price;
       state.ownedShop = [...(state.ownedShop || []), item.id];
       if (item.id === 'streak_freeze') state.hasStreakShield = true;
       if (item.id === 'xp_boost') state.hasXpBoost = true;
@@ -228,6 +258,72 @@ router.post('/u/me/buy', requireAuth, async (req, res, next) => {
 
     await db.saveUser(user);
     res.json(toPublicUser(user));
+  } catch (err) { next(err); }
+});
+
+// Partner-sponsored prize redemption — Module Б's marketplace, gated by
+// Module В's daily cap (see contentStore.js#getLimits().dailyPrizeCap).
+router.post('/u/me/redeem', requireAuth, async (req, res, next) => {
+  try {
+    const user = db.findUserById(req.userId);
+    if (!user) return res.status(401).json({ error: 'Колдонуучу табылган жок' });
+
+    const { prizeId } = req.body || {};
+    const prize = findPrize(prizeId);
+    if (!prize) return res.status(404).json({ error: 'Сыйлык табылган жок' });
+
+    const { state } = user;
+    if ((state.coins || 0) < prize.priceCoins) {
+      return res.status(400).json({ error: 'Монета жетишсиз' });
+    }
+
+    const { dailyPrizeCap } = getLimits();
+    const today = todayUTC();
+    if (db.countRedemptionsToday(today) >= dailyPrizeCap) {
+      return res.status(403).json({ error: 'Бардык сыйлыктар бүгүнкүгө бүттү. Эртең кайра келиңиз!' });
+    }
+
+    state.coins -= prize.priceCoins;
+    await db.saveUser(user);
+
+    const code = `JASHMEN-${randomUUID().slice(0, 8).toUpperCase()}`;
+    await db.addRedemption({ id: randomUUID(), userId: user.id, prizeId: prize.id, code, date: today, ts: Date.now() });
+
+    res.status(201).json({ user: toPublicUser(user), code });
+  } catch (err) { next(err); }
+});
+
+// ── Web Push subscriptions ──────────────────────────────────────────────
+
+router.post('/u/me/push/subscribe', requireAuth, async (req, res, next) => {
+  try {
+    const user = db.findUserById(req.userId);
+    if (!user) return res.status(401).json({ error: 'Колдонуучу табылган жок' });
+
+    const { subscription } = req.body || {};
+    if (!subscription?.endpoint) return res.status(400).json({ error: 'Жараксыз subscription' });
+
+    // One entry per endpoint (device/browser) — resubscribing the same
+    // device replaces its old keys instead of piling up duplicates.
+    const list = (user.state.pushSubscriptions || []).filter(s => s.endpoint !== subscription.endpoint);
+    list.push(subscription);
+    user.state.pushSubscriptions = list;
+    await db.saveUser(user);
+
+    res.status(201).json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+router.post('/u/me/push/unsubscribe', requireAuth, async (req, res, next) => {
+  try {
+    const user = db.findUserById(req.userId);
+    if (!user) return res.status(401).json({ error: 'Колдонуучу табылган жок' });
+
+    const { endpoint } = req.body || {};
+    user.state.pushSubscriptions = (user.state.pushSubscriptions || []).filter(s => s.endpoint !== endpoint);
+    await db.saveUser(user);
+
+    res.status(204).end();
   } catch (err) { next(err); }
 });
 
@@ -246,20 +342,26 @@ router.patch('/u/me/state', requireAuth, async (req, res, next) => {
       state.settings = {
         sound: typeof body.settings.sound === 'boolean' ? body.settings.sound : state.settings.sound !== false,
         animations: typeof body.settings.animations === 'boolean' ? body.settings.animations : state.settings.animations !== false,
+        notifications: typeof body.settings.notifications === 'boolean' ? body.settings.notifications : state.settings.notifications === true,
       };
+      changed = true;
+    }
+
+    if (typeof body.name === 'string' && body.name.trim() && body.name.trim() !== user.name) {
+      user.name = body.name.trim().slice(0, 60);
       changed = true;
     }
 
     // The client proposes achievement ids (computed from the reward it just
     // received); the server independently re-derives which ones actually
     // qualify and only grants the intersection. The client's `xp` field is
-    // never trusted directly — the bonus is always summed from CONTENT.
+    // never trusted directly — the bonus is always summed from content.
     if (Array.isArray(body.achievements)) {
-      const qualifying = checkNewAchievements(state, user._lastReward, TOTAL_LESSONS)
+      const qualifying = checkNewAchievements(state, user._lastReward, totalLessons())
         .filter(id => body.achievements.includes(id));
       if (qualifying.length) {
         state.achievements = [...new Set([...(state.achievements || []), ...qualifying])];
-        const bonus = qualifying.reduce((sum, id) => sum + (CONTENT.achievements.find(a => a.id === id)?.xp || 0), 0);
+        const bonus = qualifying.reduce((sum, id) => sum + (getContent().achievements.find(a => a.id === id)?.xp || 0), 0);
         state.xp = (state.xp || 0) + bonus;
         changed = true;
       }

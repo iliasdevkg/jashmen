@@ -14,16 +14,33 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
+// One-time migration for db.json files written before the coins/energy
+// rework: `gems` → `coins` (keeping the balance, not resetting it to 0),
+// and drop the now-unused hearts fields. Runs on every load; a no-op once
+// a file has already been migrated.
+function migrate(state) {
+  if (!Array.isArray(state.redemptions)) state.redemptions = [];
+  for (const user of state.users || []) {
+    const s = user.state;
+    if (!s) continue;
+    if (s.gems !== undefined && s.coins === undefined) s.coins = s.gems;
+    delete s.gems;
+    delete s.hearts;
+    delete s.heartsRefilledAt;
+  }
+  return state;
+}
+
 function loadSync() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [] }, null, 2));
+    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], redemptions: [] }, null, 2));
   }
   try {
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    return migrate(JSON.parse(fs.readFileSync(DB_FILE, 'utf8')));
   } catch (err) {
     console.error('[db] db.json is corrupt, starting from an empty store:', err.message);
-    return { users: [] };
+    return { users: [], redemptions: [] };
   }
 }
 
@@ -66,4 +83,20 @@ export async function saveUser(user) {
 
 export function listUsers() {
   return state.users;
+}
+
+// ── Redemptions (Module В: Daily Cap Protection) ────────────────────────
+
+export async function addRedemption(entry) {
+  state.redemptions.push(entry);
+  await persist();
+  return entry;
+}
+
+export function countRedemptionsToday(dateStr) {
+  return state.redemptions.filter(r => r.date === dateStr).length;
+}
+
+export function listRedemptions() {
+  return state.redemptions;
 }
