@@ -1,6 +1,7 @@
 {
   "crons": [
-    { "path": "/admin/api/cron/streak-reminders", "schedule": "0 18 * * *" }
+    { "path": "/admin/api/cron/streak-reminders", "schedule": "0 18 * * *" },
+    { "path": "/admin/api/cron/retention-reminders", "schedule": "0 12 * * *" }
   ],
   "rewrites": [
     {

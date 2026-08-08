@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { LayoutGrid, Building2, Sliders, BarChart3, LogOut, RefreshCw, Trophy, Award } from 'lucide-react';
+import { LayoutGrid, Building2, Sliders, BarChart3, LogOut, RefreshCw, Trophy, Award, BellRing } from 'lucide-react';
 import { useAdminAuth } from '../store.jsx';
 import * as api from '../api.js';
 import LessonsModule from '../pages/LessonsModule.jsx';
 import LeaguesModule from '../pages/LeaguesModule.jsx';
 import AchievementsModule from '../pages/AchievementsModule.jsx';
 import PartnersModule from '../pages/PartnersModule.jsx';
+import RetentionModule from '../pages/RetentionModule.jsx';
 import LimitsModule from '../pages/LimitsModule.jsx';
 import AnalyticsModule from '../pages/AnalyticsModule.jsx';
 
@@ -14,6 +15,7 @@ const TABS = [
   { id: 'leagues',      label: 'Лигалар',       icon: Trophy },
   { id: 'achievements', label: 'Жетишкендиктер', icon: Award },
   { id: 'partners',     label: 'Өнөктөштөр',    icon: Building2 },
+  { id: 'retention',    label: 'Кармап калуу',  icon: BellRing },
   { id: 'limits',       label: 'Лимиттер',      icon: Sliders },
   { id: 'analytics',    label: 'Аналитика',     icon: BarChart3 },
 ];
@@ -83,6 +85,7 @@ export default function Shell() {
             {tab === 'leagues'      && <LeaguesModule      token={token} content={content} reload={reload} onAuthError={logout} />}
             {tab === 'achievements' && <AchievementsModule token={token} content={content} reload={reload} onAuthError={logout} />}
             {tab === 'partners'     && <PartnersModule     token={token} content={content} reload={reload} onAuthError={logout} />}
+            {tab === 'retention'    && <RetentionModule    token={token} content={content} reload={reload} onAuthError={logout} />}
             {tab === 'limits'       && <LimitsModule       token={token} onAuthError={logout} />}
             {tab === 'analytics'    && <AnalyticsModule    token={token} content={content} onAuthError={logout} />}
           </div>

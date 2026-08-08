@@ -64,6 +64,12 @@ export const createAchievement = (token, body) => req('POST', '/achievements', b
 export const updateAchievement = (token, id, body) => req('PUT', `/achievements/${id}`, body, token);
 export const deleteAchievement = (token, id) => req('DELETE', `/achievements/${id}`, null, token);
 
+export const createRetentionRule = (token, body) => req('POST', '/retention-rules', body, token);
+export const updateRetentionRule = (token, id, body) => req('PUT', `/retention-rules/${id}`, body, token);
+export const deleteRetentionRule = (token, id) => req('DELETE', `/retention-rules/${id}`, null, token);
+export const sendRetentionRemindersNow = (token) => req('POST', '/push/send-retention-reminders', null, token);
+export const fetchPushStatus = (token) => req('GET', '/push/status', null, token);
+
 export const fetchFunnel  = (token) => req('GET', '/analytics/funnel', null, token);
 export const fetchHeatmap = (token) => req('GET', '/analytics/heatmap', null, token);
 

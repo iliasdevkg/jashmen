@@ -19,7 +19,7 @@ import { upload, saveUploadedFile } from './uploads.js';
 import * as content from './contentStore.js';
 import * as events from './events.js';
 import * as db from './db.js';
-import { sendStreakReminders } from './push.js';
+import { sendStreakReminders, sendRetentionReminders, pushEnabled } from './push.js';
 
 const router = Router();
 
@@ -227,17 +227,44 @@ router.delete('/achievements/:id', async (req, res, next) => {
   catch (err) { next(err); }
 });
 
+// ── Retention — admin-configurable "come back" push campaigns ──────────
+
+router.post('/retention-rules', async (req, res, next) => {
+  try {
+    const { daysInactive, title, body, enabled } = req.body || {};
+    if (!daysInactive) return res.status(400).json({ error: 'Канча күн жооп катуусу керек' });
+    res.status(201).json(await content.addRetentionRule({ daysInactive, title, body, enabled }));
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+router.put('/retention-rules/:id', async (req, res, next) => {
+  try { res.json(await content.updateRetentionRule(req.params.id, req.body || {})); }
+  catch (err) { res.status(err.message === 'Эреже табылган жок' ? 404 : 400).json({ error: err.message }); }
+});
+
+router.delete('/retention-rules/:id', async (req, res, next) => {
+  try { await content.deleteRetentionRule(req.params.id); res.status(204).end(); }
+  catch (err) { next(err); }
+});
+
 // ── Analytics ────────────────────────────────────────────────────────────
 
 router.get('/analytics/funnel', (req, res) => res.json(events.funnel()));
 router.get('/analytics/heatmap', (req, res) => res.json(events.questionHeatmap()));
 
-// ── Push (manual trigger — same campaign the CRON_SECRET-protected
-//    /admin/api/cron/streak-reminders route runs on a schedule; this lets
-//    you fire it on demand from the admin panel without waiting) ────────
+// ── Push (manual triggers — same campaigns the CRON_SECRET-protected
+//    /admin/api/cron/* routes run on a schedule; these let you fire them
+//    on demand from the admin panel without waiting) ────────────────────
+
+router.get('/push/status', (req, res) => res.json({ enabled: pushEnabled }));
 
 router.post('/push/send-streak-reminders', async (req, res, next) => {
   try { res.json(await sendStreakReminders()); }
+  catch (err) { next(err); }
+});
+
+router.post('/push/send-retention-reminders', async (req, res, next) => {
+  try { res.json(await sendRetentionReminders()); }
   catch (err) { next(err); }
 });
 

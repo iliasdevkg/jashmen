@@ -155,6 +155,9 @@ function TheoryCard({ card, moduleColor, bright, onContinue, isLast, submitting 
   return (
     <div className="flex-1 flex flex-col">
       <div className="rounded-2xl p-5 mb-5 flex-1" style={{ background: bg, border: `2px solid ${border}` }}>
+        {card.imageUrl && (
+          <img src={card.imageUrl} alt="" className="w-full rounded-xl mb-4 object-cover" style={{ maxHeight: '40dvh' }} />
+        )}
         {title && (
           <p className="font-extrabold text-lg mb-2" style={{ color: moduleColor }}>{title}</p>
         )}
@@ -530,6 +533,9 @@ export default function LessonPage() {
                 className={`rounded-2xl p-5 mb-5 ${shake ? 'shake' : ''}`}
                 style={{ background: qBlockBg, border: `2px solid ${qBlockBorder}` }}
               >
+                {currentCard?.imageUrl && (
+                  <img src={currentCard.imageUrl} alt="" className="w-full rounded-xl mb-3 object-cover" style={{ maxHeight: '30dvh' }} />
+                )}
                 <p className="font-semibold text-base leading-relaxed" style={{ color: qTextColor }}>
                   {localizedText(currentCard?.q, locale)}
                 </p>

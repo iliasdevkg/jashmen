@@ -8,6 +8,7 @@
 
 import webpush from 'web-push';
 import * as db from './db.js';
+import * as content from './contentStore.js';
 
 const PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY || null;
 const PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || null;
@@ -71,6 +72,58 @@ export async function sendStreakReminders() {
         body: `🔥 ${user.state.streak}-күндүк стригиң түн ортосунда бүтөт! Бир сабак өтүп кал.`,
         url: '/learn',
       });
+      if (result.ok) { sent += 1; survivors.push(sub); }
+      else if (!result.gone) survivors.push(sub); // transient failure — keep it, don't drop on one hiccup
+      else removedDead += 1;
+    }
+    if (survivors.length !== user.state.pushSubscriptions.length) {
+      user.state.pushSubscriptions = survivors;
+      await db.saveUser(user);
+    }
+  }
+
+  return { candidateUsers: candidates.length, sent, removedDead };
+}
+
+function daysBetweenUTC(fromDateStr, toDateStr) {
+  const from = Date.parse(`${fromDateStr}T00:00:00Z`);
+  const to = Date.parse(`${toDateStr}T00:00:00Z`);
+  if (Number.isNaN(from) || Number.isNaN(to)) return null;
+  return Math.round((to - from) / 86400000);
+}
+
+// Admin-configurable "come back" campaigns (Retention module) — each rule
+// is "N days inactive → send this push", set up in the admin panel with
+// no code change (admin-api/contentStore.js#addRetentionRule). Matches
+// each user's *exact* current inactive-day count against a rule, so a
+// rule fires at most once per inactive stretch: as soon as the user comes
+// back, lastActiveDate resets and their inactive-day count drops to 0,
+// taking them out of every rule's range until they go quiet again. Same
+// call pattern as sendStreakReminders — CRON_SECRET route + manual admin
+// button, both need to be able to trigger it on demand.
+export async function sendRetentionReminders() {
+  const today = todayUTC();
+  const rulesByDays = new Map(
+    content.listRetentionRules().filter(r => r.enabled).map(r => [r.daysInactive, r])
+  );
+  if (rulesByDays.size === 0) return { candidateUsers: 0, sent: 0, removedDead: 0 };
+
+  const candidates = db.listUsers().filter(u => {
+    if (!u.state.lastActiveDate || u.state.lastActiveDate === today) return false;
+    if ((u.state.pushSubscriptions || []).length === 0) return false;
+    const inactiveDays = daysBetweenUTC(u.state.lastActiveDate, today);
+    return inactiveDays != null && rulesByDays.has(inactiveDays);
+  });
+
+  let sent = 0;
+  let removedDead = 0;
+
+  for (const user of candidates) {
+    const inactiveDays = daysBetweenUTC(user.state.lastActiveDate, today);
+    const rule = rulesByDays.get(inactiveDays);
+    const survivors = [];
+    for (const sub of user.state.pushSubscriptions) {
+      const result = await sendPush(sub, { title: rule.title, body: rule.body, url: '/learn' });
       if (result.ok) { sent += 1; survivors.push(sub); }
       else if (!result.gone) survivors.push(sub); // transient failure — keep it, don't drop on one hiccup
       else removedDead += 1;

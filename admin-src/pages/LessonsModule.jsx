@@ -15,9 +15,9 @@ const COLORS = ['#58CC02', '#1CB0F6', '#FF9600', '#CE82FF', '#FF4B4B', '#2B70C9'
 // ky if ru is blank). A plain string is legacy content from before this
 // existed; bilingualValue() upgrades it to {ky, ru} the moment it's edited.
 function emptyCard(type) {
-  if (type === 'theory') return { type: 'theory', title: { ky: '', ru: '' }, body: { ky: '', ru: '' } };
+  if (type === 'theory') return { type: 'theory', title: { ky: '', ru: '' }, body: { ky: '', ru: '' }, imageUrl: '' };
   if (type === 'media')  return { type: 'media', mediaType: 'image', url: '', caption: { ky: '', ru: '' } };
-  return { type: 'quiz', q: { ky: '', ru: '' }, opts: [{ ky: '', ru: '' }, { ky: '', ru: '' }, { ky: '', ru: '' }], a: 0 };
+  return { type: 'quiz', q: { ky: '', ru: '' }, opts: [{ ky: '', ru: '' }, { ky: '', ru: '' }, { ky: '', ru: '' }], a: 0, imageUrl: '' };
 }
 
 function bilingualValue(v) {
@@ -56,6 +56,47 @@ function BilingualInput({ label, value, onChange, kyRequired, multiline }) {
           {...(multiline ? { rows: 2 } : {})}
         />
       </div>
+    </div>
+  );
+}
+
+// Optional image on theory/quiz cards — same upload flow as the dedicated
+// media card, just attached instead of being the card's whole point. A
+// theory card with an imageUrl renders it above the text
+// (LessonPage.jsx#TheoryCard); a quiz card with one renders it above the
+// question (LessonPage.jsx's quiz question block).
+function OptionalImageUpload({ token, imageUrl, onChange }) {
+  const [uploading, setUploading] = useState(false);
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { url } = await api.uploadMedia(token, file);
+      onChange(url);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-2 items-center">
+        <label className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm cursor-pointer" style={{ background: '#0f172a', border: '1.5px dashed #334155', color: '#94a3b8' }}>
+          <Upload size={14} />
+          {uploading ? 'Жүктөлүүдө...' : imageUrl ? 'Сүрөт алмаштыруу' : 'Сүрөт кошуу (милдеттүү эмес)'}
+          <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
+        </label>
+        {imageUrl && (
+          <button type="button" onClick={() => onChange('')} className="p-2.5 rounded-xl shrink-0" style={{ background: '#0f172a', border: '1.5px solid #334155', color: '#f87171' }} title="Сүрөттү алып салуу">
+            <Trash2 size={14} />
+          </button>
+        )}
+      </div>
+      {imageUrl && <img src={imageUrl} alt="" className="w-full rounded-lg max-h-32 object-cover" />}
     </div>
   );
 }
@@ -107,6 +148,7 @@ function CardEditorRow({ card, index, total, onChange, onRemove, onMove, token }
         <>
           <BilingualInput label="Аталышы (милдеттүү эмес)" value={card.title} onChange={v => patch({ title: v })} />
           <BilingualInput label="Текст" value={card.body} onChange={v => patch({ body: v })} kyRequired multiline />
+          <OptionalImageUpload token={token} imageUrl={card.imageUrl} onChange={url => patch({ imageUrl: url })} />
         </>
       )}
 
@@ -135,6 +177,7 @@ function CardEditorRow({ card, index, total, onChange, onRemove, onMove, token }
       {card.type === 'quiz' && (
         <>
           <BilingualInput label="Суроонун тексти" value={card.q} onChange={v => patch({ q: v })} kyRequired />
+          <OptionalImageUpload token={token} imageUrl={card.imageUrl} onChange={url => patch({ imageUrl: url })} />
           {card.opts.map((opt, i) => {
             const ov = bilingualValue(opt);
             const setOpt = (patchV) => {
@@ -273,6 +316,7 @@ function ModuleForm({ token, partners, mod, onDone, onCancel }) {
   const [title, setTitle] = useState(mod?.title || '');
   const [color, setColor] = useState(mod?.color || COLORS[0]);
   const [partnerId, setPartnerId] = useState(mod?.partnerId || '');
+  const [iconUrl, setIconUrl] = useState(mod?.iconUrl || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -281,7 +325,7 @@ function ModuleForm({ token, partners, mod, onDone, onCancel }) {
     setSaving(true);
     setError('');
     try {
-      const body = { title: title.trim(), color, partnerId: partnerId || null };
+      const body = { title: title.trim(), color, partnerId: partnerId || null, iconUrl: iconUrl || null };
       if (mod) await api.updateModule(token, mod.id, body);
       else await api.createModule(token, body);
       onDone();
@@ -312,6 +356,9 @@ function ModuleForm({ token, partners, mod, onDone, onCancel }) {
           <option value="">— Жок —</option>
           {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </Select>
+      </Field>
+      <Field label="Мини-иконка (милдеттүү эмес)">
+        <OptionalImageUpload token={token} imageUrl={iconUrl} onChange={setIconUrl} />
       </Field>
       <ErrorNote>{error}</ErrorNote>
       <div className="flex gap-2">

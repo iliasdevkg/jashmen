@@ -197,10 +197,22 @@ function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleI
         className="sticky top-14 lg:top-6 z-10 mx-4 rounded-2xl p-4 mb-6"
         style={{ background: module.color, boxShadow: `0 8px 20px -6px ${module.color}80` }}
       >
-        <p className="text-white/70 text-[11px] font-extrabold uppercase tracking-widest">
-          {t('learn.moduleLabel', { n: moduleIndex + 1 })}
-        </p>
-        <p className="text-white font-extrabold text-xl leading-tight">{module.title}</p>
+        <div className="flex items-center gap-3 mb-1">
+          {module.iconUrl && (
+            <img
+              src={module.iconUrl}
+              alt=""
+              className="w-10 h-10 rounded-xl object-cover shrink-0"
+              style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.25)', border: '1.5px solid rgba(255,255,255,0.3)' }}
+            />
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-white/70 text-[11px] font-extrabold uppercase tracking-widest">
+              {t('learn.moduleLabel', { n: moduleIndex + 1 })}
+            </p>
+            <p className="text-white font-extrabold text-xl leading-tight">{module.title}</p>
+          </div>
+        </div>
         {partner && (
           <p className="flex items-center gap-1.5 text-white/85 text-[11px] font-semibold mb-2">
             {partner.logoUrl && <img src={partner.logoUrl} alt="" className="w-4 h-4 rounded-full object-cover" />}

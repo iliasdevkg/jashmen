@@ -6,7 +6,7 @@
 // there). Locally, hit it yourself with the same header to test.
 
 import { Router } from 'express';
-import { sendStreakReminders } from './push.js';
+import { sendStreakReminders, sendRetentionReminders } from './push.js';
 
 const router = Router();
 
@@ -22,6 +22,16 @@ function verifyCron(req, res, next) {
 router.get('/streak-reminders', verifyCron, async (req, res, next) => {
   try {
     res.json(await sendStreakReminders());
+  } catch (err) { next(err); }
+});
+
+// Retention module's day-threshold campaigns (admin-api/push.js#sendRetentionReminders)
+// — a separate scheduled entry point from streak-reminders since it evaluates a
+// completely different (admin-configurable) condition, even though both are
+// "check every user once a day, maybe send a push."
+router.get('/retention-reminders', verifyCron, async (req, res, next) => {
+  try {
+    res.json(await sendRetentionReminders());
   } catch (err) { next(err); }
 });
 

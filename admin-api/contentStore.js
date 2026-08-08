@@ -41,6 +41,7 @@ function withDefaults(c) {
     shop_items: c.shop_items || [],
     partners: c.partners || [],
     prizes: c.prizes || [],
+    retentionRules: c.retentionRules || [],
     limits: { dailyFreeLessons: 3, dailyPrizeCap: 5, ...(c.limits || {}) },
   };
 }
@@ -152,8 +153,8 @@ export function checkNewAchievements(userState, reward, totalLessonsCount = tota
 
 // ── Module A: modules/lessons ───────────────────────────────────────────
 
-export async function addModule({ title, color }) {
-  const mod = { id: `${slugify(title)}-${randomUUID().slice(0, 4)}`, title, color: color || '#1CB0F6', partnerId: null, lessons: [] };
+export async function addModule({ title, color, iconUrl }) {
+  const mod = { id: `${slugify(title)}-${randomUUID().slice(0, 4)}`, title, color: color || '#1CB0F6', partnerId: null, iconUrl: iconUrl || null, lessons: [] };
   state.modules.push(mod);
   await persist();
   return mod;
@@ -357,4 +358,49 @@ export async function updateAchievement(id, patch) {
 export async function deleteAchievement(id) {
   state.achievements = state.achievements.filter(a => a.id !== id);
   await persist();
+}
+
+// ── Retention — admin-configurable "come back" push campaigns ──────────
+//
+// A rule is just a day-threshold + message: "N days inactive → send this
+// push". admin-api/push.js#sendRetentionReminders matches each user's
+// *exact* current inactive-day count against these — a user re-opening
+// the app resets lastActiveDate (and so their inactive-day count) back to
+// 0, so a rule naturally fires at most once per inactive stretch with no
+// separate "already sent" bookkeeping needed. Same shape as the
+// achievement rule pattern above, deliberately simpler (one condition,
+// not five) since "how many days since they left" is the only lever a
+// re-engagement campaign needs.
+
+function sanitizeRetentionRule({ daysInactive, title, body, enabled }) {
+  return {
+    daysInactive: Math.max(1, parseInt(daysInactive, 10) || 1),
+    title: String(title || '').trim().slice(0, 60) || 'JashMen',
+    body: String(body || '').trim().slice(0, 200),
+    enabled: enabled !== false,
+  };
+}
+
+export async function addRetentionRule(fields) {
+  const rule = { id: randomUUID(), ...sanitizeRetentionRule(fields) };
+  state.retentionRules.push(rule);
+  await persist();
+  return rule;
+}
+
+export async function updateRetentionRule(id, patch) {
+  const rule = state.retentionRules.find(r => r.id === id);
+  if (!rule) throw new Error('Эреже табылган жок');
+  Object.assign(rule, sanitizeRetentionRule({ ...rule, ...patch }));
+  await persist();
+  return rule;
+}
+
+export async function deleteRetentionRule(id) {
+  state.retentionRules = state.retentionRules.filter(r => r.id !== id);
+  await persist();
+}
+
+export function listRetentionRules() {
+  return state.retentionRules;
 }
