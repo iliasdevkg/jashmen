@@ -3,11 +3,90 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>JashMen</title>
+
+    <!-- The whole app sits behind a login wall (src/App.jsx: `if (!user) return
+         <AuthPage />`), so a crawler only ever sees the sign-in screen. That
+         makes this <head> the ONLY thing search engines can read about
+         JashMen — hence the deliberately complete metadata below. -->
+    <title>JashMen Studio — каржы сабаттуулугун оюн аркылуу үйрөн</title>
+    <meta name="description" content="JashMen — акча, каржы жана инвестиция боюнча кыргызча окуу колдонмосу. Кыска сабактар, оюн түрүндөгү тапшырмалар, күнүмдүк серия жана лига менен каржы сабаттуулугуңузду өстүрүңүз." />
+    <link rel="canonical" href="https://jashmenstudio.com/" />
+
     <link rel="icon" href="/logo.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
     <meta name="theme-color" content="#0f172a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="JashMen" />
+
+    <!-- Open Graph — what WhatsApp/Telegram/Instagram show when the link is shared -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="JashMen Studio" />
+    <meta property="og:url" content="https://jashmenstudio.com/" />
+    <meta property="og:title" content="JashMen Studio — каржы сабаттуулугун оюн аркылуу үйрөн" />
+    <meta property="og:description" content="Акча, каржы жана инвестиция боюнча кыргызча окуу колдонмосу. Кыска сабактар, оюн түрүндөгү тапшырмалар, күнүмдүк серия жана лига." />
+    <meta property="og:image" content="https://jashmenstudio.com/logo.png" />
+    <meta property="og:image:width" content="1254" />
+    <meta property="og:image:height" content="1254" />
+    <meta property="og:locale" content="ky_KG" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="JashMen Studio — каржы сабаттуулугун оюн аркылуу үйрөн" />
+    <meta name="twitter:description" content="Акча, каржы жана инвестиция боюнча кыргызча окуу колдонмосу." />
+    <meta name="twitter:image" content="https://jashmenstudio.com/logo.png" />
+
+    <!-- Structured data. sameAs is what ties this domain to the already
+         well-ranked @jashmen.studio Instagram account, which is the strongest
+         signal we have for the brand query "jashmenstudio". alternateName
+         carries the spellings people actually type. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://jashmenstudio.com/#organization",
+          "name": "JashMen Studio",
+          "alternateName": ["JashMen", "jashmenstudio", "jashmen.studio", "ЖашМен"],
+          "url": "https://jashmenstudio.com/",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://jashmenstudio.com/logo.png",
+            "width": 1254,
+            "height": 1254
+          },
+          "description": "Кыргыз тилинде каржы сабаттуулугу боюнча билим берүүчү долбоор.",
+          "email": "jashmenstudio@gmail.com",
+          "sameAs": [
+            "https://www.instagram.com/jashmen.studio/"
+          ]
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://jashmenstudio.com/#website",
+          "url": "https://jashmenstudio.com/",
+          "name": "JashMen Studio",
+          "inLanguage": "ky",
+          "publisher": { "@id": "https://jashmenstudio.com/#organization" }
+        },
+        {
+          "@type": "WebApplication",
+          "name": "JashMen",
+          "url": "https://jashmenstudio.com/",
+          "applicationCategory": "EducationalApplication",
+          "operatingSystem": "Web",
+          "inLanguage": "ky",
+          "description": "Акча, каржы жана инвестиция боюнча кыргызча окуу колдонмосу — кыска сабактар, оюн түрүндөгү тапшырмалар, күнүмдүк серия жана лига.",
+          "publisher": { "@id": "https://jashmenstudio.com/#organization" },
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "KGS"
+          }
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>

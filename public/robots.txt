@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+# Admin panel and its API — nothing here is for search engines, and the
+# panel is password-gated anyway.
+Disallow: /admin
+Disallow: /admin/
+
+Sitemap: https://jashmenstudio.com/sitemap.xml

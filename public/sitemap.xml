@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Only the entry point is listed. /learn, /leaderboard, /shop etc. all render
+  the same login screen to a logged-out crawler (src/App.jsx), so listing them
+  would just hand Google a set of duplicate pages. Add them here if and when a
+  public, logged-out version of those pages exists.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://jashmenstudio.com/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
