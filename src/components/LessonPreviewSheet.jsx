@@ -9,7 +9,7 @@ import { X, Dumbbell, GraduationCap } from 'lucide-react';
 import { useI18n } from '../i18n.jsx';
 import { quizCountOf, maxLessonXp } from '../utils.js';
 
-// Same placeholder-icon note as LearnPage.jsx's NodeIcon — plain lucide
+// Same placeholder-icon note as LearnPage.jsx's LessonGlyph — plain lucide
 // glyphs standing in for the custom GameStar/GameCap tokens (src/components/
 // icons/) while the node-type art direction is still being decided.
 

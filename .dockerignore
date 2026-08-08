@@ -1,0 +1,12 @@
+node_modules
+dist
+admin-api/data
+admin-api/.env
+.env
+.env.local
+.git
+.gstack
+.vercel
+.vite
+*.log
+1.txt

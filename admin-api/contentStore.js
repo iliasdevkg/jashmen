@@ -1,20 +1,38 @@
 // admin-api/contentStore.js
 //
-// Content is no longer hardcoded — this is the database. Same JSON-file
-// pattern as db.js (tmp-file + rename writes, seeded once), but for
-// modules/lessons/leagues/achievements/shop/partners/prizes/limits instead
-// of users. The admin panel mutates this through the functions below;
-// GET /admin/api/public/content just serves whatever's currently here.
+// Content is no longer hardcoded — this is the database. Same dual-backend
+// pattern as db.js (Blob when BLOB_READ_WRITE_TOKEN is set — survives a
+// serverless/ephemeral deploy — local disk otherwise), but for
+// modules/lessons/leagues/achievements/shop/partners/prizes/limits/
+// retentionRules instead of users. The admin panel mutates this through
+// the functions below; GET /admin/api/public/content just serves whatever
+// currently lives here. See db.js's top-of-file comment for the full
+// rationale and the concurrent-write caveat — identical here.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import { put, get } from '@vercel/blob';
 import { SEED_CONTENT } from './content.seed.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
 const CONTENT_FILE = path.join(DATA_DIR, 'content.json');
+
+const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN || null;
+const CONTENT_BLOB_PATHNAME = 'content.json';
+
+if (!BLOB_TOKEN) {
+  console.warn(
+    '[contentStore] BLOB_READ_WRITE_TOKEN is not set — content saves to\n' +
+    '                local disk (admin-api/data/content.json), which does\n' +
+    '                NOT survive a serverless/ephemeral deploy. Create a\n' +
+    '                Blob store in the Vercel dashboard and set this in\n' +
+    '                admin-api/.env before deploying this backend to\n' +
+    '                production.'
+  );
+}
 
 // Achievements from before the rule-engine existed (or any hand-edited
 // content.json missing a `rule`) get backfilled with the rule their id used
@@ -46,7 +64,7 @@ function withDefaults(c) {
   };
 }
 
-function loadSync() {
+function loadFromDisk() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(CONTENT_FILE)) {
     fs.writeFileSync(CONTENT_FILE, JSON.stringify(withDefaults(SEED_CONTENT), null, 2));
@@ -59,18 +77,51 @@ function loadSync() {
   }
 }
 
-const state = loadSync();
-let writeChain = Promise.resolve();
+// `access: 'private'` + no catch-and-fall-back-to-seed on a thrown error —
+// see db.js's identical loadFromBlobStore for the full reason (a thrown
+// error is NOT the same as "nothing written yet", and silently treating
+// it that way risks a subsequent persist() overwriting real content with
+// the seed). `get()` returning `null` (not throwing) is the genuine
+// "not found" signal, which correctly falls back to SEED_CONTENT.
+async function loadFromBlobStore() {
+  const result = await get(CONTENT_BLOB_PATHNAME, { access: 'private', useCache: false, token: BLOB_TOKEN });
+  if (!result) return withDefaults(SEED_CONTENT); // nothing written yet — first boot of a fresh store
+  const text = await new Response(result.stream).text();
+  return withDefaults(JSON.parse(text));
+}
 
-function persist() {
-  writeChain = writeChain.then(() => new Promise((resolve, reject) => {
+const state = BLOB_TOKEN ? await loadFromBlobStore() : loadFromDisk();
+
+function persistToDisk() {
+  return new Promise((resolve, reject) => {
     const tmp = `${CONTENT_FILE}.tmp`;
     fs.writeFile(tmp, JSON.stringify(state, null, 2), err => {
       if (err) return reject(err);
       fs.rename(tmp, CONTENT_FILE, err2 => (err2 ? reject(err2) : resolve()));
     });
-  })).catch(err => console.error('[contentStore] failed to persist content.json:', err));
-  return writeChain;
+  });
+}
+
+function persistToBlob() {
+  return put(CONTENT_BLOB_PATHNAME, JSON.stringify(state, null, 2), {
+    access: 'private',
+    contentType: 'application/json',
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    token: BLOB_TOKEN,
+  });
+}
+
+let writeChain = Promise.resolve();
+
+// See db.js's identical persist() for the full reasoning — writeChain
+// (used only to serialize writes) always swallows its own rejection so
+// one failure can't permanently break every persist() call after it, but
+// the promise returned to the CALLER preserves the real rejection.
+function persist() {
+  const task = writeChain.then(() => (BLOB_TOKEN ? persistToBlob() : persistToDisk()));
+  writeChain = task.catch(err => console.error('[contentStore] failed to persist content.json:', err));
+  return task;
 }
 
 function slugify(s) {

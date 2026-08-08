@@ -1,0 +1,49 @@
+services:
+  # Reverse proxy + SSL termination for jashmenstudio.com (Let's Encrypt).
+  # Admin UI (81) is bound to localhost only — reachable over an SSH tunnel,
+  # never exposed to the public internet.
+  npm:
+    image: jc21/nginx-proxy-manager:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:81:81"
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+    networks:
+      - web
+
+  # JashMen backend — serves the built frontend (dist/) and the /admin/api
+  # Express API from a single Node process. Not exposed to the host; NPM
+  # reaches it by service name over the shared `web` network.
+  jashmen:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - ./admin-api/.env.production
+    environment:
+      - PORT=3030
+      - NODE_ENV=production
+    volumes:
+      - jashmen_data:/app/admin-api/data
+    networks:
+      - web
+    expose:
+      - "3030"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3030/admin/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  npm_data:
+  npm_letsencrypt:
+  jashmen_data:
+
+networks:
+  web:
+    driver: bridge

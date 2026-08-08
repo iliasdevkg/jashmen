@@ -15,6 +15,16 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import * as db from './db.js';
 
+// On Vercel (process.env.VERCEL is set automatically), a missing
+// JWT_SECRET is NOT a dev-friendly warning-and-continue situation — the
+// fallback string is sitting in this file in plain sight, so forgetting
+// to set the real secret would mean anyone who's read this source can
+// forge a valid access token for any user. Fail the cold start loudly
+// instead (Vercel returns an error for every request until it's set)
+// rather than silently issuing forgeable tokens.
+if (!process.env.JWT_SECRET && process.env.VERCEL) {
+  throw new Error('[auth] JWT_SECRET must be set in this environment — refusing to start with a source-visible default secret.');
+}
 const JWT_SECRET = process.env.JWT_SECRET || 'jashmen-dev-secret-change-me';
 if (!process.env.JWT_SECRET) {
   console.warn(

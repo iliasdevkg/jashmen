@@ -4,10 +4,14 @@
 // logos, prize photos) — with a REAL production path, not just a promise
 // of one. Two backends, chosen automatically:
 //
-//   - BLOB_READ_WRITE_TOKEN set  → Vercel Blob (public, CDN-backed URLs,
-//     survives serverless/ephemeral deploys). Create a Blob store in the
-//     Vercel dashboard (Storage → Blob) and copy its token into
-//     admin-api/.env to turn this on — no code change needed.
+//   - MEDIA_READ_WRITE_TOKEN (or BLOB_READ_WRITE_TOKEN as a fallback, for
+//     simple single-store local dev setups) set → Vercel Blob, PUBLIC
+//     access (these are meant to be publicly viewable — lesson images,
+//     logos), CDN-backed URLs, survives serverless/ephemeral deploys.
+//     Deliberately a SEPARATE token/store from db.js/contentStore.js's
+//     BLOB_READ_WRITE_TOKEN — that one holds the private, non-public
+//     user/content database and must never share a store (let alone a
+//     token) with anything served publicly.
 //   - unset (default, local dev) → admin-api/data/uploads/, same
 //     gitignored runtime-data convention as db.json/content.json.
 //
@@ -23,7 +27,6 @@ import { put } from '@vercel/blob';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const UPLOADS_DIR = path.join(__dirname, 'data', 'uploads');
-fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const ALLOWED_MIME = new Set([
   'image/png', 'image/jpeg', 'image/webp', 'image/svg+xml', 'image/gif',
@@ -36,11 +39,17 @@ export const upload = multer({
   fileFilter: (req, file, cb) => cb(null, ALLOWED_MIME.has(file.mimetype)),
 });
 
-const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN || null;
+const BLOB_TOKEN = process.env.MEDIA_READ_WRITE_TOKEN || process.env.BLOB_READ_WRITE_TOKEN || null;
+
+// Vercel's deployed filesystem is read-only outside /tmp — creating this
+// directory unconditionally would crash every cold start once Blob is
+// configured (the intended, actually-used path in production). Only touch
+// disk when disk is actually where uploads are going.
 if (!BLOB_TOKEN) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
   console.warn(
-    '[uploads] BLOB_READ_WRITE_TOKEN is not set — media saves to local disk\n' +
-    '          (admin-api/data/uploads/), which does NOT survive a\n' +
+    '[uploads] MEDIA_READ_WRITE_TOKEN is not set — media saves to local\n' +
+    '          disk (admin-api/data/uploads/), which does NOT survive a\n' +
     '          serverless/ephemeral deploy. Create a Blob store in the\n' +
     '          Vercel dashboard and set this in admin-api/.env before\n' +
     '          deploying the admin panel to production.'

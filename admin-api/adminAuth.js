@@ -23,6 +23,13 @@ import jwt from 'jsonwebtoken';
 import { timingSafeEqual } from 'node:crypto';
 import * as db from './db.js';
 
+// Same reasoning as auth.js's identical guard: on Vercel, silently
+// falling back to a secret that's sitting in this file's source would let
+// anyone who's read it forge a valid admin token — the single
+// highest-value credential in the app. Fail loudly instead.
+if (!process.env.ADMIN_JWT_SECRET && !process.env.JWT_SECRET && process.env.VERCEL) {
+  throw new Error('[adminAuth] ADMIN_JWT_SECRET (or JWT_SECRET as a shared fallback) must be set in this environment — refusing to start with a source-visible default secret.');
+}
 const ADMIN_SECRET = process.env.ADMIN_JWT_SECRET || process.env.JWT_SECRET || 'jashmen-admin-dev-secret-change-me';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || null;
 if (!ADMIN_PASSWORD) {

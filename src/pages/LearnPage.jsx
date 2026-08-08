@@ -4,17 +4,17 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Zap, Check, Dumbbell, GraduationCap } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
 import { useI18n } from '../i18n.jsx';
-import { getLessonOrder, getLessonStatus, computeLiveEnergy, formatCountdown } from '../utils.js';
+import { getLessonOrder, getLessonStatus, computeLiveEnergy, formatCountdown, quizCountOf } from '../utils.js';
 import LessonPreviewSheet from '../components/LessonPreviewSheet.jsx';
 
-// Placeholder path-node glyphs — plain lucide icons standing in for the
-// custom glossy GameStar/GameCap tokens (src/components/icons/) while the
-// node-type art direction is still being decided. Swap the two lines below
-// back to <GameStar/>/<GameCap/> once that's settled; nothing else about
-// the checkpoint-detection or preview-sheet wiring needs to change.
-function NodeIcon({ isCheckpoint, size = 26 }) {
-  const Icon = isCheckpoint ? GraduationCap : Dumbbell;
-  return <Icon size={size} color="white" strokeWidth={2.5} />;
+// Placeholder path-node glyph — a plain lucide icon standing in for the
+// custom glossy GameStar token (src/components/icons/GameStar.jsx) while
+// the node-type art direction is still being decided. Swap back to
+// <GameStar/> once that's settled; nothing else about the node components
+// below needs to change. The checkpoint card uses GraduationCap directly
+// since it's a visually distinct node type, not a shared glyph slot.
+function LessonGlyph({ size = 26 }) {
+  return <Dumbbell size={size} color="white" strokeWidth={2.5} />;
 }
 
 // ── Path geometry ────────────────────────────────────────────────────────
@@ -30,8 +30,11 @@ const ROW_GAP = 128;
 const TOP_PAD = 16;
 
 function nodePositions(count) {
+  // The last lesson in every module is the checkpoint, rendered as a wide
+  // centered "pit-stop" card rather than a node on the zig-zag — so its x
+  // is pinned to the canvas center instead of following the sine wave.
   return Array.from({ length: count }, (_, i) => ({
-    x: CENTER_X + AMPLITUDE * Math.sin(i * 1.4),
+    x: i === count - 1 ? CENTER_X : CENTER_X + AMPLITUDE * Math.sin(i * 1.4),
     y: TOP_PAD + R + i * ROW_GAP,
   }));
 }
@@ -97,16 +100,18 @@ function NoEnergyBanner({ resetMs, bright }) {
   );
 }
 
-function LessonNode({ lesson, status, moduleColor, isCheckpoint, x, y, energyEmpty, bright, partnerLogoUrl, onOpenLesson }) {
+// Plain node: every lesson that is neither the checkpoint nor the one the
+// player should tap next. Only ever renders 'completed' or 'locked' —
+// 'available' is peeled off into NextLessonNode before this is reached, so
+// there's no gated/pulse state to account for here.
+function LessonNode({ lesson, status, moduleColor, x, y, bright, partnerLogoUrl, onOpenLesson }) {
   const isLocked    = status === 'locked';
   const isCompleted = status === 'completed';
-  const isAvailable = status === 'available';
-  const isGated     = isAvailable && energyEmpty;
   const tint = isCompleted ? `color-mix(in srgb, ${moduleColor} 78%, #64748b)` : moduleColor;
 
   const handlePress = () => {
     if (isLocked) return;
-    onOpenLesson({ lesson, status, isCheckpoint, moduleColor, isGated });
+    onOpenLesson({ lesson, status, isCheckpoint: false, moduleColor, isGated: false });
   };
 
   const labelColor = isLocked
@@ -116,23 +121,17 @@ function LessonNode({ lesson, status, moduleColor, isCheckpoint, x, y, energyEmp
   return (
     <div className="absolute flex flex-col items-center" style={{ left: x - R, top: y - R, width: NODE }}>
       <div className="relative shrink-0" style={{ width: NODE, height: NODE }}>
-        {isAvailable && !isGated && (
-          <span
-            className="pulse-ring absolute rounded-full pointer-events-none"
-            style={{ inset: -4, '--pulse-color': `${moduleColor}80` }}
-          />
-        )}
         <motion.button
           whileTap={!isLocked ? { scale: 0.9 } : {}}
           onClick={handlePress}
           disabled={isLocked}
           className="absolute inset-0 rounded-full flex items-center justify-center"
-          style={{ opacity: isGated ? 0.6 : 1, ...sphereStyle(tint, isLocked) }}
+          style={sphereStyle(tint, isLocked)}
           aria-label={lesson.title}
         >
         {isLocked
           ? <Lock size={26} color="#64748b" strokeWidth={2.5} />
-          : <NodeIcon isCheckpoint={isCheckpoint} />}
+          : <LessonGlyph />}
 
         {isCompleted && (
           <span
@@ -163,16 +162,170 @@ function LessonNode({ lesson, status, moduleColor, isCheckpoint, x, y, energyEmp
         )}
       </div>
 
-      {/* Every node shows its own title underneath — the floating
-          "start here" callout bubble was removed; this is now the only
-          label, so it always renders (previously suppressed for the
-          available node, which relied on the bubble for its title). */}
       <span
         className="mt-2 text-[11px] text-center font-semibold truncate"
         style={{ color: labelColor, maxWidth: NODE + 36 }}
       >
         {lesson.title}
       </span>
+    </div>
+  );
+}
+
+// The node the player should tap next: a bigger "glossy app-icon" squircle
+// tile instead of a plain sphere, floating above the path with a slow
+// bob — the path's single strongest visual anchor, same idea as a
+// "start here" marker. Reuses sphereStyle for the inner gradient (only the
+// shape/frame differ from LessonNode) so the two never drift out of sync.
+const NEXT_SIZE = 88;
+const NEXT_HALF = NEXT_SIZE / 2;
+
+function NextLessonNode({ lesson, moduleColor, x, y, energyEmpty, bright, partnerLogoUrl, onOpenLesson }) {
+  const isGated = energyEmpty;
+  // Clamp so the enlarged tile can't overhang the 288px canvas at the
+  // sine wave's extremes — regular nodes are narrow enough to never need this.
+  const centerX = Math.min(Math.max(x, NEXT_HALF + 8), CANVAS_W - NEXT_HALF - 8);
+
+  return (
+    <div className="absolute flex flex-col items-center" style={{ left: centerX - NEXT_HALF, top: y - NEXT_HALF, width: NEXT_SIZE }}>
+      <motion.div
+        className="relative shrink-0"
+        style={{ width: NEXT_SIZE, height: NEXT_SIZE, opacity: isGated ? 0.6 : 1 }}
+        animate={{ y: [0, -6, 0] }}
+        transition={{ duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
+      >
+        {/* Outer bezel — the "glass tile" a phone app icon sits in. */}
+        <div
+          className="absolute inset-0 rounded-[24px] p-[7px]"
+          style={{
+            background: bright ? 'linear-gradient(155deg, #ffffff, #dbe3ee)' : 'linear-gradient(155deg, #e7ecf5, #aab6c8)',
+            filter: bright
+              ? 'drop-shadow(0 2px 3px rgba(15,23,42,0.18)) drop-shadow(0 10px 14px rgba(15,23,42,0.22))'
+              : 'drop-shadow(0 3px 4px rgba(0,0,0,0.45)) drop-shadow(0 14px 18px rgba(0,0,0,0.5))',
+          }}
+        >
+          <motion.button
+            whileTap={{ scale: 0.93 }}
+            onClick={() => onOpenLesson({ lesson, status: 'available', isCheckpoint: false, moduleColor, isGated })}
+            className="relative w-full h-full rounded-[18px] flex items-center justify-center overflow-hidden"
+            style={sphereStyle(moduleColor, false)}
+            aria-label={lesson.title}
+          >
+            <LessonGlyph size={32} />
+            {/* Diagonal glass sheen. */}
+            <span
+              className="absolute inset-0 rounded-[18px] pointer-events-none"
+              style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.35), transparent 55%)' }}
+            />
+          </motion.button>
+        </div>
+
+        {partnerLogoUrl && (
+          <img
+            src={partnerLogoUrl}
+            alt=""
+            className="absolute -top-1.5 -right-1.5 w-7 h-7 rounded-full object-cover"
+            style={{
+              border: `2px solid ${bright ? '#ffffff' : '#0b1220'}`,
+              boxShadow: bright ? '0 2px 6px rgba(15,23,42,0.3)' : '0 2px 6px rgba(0,0,0,0.6)',
+            }}
+          />
+        )}
+      </motion.div>
+
+      <span
+        className="mt-2 text-[12px] text-center font-bold truncate"
+        style={{ color: bright ? '#0f172a' : '#f1f5f9', maxWidth: NEXT_SIZE + 40 }}
+      >
+        {lesson.title}
+      </span>
+    </div>
+  );
+}
+
+// The module's final lesson: a wide "pit-stop" card rather than a node on
+// the zig-zag, with a hanging badge showing how many questions it covers
+// (real quizCountOf data — never a placeholder number). Always this shape
+// regardless of locked/available/completed status; only the coloring and
+// lock/check treatment change, mirroring how LessonNode's states work.
+const CHECKPOINT_W = 232;
+
+function CheckpointNode({ lesson, status, moduleColor, x, y, bright, onOpenLesson }) {
+  const { t } = useI18n();
+  const isLocked    = status === 'locked';
+  const isCompleted = status === 'completed';
+  const tint = isCompleted ? `color-mix(in srgb, ${moduleColor} 78%, #64748b)` : moduleColor;
+  const quizCount = quizCountOf(lesson);
+
+  const handlePress = () => {
+    if (isLocked) return;
+    onOpenLesson({ lesson, status, isCheckpoint: true, moduleColor, isGated: false });
+  };
+
+  return (
+    <div className="absolute flex flex-col items-center" style={{ left: x - CHECKPOINT_W / 2, top: y - 34, width: CHECKPOINT_W }}>
+      <motion.button
+        whileTap={!isLocked ? { scale: 0.97 } : {}}
+        onClick={handlePress}
+        disabled={isLocked}
+        className="relative w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left"
+        style={{
+          background: isLocked
+            ? (bright ? '#e2e8f0' : '#161f30')
+            : `color-mix(in srgb, ${tint} 20%, ${bright ? '#ffffff' : '#0b1220'})`,
+          border: `1.5px solid ${isLocked ? (bright ? '#cbd5e1' : '#243044') : `color-mix(in srgb, ${tint} 45%, transparent)`}`,
+          boxShadow: isLocked ? 'none' : `0 8px 18px -8px ${tint}90`,
+        }}
+        aria-label={lesson.title}
+      >
+        <span
+          className="relative shrink-0 w-11 h-11 rounded-full flex items-center justify-center"
+          style={isLocked ? { background: '#1b2436' } : sphereStyle(tint, false)}
+        >
+          {isLocked
+            ? <Lock size={20} color="#64748b" strokeWidth={2.5} />
+            : <GraduationCap size={22} color="white" strokeWidth={2.5} />}
+
+          {isCompleted && (
+            <span
+              className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center"
+              style={{
+                background: bright ? '#ffffff' : '#0b1220',
+                boxShadow: bright ? '0 2px 6px rgba(15,23,42,0.25)' : '0 2px 6px rgba(0,0,0,0.5)',
+              }}
+            >
+              <Check size={11} color="#58CC02" strokeWidth={3.5} />
+            </span>
+          )}
+        </span>
+
+        <span className="min-w-0">
+          <span
+            className="block text-[10px] font-extrabold uppercase tracking-widest"
+            style={{ color: isLocked ? '#64748b' : tint }}
+          >
+            {t('lesson.previewCheckpoint')}
+          </span>
+          <span
+            className="block text-sm font-bold truncate"
+            style={{ color: isLocked ? (bright ? '#94a3b8' : '#64748b') : (bright ? '#0f172a' : '#f1f5f9') }}
+          >
+            {lesson.title}
+          </span>
+        </span>
+      </motion.button>
+
+      {!isLocked && quizCount > 0 && (
+        <div className="flex flex-col items-center -mt-px">
+          <span className="w-1 h-2.5 rounded-full" style={{ background: `color-mix(in srgb, ${tint} 45%, transparent)` }} />
+          <span
+            className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold text-white"
+            style={{ background: tint, boxShadow: `0 4px 10px -3px ${tint}90` }}
+          >
+            {quizCount}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -196,7 +349,10 @@ function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleI
   const pathD    = smoothPath(points);
   const doneCount = statuses.filter(s => s !== 'locked').length;
   const doneFrac  = points.length > 1 ? Math.max(0, (doneCount - 1) / (points.length - 1)) : (doneCount > 0 ? 1 : 0);
-  const canvasHeight = points.length ? points[points.length - 1].y + R + 16 : 0;
+  // The last row is always the checkpoint's wide card + hanging badge,
+  // which reaches further down than a plain circular node would — pad the
+  // canvas enough for that instead of the tighter R+16 a sphere needs.
+  const canvasHeight = points.length ? points[points.length - 1].y + 76 : 0;
   const trackColor = bright ? '#e2e8f0' : '#1b2436';
 
   return (
@@ -263,21 +419,55 @@ function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleI
           )}
         </svg>
 
-        {module.lessons.map((lesson, i) => (
-          <LessonNode
-            key={lesson.id}
-            lesson={lesson}
-            status={statuses[i]}
-            moduleColor={module.color}
-            isCheckpoint={i === module.lessons.length - 1}
-            x={points[i].x}
-            y={points[i].y}
-            energyEmpty={energyEmpty}
-            bright={bright}
-            partnerLogoUrl={partner?.logoUrl}
-            onOpenLesson={onOpenLesson}
-          />
-        ))}
+        {module.lessons.map((lesson, i) => {
+          const isCheckpoint = i === module.lessons.length - 1;
+          const status = statuses[i];
+
+          if (isCheckpoint) {
+            return (
+              <CheckpointNode
+                key={lesson.id}
+                lesson={lesson}
+                status={status}
+                moduleColor={module.color}
+                x={points[i].x}
+                y={points[i].y}
+                bright={bright}
+                onOpenLesson={onOpenLesson}
+              />
+            );
+          }
+
+          if (status === 'available') {
+            return (
+              <NextLessonNode
+                key={lesson.id}
+                lesson={lesson}
+                moduleColor={module.color}
+                x={points[i].x}
+                y={points[i].y}
+                energyEmpty={energyEmpty}
+                bright={bright}
+                partnerLogoUrl={partner?.logoUrl}
+                onOpenLesson={onOpenLesson}
+              />
+            );
+          }
+
+          return (
+            <LessonNode
+              key={lesson.id}
+              lesson={lesson}
+              status={status}
+              moduleColor={module.color}
+              x={points[i].x}
+              y={points[i].y}
+              bright={bright}
+              partnerLogoUrl={partner?.logoUrl}
+              onOpenLesson={onOpenLesson}
+            />
+          );
+        })}
       </div>
     </div>
   );

@@ -4,14 +4,25 @@
 // /admin/api/* to http://localhost:PORT unchanged; in prod, vercel.json
 // rewrites the same path to the deployed API. Either way this process only
 // ever needs to know about the /admin/api prefix.
+//
+// Dual-mode on purpose: `npm run server` runs this as a normal long-lived
+// Node process (app.listen()) for local dev / a non-serverless host. On
+// Vercel, `process.env.VERCEL` is set automatically — api/index.js imports
+// the default export below and Vercel's Node runtime calls it directly as
+// a request handler per invocation, so app.listen() is skipped there (a
+// serverless function doesn't own a persistent port to listen on).
 
 import express from 'express';
 import cookieParser from 'cookie-parser';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
 import routes from './routes.js';
 import adminRoutes from './adminRoutes.js';
 import cronRoutes from './cronRoutes.js';
 import { UPLOADS_DIR } from './uploads.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3030;
 
 const app = express();
@@ -44,6 +55,23 @@ app.use('/admin/api', (req, res) => {
   res.status(404).json({ error: 'Табылган жок' });
 });
 
+// Static frontend — only relevant off Vercel (the frontend is deployed
+// separately there). `npm run build` produces dist/ at the repo root with
+// the admin SPA already copied into dist/admin/ (see package.json's build
+// script); this mirrors the two rewrite rules from vercel.json (SPA
+// fallback for "/", separate SPA fallback for "/admin") for a
+// non-serverless host that has to do its own routing.
+const DIST_DIR = path.join(__dirname, '..', 'dist');
+if (!process.env.VERCEL && fs.existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR));
+  app.get(/^\/admin(\/.*)?$/, (req, res) => {
+    res.sendFile(path.join(DIST_DIR, 'admin', 'index.html'));
+  });
+  app.get(/^(?!\/admin\/api).*/, (req, res) => {
+    res.sendFile(path.join(DIST_DIR, 'index.html'));
+  });
+}
+
 // Central error handler — every route above forwards failures via next(err),
 // so no unhandled rejection ever falls through as a bare 500 HTML page.
 app.use((err, req, res, next) => {
@@ -51,13 +79,17 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Сервер катасы, кайра аракет кылыңыз' });
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`[server] JashMen API listening on http://localhost:${PORT}`);
-});
-
-for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, () => {
-    console.log(`\n[server] ${sig} received, shutting down...`);
-    server.close(() => process.exit(0));
+if (!process.env.VERCEL) {
+  const server = app.listen(PORT, () => {
+    console.log(`[server] JashMen API listening on http://localhost:${PORT}`);
   });
+
+  for (const sig of ['SIGINT', 'SIGTERM']) {
+    process.on(sig, () => {
+      console.log(`\n[server] ${sig} received, shutting down...`);
+      server.close(() => process.exit(0));
+    });
+  }
 }
+
+export default app;
