@@ -203,7 +203,7 @@ function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleI
     <div className="mb-10">
       <div className="sticky top-14 lg:top-6 z-10 mx-4 mb-6">
         {showIcon && (
-          <div className="relative z-10 flex justify-end pr-8 pointer-events-none -mb-10">
+          <div className="relative z-10 flex justify-center pointer-events-none -mb-10">
             <motion.img
               src={module.iconUrl}
               alt=""
