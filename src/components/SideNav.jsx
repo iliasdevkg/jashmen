@@ -51,7 +51,7 @@ export default function SideNav() {
         <img
           src={bright ? '/jashmen_wordmark_blue.png' : '/jashmen_text_white.png'}
           alt="JashMen"
-          className="h-[18px] w-auto object-contain"
+          className="h-[28px] w-auto object-contain"
         />
       </div>
 
