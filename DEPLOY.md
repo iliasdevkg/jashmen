@@ -21,15 +21,51 @@ SSH бир нече саат жабылып калган болчу).
 ## Архитектура
 
 ```
-Client → HTTPS(443) → Nginx Proxy Manager (Docker) → HTTP → jashmen app (Docker, ички порт 3030)
+Client
+  ↓ HTTPS(443)
+Nginx Proxy Manager — агайдын тарабы, коомдук IP 178.217.174.176
+(openresty; SSL ушул жерде бүтөт)
+  ↓ HTTP(80) → 192.168.100.87
+nginx — бул VPS, нативдүү (Docker эмес)
+  ↓ proxy_pass → 127.0.0.1:3030
+jashmen app — Docker контейнер
 ```
 
-Эки Docker контейнер, `docker-compose.yml` менен башкарылат:
+**Тармак топологиясы (маанилүү):**
 
-| Сервис    | Эмне кылат                                                        | Тышка ачык порт |
-|-----------|--------------------------------------------------------------------|------------------|
-| `npm`     | Nginx Proxy Manager — SSL (Let's Encrypt), reverse proxy           | 80, 443 (админ UI 81 — **localhost гана**) |
-| `jashmen` | Node/Express: frontend (dist/) + backend API (/admin/api)          | Жок (ички тармак аркылуу гана, NPM аны `jashmen:3030` деп табат) |
+| Нерсе | Мааниси |
+|-------|---------|
+| Коомдук IP `178.217.174.176` | **агайдын NPM'и**, биздин VPS эмес (`Server: openresty` кайтарат) |
+| Биздин VPS'тин ички IP'си | **`192.168.100.87`** (`ens160`), gateway `192.168.100.1` |
+| NPM'де болушу керек болгон proxy host | `jashmenstudio.com` → **`http://192.168.100.87:80`** |
+
+SSH (54251-порт) NAT аркылуу биздин VPS'ке багытталган — ошондуктан SSH
+коомдук IP менен иштейт, ал эми 80/443 порттору агайдын NPM'ине барат.
+
+**⚠️ SSL бул серверде ЖОК жана керек эмес.** TLS сырткы proxy'де бүтөт, ал
+бизге plain HTTP менен 80-портко жиберет. Ошондуктан бул VPS'те:
+
+- ❌ certbot / Let's Encrypt сертификат — **керек эмес**
+- ❌ `listen 443 ssl` — **керек эмес**
+- ❌ http→https redirect — **керек эмес**
+- ❌ NPM / кошумча reverse-proxy контейнер — **керек эмес**
+- ✅ жөн гана nginx `listen 80` + `proxy_pass` → контейнер
+
+(8-август сабагы: бир жолу мен ушул эле VPS'ке кошумча NPM орнотуп, 80/443
+порттору боюнча сырткы proxy менен кагылышкам — сайт ошондон улам
+404/timeout/504 аралашын берип турду. Андан кийин certbot менен өз
+сертификатыбызды алууга аракет кылдым — ал да туура эмес болчу, анткени
+Let's Encrypt'тин challenge'и бизге жетпейт, трафик сырткы proxy'де токтойт.
+Эреже: **бул VPS'те SSL'ге тиешелүү эч нерсе кылбоо**.)
+
+Бир гана Docker контейнер, `docker-compose.yml` менен башкарылат:
+
+| Сервис    | Эмне кылат                                                        | Порт |
+|-----------|--------------------------------------------------------------------|------|
+| `jashmen` | Node/Express: frontend (dist/) + backend API (/admin/api)          | `127.0.0.1:3030` (сыртка ачык эмес, nginx гана жетет) |
+
+nginx конфигурациясы репозиторийде: [deploy/nginx/jashmenstudio.com.conf](deploy/nginx/jashmenstudio.com.conf)
+→ серверде `/etc/nginx/sites-available/jashmenstudio.com`
 
 ## Сервер
 
@@ -77,24 +113,55 @@ nano admin-api/.env.production   # керектүү маанини алмашт�
 docker compose restart jashmen
 ```
 
-## NPM админ панелине кирүү
-
-Порт 81 сыртка ачык эмес (коопсуздук үчүн). SSH tunnel аркылуу гана:
+## nginx конфигурациясын жаңылоо
 
 ```bash
-ssh -p 54251 -L 8181:localhost:81 studio_adm@178.217.174.176
-# андан кийин браузерде: http://localhost:8181
+scp -P 54251 deploy/nginx/jashmenstudio.com.conf \
+  studio_adm@178.217.174.176:/tmp/jashmenstudio.com.conf
+
+ssh -p 54251 studio_adm@178.217.174.176 '
+  sudo cp /tmp/jashmenstudio.com.conf /etc/nginx/sites-available/jashmenstudio.com &&
+  sudo nginx -t && sudo systemctl reload nginx
+'
 ```
+
+`nginx -t` ийгиликсиз болсо — **reload кылба**, эски конфигурация иштей
+берет; алгач катаны оңдо.
 
 ## Маселе чыкса (troubleshooting)
 
 ```bash
 ssh -p 54251 studio_adm@178.217.174.176
-cd /opt/jashmen
-docker compose ps               # контейнерлер иштеп жатабы
-docker compose logs -f jashmen  # backend логдору
-docker compose logs -f npm      # reverse proxy логдору
+
+# 1. Контейнер иштеп жатабы (127.0.0.1:3030->3030/tcp көрүнүшү керек)
+cd /opt/jashmen && docker compose ps
+docker compose logs -f jashmen
+
+# 2. App түз жооп берип жатабы (nginx'ти айланып өтүп)
+curl -s http://127.0.0.1:3030/admin/api/health        # → {"ok":true}
+
+# 3. nginx аркылуу жооп берип жатабы — Host башы МИЛДЕТТҮҮ
+#    (server_name jashmenstudio.com, ансыз nginx 404 берет)
+curl -s -H "Host: jashmenstudio.com" http://localhost/admin/api/health
+
+# 4. nginx өзү тирүүбү
+sudo systemctl status nginx
+sudo tail -n 50 /var/log/nginx/error.log
 ```
+
+# 5. Так NPM көрө турган сурам — ички IP аркылуу
+curl -s -H "Host: jashmenstudio.com" http://192.168.100.87/admin/api/health
+```
+
+**Эгер 1–5 баары жакшы, бирок сайт сырттан ачылбаса** — маселе бул VPS'те
+эмес. Текшер: сырттан `curl -sv http://178.217.174.176/ 2>&1 | grep Server`
+эмне кайтарат?
+
+- `Server: nginx/1.24.0 (Ubuntu)` → бул биздики, маселе бизде
+- `Server: openresty` → бул **агайдын NPM'и**, трафик бизге жетпей ошол
+  жерде токтоп жатат. Ал жагы агайдын тарабы: NPM'деги `jashmenstudio.com`
+  proxy host'унун forward target'и **`http://192.168.100.87:80`** болушу
+  керек (коомдук IP эмес — ал NPM'дин өзү, өзүнө өзү кайрылып калат).
 
 **SSH такыр кирбей калса** (бул мурун бир жолу болгон): firewall'га
 эч кандай өзгөртүү киргизбе — упstream firewall жагынан текшер, же
