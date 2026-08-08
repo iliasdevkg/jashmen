@@ -43,9 +43,9 @@ export default function AuthPage() {
         transition={{ type: 'spring', stiffness: 260, damping: 22 }}
         className="flex flex-col items-center gap-3 mb-10"
       >
-        <img src="/logo.png" alt="JashMen" className="w-28 h-28 rounded-3xl object-cover shadow-2xl" />
-        <div className="text-center">
-          <h1 className="text-3xl font-extrabold text-white tracking-tight">JashMen</h1>
+        <img src="/logo.png" alt="" className="w-28 h-28 rounded-3xl object-cover shadow-2xl" />
+        <div className="text-center flex flex-col items-center">
+          <img src="/jashmen_text_white.png" alt="JashMen" className="h-8 w-auto object-contain" />
           <p className="text-slate-400 text-sm mt-1">{t('auth.tagline')}</p>
         </div>
       </motion.div>

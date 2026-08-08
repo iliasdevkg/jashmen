@@ -32,8 +32,12 @@ export default function TopBar() {
       style={{ background: headerBg, backdropFilter: 'blur(14px)', borderBottom: headerBorder }}
     >
       <div className="flex items-center gap-2">
-        <img src="/logo.png" alt="JashMen" className="w-8 h-8 rounded-full object-cover" />
-        <span className="font-extrabold text-base" style={{ color: '#1CB0F6' }}>JashMen</span>
+        <img src="/logo.png" alt="" className="w-8 h-8 rounded-full object-cover" />
+        <img
+          src={bright ? '/jashmen_wordmark_blue.png' : '/jashmen_text_white.png'}
+          alt="JashMen"
+          className="h-4 w-auto object-contain"
+        />
       </div>
 
       <div className="flex items-center gap-2">

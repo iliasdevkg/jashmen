@@ -47,8 +47,12 @@ export default function SideNav() {
     >
       {/* ── Logo ── */}
       <div className="flex items-center gap-2.5 px-5 pt-6 pb-5">
-        <img src="/logo.png" alt="JashMen" className="w-9 h-9 rounded-xl object-cover" />
-        <span className="font-extrabold text-[17px]" style={{ color: '#1CB0F6' }}>JashMen</span>
+        <img src="/logo.png" alt="" className="w-9 h-9 rounded-xl object-cover" />
+        <img
+          src={bright ? '/jashmen_wordmark_blue.png' : '/jashmen_text_white.png'}
+          alt="JashMen"
+          className="h-[18px] w-auto object-contain"
+        />
       </div>
 
       {/* ── Nav links ── */}
