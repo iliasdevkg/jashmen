@@ -1,7 +1,10 @@
 import { motion } from 'framer-motion';
 import { Flame, Star, BookOpen } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
+import { useI18n, formatDays } from '../i18n.jsx';
 import { getCurrentLeague } from '../utils.js';
+import Avatar from '../components/Avatar.jsx';
+import LeagueBadge from '../components/icons/LeagueBadges.jsx';
 
 function StatCard({ icon: Icon, label, value, color, bright }) {
   return (
@@ -41,10 +44,11 @@ export default function ProfilePage() {
   const { user, state } = useAuth();
   const content = useContent();
   const { bright } = useBrightMode();
+  const { t, locale } = useI18n();
 
   const xp = state?.xp || 0;
   const streak = state?.streak || 0;
-  const gems = state?.gems || 0;
+  const coins = state?.coins || 0;
   const completedLessons = state?.completedLessons || [];
   const earnedAchievements = new Set(state?.achievements || []);
 
@@ -65,12 +69,7 @@ export default function ProfilePage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex flex-col lg:flex-row items-center lg:items-start gap-4 mb-6 pt-2"
       >
-        <div
-          className="w-24 h-24 rounded-full flex items-center justify-center text-5xl"
-          style={{ background: cardBg, border: `3px solid ${cardBorder}` }}
-        >
-          {user?.avatar || '🦅'}
-        </div>
+        <Avatar name={user?.name} size={96} style={{ border: `3px solid ${cardBorder}` }} />
         <div className="text-center lg:text-left">
           <h2 className="font-extrabold text-xl" style={{ color: textPri }}>{user?.name}</h2>
           {user?.email && <p className="text-xs mt-0.5" style={{ color: textMuted }}>{user.email}</p>}
@@ -79,17 +78,17 @@ export default function ProfilePage() {
               className="inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full"
               style={{ background: `${myLeague.color}20`, border: `1px solid ${myLeague.color}40` }}
             >
-              <span className="text-sm">{myLeague.emoji}</span>
-              <span className="text-xs font-bold" style={{ color: myLeague.color }}>{myLeague.name} лигасы</span>
+              <LeagueBadge id={myLeague.id} color={myLeague.color} size={20} />
+              <span className="text-xs font-bold" style={{ color: myLeague.color }}>{t('profile.leagueBadge', { name: myLeague.name })}</span>
             </div>
           )}
         </div>
       </motion.div>
 
       <div className="flex gap-2 mb-4">
-        <StatCard icon={Star}     label="Жалпы XP" value={xp.toLocaleString()}                     color="#FFD700" bright={bright} />
-        <StatCard icon={Flame}    label="Стрик"    value={`${streak} күн`}                         color="#fb923c" bright={bright} />
-        <StatCard icon={BookOpen} label="Сабак"    value={`${completedLessons.length}/${totalLessons}`} color="#1CB0F6" bright={bright} />
+        <StatCard icon={Star}     label={t('profile.totalXp')} value={xp.toLocaleString()}                     color="#FFD700" bright={bright} />
+        <StatCard icon={Flame}    label={t('profile.streak')}  value={formatDays(streak, locale)}              color="#fb923c" bright={bright} />
+        <StatCard icon={BookOpen} label={t('profile.lessons')} value={`${completedLessons.length}/${totalLessons}`} color="#1CB0F6" bright={bright} />
       </div>
 
       <div
@@ -97,18 +96,18 @@ export default function ProfilePage() {
         style={{ background: cardBg, border: `1.5px solid ${cardBorder}` }}
       >
         <div className="flex items-center gap-2">
-          <span className="text-2xl">💎</span>
+          <span className="text-2xl">🪙</span>
           <div>
-            <p className="font-bold text-sm" style={{ color: textPri }}>Гемдер</p>
-            <p className="text-xs" style={{ color: textMuted }}>Дүкөндөн товар алуу үчүн</p>
+            <p className="font-bold text-sm" style={{ color: textPri }}>{t('profile.coinsTitle')}</p>
+            <p className="text-xs" style={{ color: textMuted }}>{t('profile.coinsDesc')}</p>
           </div>
         </div>
-        <span className="font-extrabold text-lg" style={{ color: textPri }}>{gems}</span>
+        <span className="font-extrabold text-lg" style={{ color: textPri }}>{coins}</span>
       </div>
 
       {achievements.length > 0 && (
-        <div>
-          <h3 className="font-bold text-base mb-3" style={{ color: textPri }}>Жетишкендиктер</h3>
+        <div id="achievements">
+          <h3 className="font-bold text-base mb-3" style={{ color: textPri }}>{t('profile.achievements')}</h3>
           <div className="grid grid-cols-3 lg:grid-cols-4 gap-2">
             {achievements.map(ach => (
               <AchievementBadge key={ach.id} ach={ach} earned={earnedAchievements.has(ach.id)} bright={bright} />

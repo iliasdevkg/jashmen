@@ -1,12 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Heart, Check, Star, ShoppingBag } from 'lucide-react';
+import { X, Check, Star, ShoppingBag, PlayCircle, Share2 } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
-import { computeLiveHearts, formatCountdown, checkNewAchievements } from '../utils.js';
+import { useI18n, localizedText } from '../i18n.jsx';
+import { computeLiveEnergy, formatCountdown, checkNewAchievements, cardsOf } from '../utils.js';
+import { generateShareCardBlob, shareOrDownload } from '../shareCard.js';
 import * as api from '../api.js';
 
 const OPTION_LABELS = ['A', 'B', 'C', 'D', 'E'];
+const ENERGY_ERROR_HINT = 'акысыз сабактарың бүттү';
 
 function playSound(type) {
   try {
@@ -59,12 +62,13 @@ function findLesson(modules, id) {
   return null;
 }
 
-// ── No hearts ──────────────────────────────────────────────────────────────────
-function NoHeartsScreen({ onBack, onShop, nextRefillMs, bright }) {
-  const [ms, setMs] = useState(nextRefillMs || 0);
+// ── No energy ────────────────────────────────────────────────────────────────
+function NoEnergyScreen({ onBack, onShop, resetMs, bright }) {
+  const { t } = useI18n();
+  const [ms, setMs] = useState(resetMs || 0);
   useEffect(() => {
-    const t = setInterval(() => setMs(m => Math.max(0, m - 1000)), 1000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setMs(m => Math.max(0, m - 1000)), 1000);
+    return () => clearInterval(timer);
   }, []);
   const textPrimary = bright ? '#0f172a' : 'white';
   const textMuted   = bright ? '#64748b' : '#94a3b8';
@@ -79,21 +83,21 @@ function NoHeartsScreen({ onBack, onShop, nextRefillMs, bright }) {
         animate={{ scale: 1 }}
         transition={{ type: 'spring', stiffness: 280, damping: 22 }}
         className="text-7xl mb-4"
-      >💔</motion.div>
-      <h2 className="font-extrabold text-xl mb-2" style={{ color: textPrimary }}>Жашоолор бүттү!</h2>
+      >⚡</motion.div>
+      <h2 className="font-extrabold text-xl mb-2" style={{ color: textPrimary }}>{t('lesson.noEnergyTitle')}</h2>
       <p className="text-sm mb-8 leading-relaxed" style={{ color: textMuted }}>
-        Кийинки жашоо <span className="font-bold" style={{ color: textPrimary }}>{formatCountdown(ms)}</span> ден кийин чыгат.
+        {t('lesson.noEnergyDesc', { time: formatCountdown(ms) })}
       </p>
       <div className="flex flex-col gap-3 w-full max-w-xs">
         <motion.button whileTap={{ scale: 0.97 }} onClick={onShop}
           className="flex items-center justify-center gap-2 py-4 rounded-2xl font-bold text-white text-sm"
           style={{ background: '#1CB0F6' }}>
-          <ShoppingBag size={18} /> Жашоо сатып алуу (150 💎)
+          <ShoppingBag size={18} /> {t('lesson.goToShop')}
         </motion.button>
         <button onClick={onBack}
           className="py-3 rounded-2xl font-semibold text-sm"
           style={{ background: bright ? '#e2e8f0' : '#1e293b', color: bright ? '#64748b' : '#94a3b8' }}>
-          Артка кайтуу
+          {t('lesson.goBack')}
         </button>
       </div>
     </motion.div>
@@ -139,13 +143,99 @@ function OptionBtn({ text, onClick, state: s, index, bright }) {
   );
 }
 
+// ── Theory / Media cards ─────────────────────────────────────────────────────
+// "Тип «Введение / Рассказ»" and "Тип «Медиа-Инфо»" from the manifest — pure
+// content, no answer to check, just a "Далее" button straight through.
+function TheoryCard({ card, moduleColor, bright, onContinue, isLast, submitting }) {
+  const { t, locale } = useI18n();
+  const bg     = bright ? '#eff6ff' : '#0d1626';
+  const border = bright ? `${moduleColor}60` : `${moduleColor}35`;
+  const text   = bright ? '#0f172a' : 'white';
+  const title  = localizedText(card.title, locale);
+  return (
+    <div className="flex-1 flex flex-col">
+      <div className="rounded-2xl p-5 mb-5 flex-1" style={{ background: bg, border: `2px solid ${border}` }}>
+        {title && (
+          <p className="font-extrabold text-lg mb-2" style={{ color: moduleColor }}>{title}</p>
+        )}
+        <p className="text-base leading-relaxed whitespace-pre-line" style={{ color: text }}>{localizedText(card.body, locale)}</p>
+      </div>
+      <motion.button
+        whileTap={{ scale: 0.97 }}
+        onClick={onContinue}
+        disabled={submitting}
+        className="w-full py-4 rounded-2xl font-bold text-white text-base disabled:opacity-60"
+        style={{ background: moduleColor }}
+      >
+        {submitting ? t('common.loading') : isLast ? t('common.finish') : t('common.continue')}
+      </motion.button>
+    </div>
+  );
+}
+
+function MediaCard({ card, moduleColor, bright, onContinue, isLast, submitting }) {
+  const { t, locale } = useI18n();
+  const cardBg = bright ? '#ffffff' : '#1e293b';
+  const border = bright ? '#e2e8f0' : '#334155';
+  const text   = bright ? '#0f172a' : 'white';
+  const muted  = bright ? '#64748b' : '#94a3b8';
+  const caption = localizedText(card.caption, locale);
+  return (
+    <div className="flex-1 flex flex-col">
+      <div className="rounded-2xl overflow-hidden mb-5 flex-1" style={{ background: cardBg, border: `1.5px solid ${border}` }}>
+        {card.mediaType === 'video' ? (
+          <video src={card.url} controls playsInline className="w-full aspect-video bg-black" />
+        ) : card.url ? (
+          <img src={card.url} alt={caption} className="w-full object-cover" style={{ maxHeight: '55dvh' }} />
+        ) : (
+          <div className="w-full aspect-video flex items-center justify-center" style={{ color: muted }}>
+            <PlayCircle size={40} />
+          </div>
+        )}
+        {caption && (
+          <p className="text-sm leading-relaxed p-4" style={{ color: text }}>{caption}</p>
+        )}
+      </div>
+      <motion.button
+        whileTap={{ scale: 0.97 }}
+        onClick={onContinue}
+        disabled={submitting}
+        className="w-full py-4 rounded-2xl font-bold text-white text-base disabled:opacity-60"
+        style={{ background: moduleColor }}
+      >
+        {submitting ? t('common.loading') : isLast ? t('common.finish') : t('common.continue')}
+      </motion.button>
+    </div>
+  );
+}
+
 // ── Result screen ──────────────────────────────────────────────────────────────
-function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright }) {
+function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright, userName, lessonTitle }) {
+  const { t } = useI18n();
+  const [sharing, setSharing] = useState(false);
   const bg          = bright ? '#f8fafc' : '#0f172a';
   const textPrimary = bright ? '#0f172a' : 'white';
   const textMuted   = bright ? '#64748b' : '#94a3b8';
   const cardBg      = bright ? '#ffffff' : '#1e293b';
   const cardBorder  = bright ? '#e2e8f0' : 'transparent';
+
+  const handleShare = async () => {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const blob = await generateShareCardBlob({
+        userName, lessonTitle, xp: reward?.xp || 0, coins: reward?.coins || 0, perfect: reward?.perfect,
+      });
+      await shareOrDownload(blob, {
+        title: 'JashMen',
+        text: t('lesson.shareText', { lesson: lessonTitle, xp: reward?.xp || 0 }),
+      });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSharing(false);
+    }
+  };
 
   return (
     <motion.div
@@ -162,10 +252,10 @@ function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright
       >{reward?.perfect ? '🏆' : '✅'}</motion.div>
 
       <h2 className="text-2xl font-extrabold mb-1" style={{ color: textPrimary }}>
-        {reward?.perfect ? 'Мыкты!' : 'Жакшы!'}
+        {reward?.perfect ? t('lesson.resultPerfect') : t('lesson.resultGood')}
       </h2>
       <p className="text-sm mb-6 text-center" style={{ color: textMuted }}>
-        {isReview ? 'Кайталоо аяктады' : 'Сабак аяктады'}
+        {isReview ? t('lesson.reviewDone') : t('lesson.lessonDone')}
       </p>
 
       {!isReview && (
@@ -180,9 +270,9 @@ function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright
           <div className="flex flex-col items-center gap-1.5">
             <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
               style={{ background: cardBg, border: `1.5px solid ${cardBorder}` }}>
-              <span className="text-2xl">💎</span>
+              <span className="text-2xl">🪙</span>
             </div>
-            <span className="font-bold text-sm" style={{ color: textPrimary }}>+{reward?.gems || 0} 💎</span>
+            <span className="font-bold text-sm" style={{ color: textPrimary }}>+{reward?.coins || 0}</span>
           </div>
           {reward?.perfect && (
             <div className="flex flex-col items-center gap-1.5">
@@ -190,7 +280,7 @@ function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright
                 style={{ background: bright ? '#f0fdf4' : '#16301d', border: '1.5px solid #58CC02' }}>
                 <Check size={26} color="#58CC02" />
               </div>
-              <span className="font-bold text-sm" style={{ color: '#58CC02' }}>Идеал!</span>
+              <span className="font-bold text-sm" style={{ color: '#58CC02' }}>{t('lesson.perfectBadge')}</span>
             </div>
           )}
         </div>
@@ -199,7 +289,7 @@ function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright
       {earnedAchievements?.length > 0 && (
         <div className="w-full mb-6">
           <p className="text-center text-xs mb-2 font-semibold uppercase tracking-wide" style={{ color: textMuted }}>
-            Жаңы жетишкендик
+            {t('lesson.newAchievement')}
           </p>
           <div className="flex flex-col gap-2">
             {earnedAchievements.map(ach => (
@@ -218,12 +308,27 @@ function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright
         </div>
       )}
 
-      <motion.button
-        whileTap={{ scale: 0.97 }} onClick={onContinue}
-        className="w-full max-w-sm py-4 rounded-2xl font-bold text-white text-base"
-        style={{ background: '#58CC02' }}>
-        Улантуу
-      </motion.button>
+      <div className="w-full max-w-sm flex flex-col gap-3">
+        {!isReview && (
+          <motion.button
+            whileTap={{ scale: 0.97 }} onClick={handleShare} disabled={sharing}
+            className="w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+            style={{
+              background: bright ? '#eff6ff' : 'rgba(28,176,246,0.1)',
+              border: '1.5px solid rgba(28,176,246,0.4)',
+              color: '#1CB0F6',
+            }}>
+            <Share2 size={16} />
+            {sharing ? t('common.loading') : t('lesson.share')}
+          </motion.button>
+        )}
+        <motion.button
+          whileTap={{ scale: 0.97 }} onClick={onContinue}
+          className="w-full py-4 rounded-2xl font-bold text-white text-base"
+          style={{ background: '#58CC02' }}>
+          {t('common.continue')}
+        </motion.button>
+      </div>
     </motion.div>
   );
 }
@@ -235,61 +340,71 @@ export default function LessonPage() {
   const isReview          = searchParams.get('review') === '1';
   const navigate          = useNavigate();
   const content           = useContent();
-  const { token, state, updateUser } = useAuth();
+  const { token, user, state, updateUser } = useAuth();
   const { bright } = useBrightMode();
+  const { t, locale } = useI18n();
 
   const soundEnabled = state?.settings?.sound !== false;
+  const dailyFreeLessons = content?.limits?.dailyFreeLessons ?? 3;
 
   const found   = content ? findLesson(content.modules, lessonId) : null;
   const { lesson, module: mod } = found || {};
-  const questions    = lesson?.questions || [];
-  const totalLessons = (content?.modules || []).reduce((a, m) => a + m.lessons.length, 0);
+  const cards         = lesson ? cardsOf(lesson) : [];
+  const quizCount     = cards.filter(c => c.type === 'quiz').length;
+  const totalLessons  = (content?.modules || []).reduce((a, m) => a + m.lessons.length, 0);
 
-  const { hearts: initHearts, nextRefillMs: initRefillMs } = computeLiveHearts(state);
+  const { resetMs: initResetMs } = computeLiveEnergy(state, dailyFreeLessons);
 
   const [qIdx,        setQIdx]        = useState(0);
   const [selected,    setSelected]    = useState(null);
   const [answered,    setAnswered]    = useState(false);
   const [mistakes,    setMistakes]    = useState(0);
-  const [localHearts, setLocalHearts] = useState(initHearts);
   const [shake,       setShake]       = useState(false);
   const [phase,       setPhase]       = useState('quiz');
   const [reward,      setReward]      = useState(null);
   const [earnedAchs,  setEarnedAchs]  = useState([]);
   const [submitting,  setSubmitting]  = useState(false);
   const shakeTimer = useRef(null);
+  const startLogged = useRef(false);
 
   useEffect(() => {
-    const { hearts } = computeLiveHearts(state);
-    setLocalHearts(hearts);
-  }, [state?.heartsRefilledAt, state?.hearts]);
-
-  useEffect(() => {
-    if (!isReview && computeLiveHearts(state).hearts === 0) setPhase('nohearts');
+    if (!isReview && computeLiveEnergy(state, dailyFreeLessons).remaining === 0) setPhase('noenergy');
   }, []);
 
-  const currentQ = questions[qIdx];
+  // Fire-and-forget analytics — never let telemetry affect the quiz itself.
+  useEffect(() => {
+    if (startLogged.current || !lesson || isReview) return;
+    startLogged.current = true;
+    api.logEvent(token, 'lesson_start', { lessonId }).catch(() => {});
+  }, [lesson, isReview, token, lessonId]);
+
+  const currentCard = cards[qIdx];
+  const isQuiz = currentCard?.type === 'quiz';
+  const quizIndex = isQuiz ? cards.slice(0, qIdx + 1).filter(c => c.type === 'quiz').length - 1 : -1;
 
   const handleSelect = useCallback((idx) => {
-    if (answered || !currentQ) return;
+    if (answered || !currentCard) return;
     setSelected(idx);
     setAnswered(true);
-    if (idx === currentQ.a) {
+    const correct = idx === currentCard.a;
+    if (correct) {
       if (soundEnabled) playSound('correct');
     } else {
       if (soundEnabled) playSound('wrong');
       if (!isReview) {
-        setLocalHearts(h => Math.max(0, h - 1));
         setMistakes(m => m + 1);
         setShake(true);
         clearTimeout(shakeTimer.current);
         shakeTimer.current = setTimeout(() => setShake(false), 450);
       }
     }
-  }, [answered, currentQ, isReview, soundEnabled]);
+    if (!isReview) {
+      api.logEvent(token, 'question_answered', { lessonId, questionIndex: quizIndex, correct }).catch(() => {});
+    }
+  }, [answered, currentCard, isReview, soundEnabled, token, lessonId, quizIndex]);
 
   const handleContinue = useCallback(async () => {
-    if (qIdx < questions.length - 1) {
+    if (qIdx < cards.length - 1) {
       setQIdx(i => i + 1);
       setSelected(null);
       setAnswered(false);
@@ -309,36 +424,43 @@ export default function LessonPage() {
       }
       updateUser(final);
       setReward(r);
+      setPhase('done');
     } catch (e) {
       console.error(e);
-      setReward({ xp: 0, gems: 0, perfect: mistakes === 0, isReview });
+      if (String(e.message || '').includes(ENERGY_ERROR_HINT)) {
+        setPhase('noenergy');
+      } else {
+        setReward({ xp: 0, coins: 0, perfect: mistakes === 0, isReview });
+        setPhase('done');
+      }
     } finally {
       setSubmitting(false);
-      setPhase('done');
     }
-  }, [qIdx, questions.length, token, lessonId, mistakes, isReview, content, totalLessons, updateUser, soundEnabled]);
+  }, [qIdx, cards.length, token, lessonId, mistakes, isReview, content, totalLessons, updateUser, soundEnabled]);
 
   if (!lesson) return (
     <div className="flex flex-col items-center justify-center h-64 gap-4">
-      <p className="text-sm" style={{ color: bright ? '#64748b' : '#94a3b8' }}>Сабак табылган жок</p>
-      <button onClick={() => navigate('/learn')} className="text-[#1CB0F6] text-sm font-medium">← Артка</button>
+      <p className="text-sm" style={{ color: bright ? '#64748b' : '#94a3b8' }}>{t('lesson.notFound')}</p>
+      <button onClick={() => navigate('/learn')} className="text-[#1CB0F6] text-sm font-medium">{t('lesson.backArrow')}</button>
     </div>
   );
 
-  if (phase === 'nohearts') return (
-    <NoHeartsScreen nextRefillMs={initRefillMs} bright={bright}
+  if (phase === 'noenergy') return (
+    <NoEnergyScreen resetMs={initResetMs} bright={bright}
       onBack={() => navigate('/learn')}
       onShop={() => navigate('/shop')} />
   );
 
   if (phase === 'done') return (
     <ResultScreen reward={reward} earnedAchievements={earnedAchs}
-      isReview={isReview} onContinue={() => navigate('/learn')} bright={bright} />
+      isReview={isReview} onContinue={() => navigate('/learn')} bright={bright}
+      userName={user?.name} lessonTitle={lesson?.title} />
   );
 
   const moduleColor    = mod?.color || '#1CB0F6';
-  const progress       = questions.length > 0 ? (qIdx / questions.length) * 100 : 0;
-  const isCorrect      = selected === currentQ?.a;
+  const progress       = cards.length > 0 ? (qIdx / cards.length) * 100 : 0;
+  const isCorrect      = selected === currentCard?.a;
+  const isLastCard     = qIdx === cards.length - 1;
 
   const pageBg         = bright ? '#f8fafc' : '#0f172a';
   const qBlockBg       = bright ? '#eff6ff' : '#0d1626';
@@ -348,7 +470,6 @@ export default function LessonPage() {
   const progressTrack  = bright ? '#e2e8f0' : '#1e293b';
   const closeBtnBg     = bright ? '#e2e8f0' : '#1e293b';
   const closeBtnColor  = bright ? '#64748b' : '#94a3b8';
-  const heartEmpty     = bright ? '#cbd5e1' : '#334155';
 
   return (
     <div
@@ -372,102 +493,112 @@ export default function LessonPage() {
             style={{ background: moduleColor }}
           />
         </div>
-        <div className="flex items-center gap-0.5 shrink-0">
-          {Array.from({ length: 5 }, (_, i) => (
-            <Heart key={i} size={17}
-              color={i < localHearts ? '#ef4444' : heartEmpty}
-              fill={i < localHearts ? '#ef4444' : 'transparent'}
-              style={{ transition: 'all 0.2s' }}
-            />
-          ))}
-        </div>
       </div>
 
       {/* Module label */}
       <p className="text-xs font-extrabold uppercase tracking-wider mb-0.5" style={{ color: moduleColor }}>
         💰 {mod?.title?.toUpperCase()}
       </p>
-      <p className="text-xs mb-5" style={{ color: counterColor }}>{qIdx + 1}/{questions.length} сурак</p>
+      <p className="text-xs mb-5" style={{ color: counterColor }}>{t('lesson.stepCounter', { current: qIdx + 1, total: cards.length })}</p>
 
-      {/* Question + Options */}
-      <AnimatePresence mode="wait">
-        <motion.div key={qIdx}
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -20 }}
-          transition={{ duration: 0.18 }}
-        >
-          <div
-            className={`rounded-2xl p-5 mb-5 ${shake ? 'shake' : ''}`}
-            style={{ background: qBlockBg, border: `2px solid ${qBlockBorder}` }}
+      {!isQuiz ? (
+        <AnimatePresence mode="wait">
+          <motion.div key={qIdx}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.18 }}
+            className="flex-1 flex flex-col"
           >
-            <p className="font-semibold text-base leading-relaxed" style={{ color: qTextColor }}>
-              {currentQ?.q}
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-3">
-            {(currentQ?.opts || []).map((opt, i) => {
-              let s = 'idle';
-              if (answered) {
-                if (i === currentQ.a) s = 'correct';
-                else if (i === selected) s = 'wrong';
-              }
-              return (
-                <OptionBtn key={i} text={opt} onClick={() => handleSelect(i)} state={s} index={i} bright={bright} />
-              );
-            })}
-          </div>
-        </motion.div>
-      </AnimatePresence>
-
-      {/* Feedback + Continue */}
-      <AnimatePresence>
-        {answered && (
-          <motion.div
-            initial={{ y: 50, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 50, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 38 }}
-            className="mt-4"
-          >
-            <div
-              className="rounded-2xl px-4 py-3 mb-3 flex items-start gap-2"
-              style={{
-                background: isCorrect
-                  ? (bright ? '#f0fdf4' : '#16301d')
-                  : (bright ? '#fef2f2' : '#2d1515'),
-                border: `1.5px solid ${isCorrect ? '#58CC02' : '#FF4B4B'}`,
-              }}
-            >
-              {isCorrect
-                ? <Check size={18} color="#58CC02" className="shrink-0 mt-0.5" />
-                : <X     size={18} color="#FF4B4B" className="shrink-0 mt-0.5" />
-              }
-              <p className="text-sm font-semibold leading-snug"
-                style={{ color: isCorrect ? (bright ? '#15803d' : '#58CC02') : (bright ? '#dc2626' : '#FF4B4B') }}>
-                {isCorrect
-                  ? 'Туура!'
-                  : `Туура жооп: ${currentQ?.opts?.[currentQ?.a]}`}
-              </p>
-            </div>
-
-            <motion.button
-              whileTap={{ scale: 0.97 }}
-              onClick={handleContinue}
-              disabled={submitting}
-              className="w-full py-4 rounded-2xl font-bold text-white text-base disabled:opacity-60"
-              style={{ background: isCorrect ? '#58CC02' : '#1CB0F6' }}
-            >
-              {submitting
-                ? '...'
-                : qIdx < questions.length - 1
-                ? 'Улантуу'
-                : 'Аяктоо'}
-            </motion.button>
+            {currentCard.type === 'media'
+              ? <MediaCard card={currentCard} moduleColor={moduleColor} bright={bright} onContinue={handleContinue} isLast={isLastCard} submitting={submitting} />
+              : <TheoryCard card={currentCard} moduleColor={moduleColor} bright={bright} onContinue={handleContinue} isLast={isLastCard} submitting={submitting} />
+            }
           </motion.div>
-        )}
-      </AnimatePresence>
+        </AnimatePresence>
+      ) : (
+        <>
+          {/* Question + Options */}
+          <AnimatePresence mode="wait">
+            <motion.div key={qIdx}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.18 }}
+            >
+              <div
+                className={`rounded-2xl p-5 mb-5 ${shake ? 'shake' : ''}`}
+                style={{ background: qBlockBg, border: `2px solid ${qBlockBorder}` }}
+              >
+                <p className="font-semibold text-base leading-relaxed" style={{ color: qTextColor }}>
+                  {localizedText(currentCard?.q, locale)}
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                {(currentCard?.opts || []).map((opt, i) => {
+                  let s = 'idle';
+                  if (answered) {
+                    if (i === currentCard.a) s = 'correct';
+                    else if (i === selected) s = 'wrong';
+                  }
+                  return (
+                    <OptionBtn key={i} text={localizedText(opt, locale)} onClick={() => handleSelect(i)} state={s} index={i} bright={bright} />
+                  );
+                })}
+              </div>
+            </motion.div>
+          </AnimatePresence>
+
+          {/* Feedback + Continue */}
+          <AnimatePresence>
+            {answered && (
+              <motion.div
+                initial={{ y: 50, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 50, opacity: 0 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 38 }}
+                className="mt-4"
+              >
+                <div
+                  className="rounded-2xl px-4 py-3 mb-3 flex items-start gap-2"
+                  style={{
+                    background: isCorrect
+                      ? (bright ? '#f0fdf4' : '#16301d')
+                      : (bright ? '#fef2f2' : '#2d1515'),
+                    border: `1.5px solid ${isCorrect ? '#58CC02' : '#FF4B4B'}`,
+                  }}
+                >
+                  {isCorrect
+                    ? <Check size={18} color="#58CC02" className="shrink-0 mt-0.5" />
+                    : <X     size={18} color="#FF4B4B" className="shrink-0 mt-0.5" />
+                  }
+                  <p className="text-sm font-semibold leading-snug"
+                    style={{ color: isCorrect ? (bright ? '#15803d' : '#58CC02') : (bright ? '#dc2626' : '#FF4B4B') }}>
+                    {isCorrect
+                      ? t('lesson.correct')
+                      : t('lesson.correctAnswerIs', { answer: localizedText(currentCard?.opts?.[currentCard?.a], locale) })}
+                  </p>
+                </div>
+
+                <motion.button
+                  whileTap={{ scale: 0.97 }}
+                  onClick={handleContinue}
+                  disabled={submitting}
+                  className="w-full py-4 rounded-2xl font-bold text-white text-base disabled:opacity-60"
+                  style={{ background: isCorrect ? '#58CC02' : '#1CB0F6' }}
+                >
+                  {submitting
+                    ? t('common.loading')
+                    : isLastCard
+                    ? t('common.finish')
+                    : t('common.continue')}
+                </motion.button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </>
+      )}
     </div>
   );
 }

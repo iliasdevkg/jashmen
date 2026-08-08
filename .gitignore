@@ -6,3 +6,4 @@ dist/
 .gstack/
 *.log
 admin-api/data/
+.vite/

@@ -5,20 +5,25 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "server": "node admin-api/server.js",
+    "server": "node --env-file-if-exists=admin-api/.env admin-api/server.js",
     "dev:all": "concurrently -k -n web,api -c blue,green \"npm:dev\" \"npm run server\"",
-    "build": "vite build && cp -r admin dist/admin",
+    "build:admin": "vite build --config vite.admin.config.js",
+    "build": "npm run build:admin && vite build && cp -r admin dist/admin",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@vercel/blob": "^2.7.0",
     "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
     "express": "^4.19.2",
     "framer-motion": "^11.2.0",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.397.0",
+    "multer": "^2.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.23.1"
+    "react-router-dom": "^6.23.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",

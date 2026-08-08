@@ -6,7 +6,12 @@
 
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
-import { hashPassword, verifyPassword, signToken, requireAuth } from './auth.js';
+import {
+  hashPassword, verifyPassword, signAccessToken, requireAuth,
+  issueRefreshToken, refreshAccessToken, revokeRefreshToken,
+  REFRESH_TOKEN_TTL_MS, REFRESH_COOKIE_NAME,
+} from './auth.js';
+import { setRefreshCookie, clearRefreshCookie } from './cookies.js';
 import * as db from './db.js';
 import {
   getContent, findLesson, findShopItem, findPrize,
@@ -101,7 +106,9 @@ router.post('/u/signup', async (req, res, next) => {
       state: defaultState(),
     };
     await db.insertUser(user);
-    res.status(201).json({ token: signToken(user.id), user: toPublicUser(user) });
+    const refreshToken = await issueRefreshToken(user.id);
+    setRefreshCookie(res, REFRESH_COOKIE_NAME, refreshToken, REFRESH_TOKEN_TTL_MS);
+    res.status(201).json({ token: signAccessToken(user.id), user: toPublicUser(user) });
   } catch (err) { next(err); }
 });
 
@@ -116,7 +123,50 @@ router.post('/u/login', async (req, res, next) => {
     if (!ok) {
       return res.status(401).json({ error: 'Email же сырсөз туура эмес' });
     }
-    res.json({ token: signToken(user.id), user: toPublicUser(user) });
+    const refreshToken = await issueRefreshToken(user.id);
+    setRefreshCookie(res, REFRESH_COOKIE_NAME, refreshToken, REFRESH_TOKEN_TTL_MS);
+    res.json({ token: signAccessToken(user.id), user: toPublicUser(user) });
+  } catch (err) { next(err); }
+});
+
+// Silently exchanges the httpOnly refresh cookie for a fresh access token
+// — called once on app load (so a page reload doesn't force a re-login)
+// and periodically thereafter, well before the 15-minute access token
+// expires. Rotates the refresh token on every call (see
+// db.js#rotateSession); the response carries the current user so the
+// client can restore its session without a separate /u/me round trip.
+router.post('/u/refresh', async (req, res, next) => {
+  try {
+    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+    if (!refreshToken) return res.status(401).json({ error: 'Сессия табылган жок' });
+
+    const result = await refreshAccessToken(refreshToken);
+    if (!result) {
+      clearRefreshCookie(res, REFRESH_COOKIE_NAME);
+      return res.status(401).json({ error: 'Сессиянын мөөнөтү бүттү, кайра кириңиз' });
+    }
+
+    const user = db.findUserById(result.userId);
+    if (!user) {
+      clearRefreshCookie(res, REFRESH_COOKIE_NAME);
+      return res.status(401).json({ error: 'Колдонуучу табылган жок' });
+    }
+
+    setRefreshCookie(res, REFRESH_COOKIE_NAME, result.refreshToken, REFRESH_TOKEN_TTL_MS);
+    res.json({ token: result.accessToken, user: toPublicUser(user) });
+  } catch (err) { next(err); }
+});
+
+// Real, server-side logout — revokes the session backing the refresh
+// cookie (so it can't be used again even if it leaked) and clears the
+// cookie itself. Idempotent: no cookie / already-revoked session still
+// returns 204, since the end state (logged out) is the same either way.
+router.post('/u/logout', async (req, res, next) => {
+  try {
+    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+    if (refreshToken) await revokeRefreshToken(refreshToken);
+    clearRefreshCookie(res, REFRESH_COOKIE_NAME);
+    res.status(204).end();
   } catch (err) { next(err); }
 });
 

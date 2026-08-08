@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../store.jsx';
+import { useI18n } from '../i18n.jsx';
 
 export default function AuthPage() {
   const { login, signup } = useAuth();
+  const { t } = useI18n();
   const [mode, setMode] = useState('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -44,7 +46,7 @@ export default function AuthPage() {
         <img src="/logo.png" alt="JashMen" className="w-28 h-28 rounded-3xl object-cover shadow-2xl" />
         <div className="text-center">
           <h1 className="text-3xl font-extrabold text-white tracking-tight">JashMen</h1>
-          <p className="text-slate-400 text-sm mt-1">Каржылык сабаттуулук — оюн сыяктуу</p>
+          <p className="text-slate-400 text-sm mt-1">{t('auth.tagline')}</p>
         </div>
       </motion.div>
 
@@ -64,7 +66,7 @@ export default function AuthPage() {
               }`}
               style={mode === m ? { background: '#1CB0F6' } : {}}
             >
-              {m === 'login' ? 'Кирүү' : 'Катталуу'}
+              {m === 'login' ? t('auth.login') : t('auth.signup')}
             </button>
           ))}
         </div>
@@ -82,7 +84,7 @@ export default function AuthPage() {
               >
                 <input
                   type="text"
-                  placeholder="Атыңыз"
+                  placeholder={t('auth.namePlaceholder')}
                   value={name}
                   onChange={e => setName(e.target.value)}
                   required={mode === 'signup'}
@@ -107,7 +109,7 @@ export default function AuthPage() {
           <div className="relative">
             <input
               type={showPw ? 'text' : 'password'}
-              placeholder="Сыр сөз"
+              placeholder={t('auth.passwordPlaceholder')}
               value={password}
               onChange={e => setPassword(e.target.value)}
               required
@@ -146,7 +148,7 @@ export default function AuthPage() {
             className="w-full py-4 rounded-xl font-bold text-white text-sm mt-1 disabled:opacity-60"
             style={{ background: '#1CB0F6' }}
           >
-            {loading ? '...' : mode === 'login' ? 'Кирүү' : 'Аккаунт түзүү'}
+            {loading ? t('common.loading') : mode === 'login' ? t('auth.login') : t('auth.createAccount')}
           </motion.button>
         </form>
       </motion.div>

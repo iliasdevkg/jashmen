@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { StoreProvider, useAuth, useBrightMode } from './store.jsx';
+import { LocaleProvider } from './i18n.jsx';
 import BottomNav from './components/BottomNav.jsx';
 import TopBar from './components/TopBar.jsx';
 import SideNav from './components/SideNav.jsx';
@@ -81,10 +82,12 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <StoreProvider>
-      <BrowserRouter>
-        <AppRoutes />
-      </BrowserRouter>
-    </StoreProvider>
+    <LocaleProvider>
+      <StoreProvider>
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
+      </StoreProvider>
+    </LocaleProvider>
   );
 }

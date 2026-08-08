@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, 'data');
@@ -20,6 +21,7 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 // a file has already been migrated.
 function migrate(state) {
   if (!Array.isArray(state.redemptions)) state.redemptions = [];
+  if (!Array.isArray(state.sessions)) state.sessions = [];
   for (const user of state.users || []) {
     const s = user.state;
     if (!s) continue;
@@ -34,13 +36,13 @@ function migrate(state) {
 function loadSync() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], redemptions: [] }, null, 2));
+    fs.writeFileSync(DB_FILE, JSON.stringify({ users: [], redemptions: [], sessions: [] }, null, 2));
   }
   try {
     return migrate(JSON.parse(fs.readFileSync(DB_FILE, 'utf8')));
   } catch (err) {
     console.error('[db] db.json is corrupt, starting from an empty store:', err.message);
-    return { users: [], redemptions: [] };
+    return { users: [], redemptions: [], sessions: [] };
   }
 }
 
@@ -110,4 +112,89 @@ export function countRedemptionsToday(dateStr) {
 
 export function listRedemptions() {
   return state.redemptions;
+}
+
+// ── Sessions (refresh tokens) — Task 2: JWT storage migration ──────────
+//
+// A "session" is the server-side record backing a long-lived refresh
+// token. The refresh token itself is a random opaque string handed to the
+// client only via an httpOnly cookie (never readable by JS); only its
+// SHA-256 hash is stored here, so a leaked db.json snapshot can't be
+// replayed as a live session. Short-lived access JWTs (see auth.js /
+// adminAuth.js) are minted from a valid session and never touch this
+// store — this is purely for the thing that makes them renewable AND
+// revocable (unlike the old 30-day/12h JWTs, which had no way to be
+// invalidated server-side before they naturally expired).
+
+function hashToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function newOpaqueToken() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+// type: 'user' | 'admin'. userId is null for admin sessions (there's only
+// ever one shared admin identity — see adminAuth.js).
+export async function createSession({ type, userId = null, ttlMs }) {
+  const token = newOpaqueToken();
+  state.sessions.push({
+    tokenHash: hashToken(token),
+    type,
+    userId,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + ttlMs,
+    revokedAt: null,
+  });
+  await persist();
+  return token;
+}
+
+// expectedType is required and checked BEFORE anything else — a token
+// presented to the wrong endpoint (a user refresh token sent to the admin
+// refresh route, or vice versa) must be rejected here, untouched, not
+// after some caller-side check that runs only once rotate/revoke has
+// already mutated and persisted state. (An earlier version of this
+// function looked sessions up by hash alone and left the type check to
+// the caller, which meant a cross-type token still got revoked+rotated —
+// or flat-out revoked — before the caller ever found out it was the
+// wrong type. That's the bug this signature exists to make impossible.)
+function findLiveSession(token, expectedType) {
+  const hash = hashToken(token);
+  const session = state.sessions.find(s => s.tokenHash === hash);
+  if (!session || session.type !== expectedType || session.revokedAt || session.expiresAt < Date.now()) return null;
+  return session;
+}
+
+// Atomically revokes the presented refresh token and mints its
+// replacement in one synchronous step (same reserve-before-persist shape
+// as reserveRedemptionSlot) — refresh-token rotation, so a stolen-and-
+// reused token is detected: once rotated, the old token's hash no longer
+// matches any live session, so a replay of it (e.g. by an attacker who
+// captured it in transit) fails findLiveSession on the *next* attempt.
+// Returns null if the presented token isn't a currently-live session OF
+// THE EXPECTED TYPE — in that case nothing is mutated or persisted.
+export async function rotateSession(oldToken, ttlMs, expectedType) {
+  const session = findLiveSession(oldToken, expectedType);
+  if (!session) return null;
+  session.revokedAt = Date.now();
+  const newToken = newOpaqueToken();
+  state.sessions.push({
+    tokenHash: hashToken(newToken),
+    type: session.type,
+    userId: session.userId,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + ttlMs,
+    revokedAt: null,
+  });
+  await persist();
+  return { newToken, type: session.type, userId: session.userId };
+}
+
+export async function revokeSession(token, expectedType) {
+  const session = findLiveSession(token, expectedType);
+  if (!session) return false;
+  session.revokedAt = Date.now();
+  await persist();
+  return true;
 }

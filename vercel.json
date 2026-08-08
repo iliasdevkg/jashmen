@@ -1,4 +1,7 @@
 {
+  "crons": [
+    { "path": "/admin/api/cron/streak-reminders", "schedule": "0 18 * * *" }
+  ],
   "rewrites": [
     {
       "source": "/admin/api/:path*",

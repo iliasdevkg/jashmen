@@ -1,17 +1,19 @@
 import { NavLink } from 'react-router-dom';
 import { Home, Trophy, ShoppingBag, User, Settings } from 'lucide-react';
 import { useBrightMode } from '../store.jsx';
+import { useI18n } from '../i18n.jsx';
 
 const tabs = [
-  { to: '/learn',        icon: Home,        label: 'Үйрөнүү' },
-  { to: '/leaderboard',  icon: Trophy,      label: 'Лига'     },
-  { to: '/shop',         icon: ShoppingBag, label: 'Дүкөн'   },
-  { to: '/profile',      icon: User,        label: 'Профиль' },
-  { to: '/settings',     icon: Settings,    label: 'Орнотуу' },
+  { to: '/learn',        icon: Home,        key: 'nav.learn' },
+  { to: '/leaderboard',  icon: Trophy,      key: 'nav.league' },
+  { to: '/shop',         icon: ShoppingBag, key: 'nav.shop' },
+  { to: '/profile',      icon: User,        key: 'nav.profile' },
+  { to: '/settings',     icon: Settings,    key: 'nav.settings' },
 ];
 
 export default function BottomNav() {
   const { bright } = useBrightMode();
+  const { t } = useI18n();
 
   return (
     <nav
@@ -23,7 +25,7 @@ export default function BottomNav() {
       }}
     >
       <div className="flex">
-        {tabs.map(({ to, icon: Icon, label }) => (
+        {tabs.map(({ to, icon: Icon, key }) => (
           <NavLink
             key={to}
             to={to}
@@ -36,7 +38,7 @@ export default function BottomNav() {
             {({ isActive }) => (
               <>
                 <Icon size={22} strokeWidth={isActive ? 2.5 : 2} />
-                <span className="text-[10px] font-medium">{label}</span>
+                <span className="text-[10px] font-medium">{t(key)}</span>
               </>
             )}
           </NavLink>

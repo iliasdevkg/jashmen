@@ -1,17 +1,22 @@
-const MAX_HEARTS = 5;
-const REFILL_MS = 20 * 60 * 1000; // 20 min per heart
-
-export function computeLiveHearts(state) {
-  if (!state) return { hearts: MAX_HEARTS, nextRefillMs: null };
-  const hearts = state.hearts ?? MAX_HEARTS;
-  const heartsRefilledAt = state.heartsRefilledAt || Date.now();
-  if (hearts >= MAX_HEARTS) return { hearts: MAX_HEARTS, nextRefillMs: null };
-  const elapsed = Math.max(0, Date.now() - heartsRefilledAt);
-  const gain = Math.floor(elapsed / REFILL_MS);
-  const current = Math.min(MAX_HEARTS, hearts + gain);
-  const remaining = elapsed - gain * REFILL_MS;
-  const nextRefillMs = current < MAX_HEARTS ? REFILL_MS - remaining : null;
-  return { hearts: current, nextRefillMs };
+// Client mirror of admin-api/energy.js#computeLiveEnergy — same formula,
+// kept in lockstep. Replaces the old mistake-based hearts system: users get
+// `dailyFreeLessons` (admin-configurable, see content.limits) genuine
+// lesson completions per calendar day (UTC), resetting at midnight.
+export function computeLiveEnergy(state, dailyFreeLessons = 3) {
+  if (!state) return { remaining: dailyFreeLessons, resetMs: null };
+  const today = new Date().toISOString().slice(0, 10);
+  const sameDay = state.energyDate === today;
+  const lessonsToday = sameDay ? (state.lessonsToday || 0) : 0;
+  const bonusToday   = sameDay ? (state.bonusEnergyToday || 0) : 0;
+  const cap = dailyFreeLessons + bonusToday;
+  const remaining = Math.max(0, cap - lessonsToday);
+  let resetMs = null;
+  if (remaining <= 0) {
+    const now = new Date();
+    const nextMidnightUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+    resetMs = nextMidnightUTC - Date.now();
+  }
+  return { remaining, resetMs };
 }
 
 export function formatCountdown(ms) {
@@ -37,35 +42,71 @@ export function getLessonOrder(modules) {
 
 export function getLessonStatus(lessonId, lessonOrder, completedLessons) {
   const done = new Set(completedLessons || []);
+  // Already-completed always wins, checked before the prev-lesson gate —
+  // content is admin-editable now, so a lesson can get spliced in *ahead*
+  // of one a user already finished. Gating on prev-completion first would
+  // relock already-done lessons the moment their new predecessor shows up.
+  if (done.has(lessonId)) return 'completed';
   const idx = lessonOrder.indexOf(lessonId);
   if (idx < 0) return 'locked';
-  if (idx === 0) return done.has(lessonId) ? 'completed' : 'available';
+  if (idx === 0) return 'available';
   const prev = lessonOrder[idx - 1];
-  if (!done.has(prev)) return 'locked';
-  return done.has(lessonId) ? 'completed' : 'available';
+  return done.has(prev) ? 'available' : 'locked';
+}
+
+// A lesson's cards are its authoritative content (theory/media/quiz, in
+// order). Older/seed lessons only have a flat `questions` array — treat
+// each of those as an all-quiz card list so nothing built before this
+// existed has to change. Shared by LessonPage (plays the cards) and the
+// Learn path's preview sheet (needs the quiz count before the lesson opens).
+export function cardsOf(lesson) {
+  if (lesson?.cards?.length) return lesson.cards;
+  return (lesson?.questions || []).map(q => ({ type: 'quiz', ...q }));
+}
+
+export function quizCountOf(lesson) {
+  return cardsOf(lesson).filter(c => c.type === 'quiz').length;
+}
+
+// Mirrors admin-api/routes.js's completeLesson reward formula for the
+// ceiling case (zero mistakes, perfect bonus) — used only to preview
+// "up to +N XP" before a lesson starts. The server remains the sole
+// authority on the actual reward once the lesson is submitted.
+export function maxLessonXp(lesson) {
+  const baseXp = quizCountOf(lesson) * 10;
+  return Math.round(baseXp * 1.2);
+}
+
+// Mirrors admin-api/contentStore.js#evaluateAchievementRule exactly — an
+// achievement's unlock condition is data (`rule`), not a hardcoded id, so
+// the admin panel can add unlimited new achievements with no code change.
+export function evaluateAchievementRule(rule, ctx) {
+  switch (rule?.type) {
+    case 'lessons_completed':     return ctx.completedCount >= (rule.value || 0);
+    case 'streak_days':           return ctx.streak >= (rule.value || 0);
+    case 'xp_total':              return ctx.xp >= (rule.value || 0);
+    case 'perfect_lesson':        return ctx.reward?.perfect === true && !ctx.reward?.isReview;
+    case 'all_lessons_completed': return ctx.totalLessons > 0 && ctx.completedCount >= ctx.totalLessons;
+    default: return false;
+  }
 }
 
 // Returns list of achievement IDs newly earned (not already in user.state.achievements)
 export function checkNewAchievements(userState, reward, allAchievements, totalLessons) {
   if (!userState || !allAchievements?.length) return [];
   const earned = new Set(userState.achievements || []);
-  const xp = userState.xp || 0;
-  const streak = userState.streak || 0;
-  const completed = (userState.completedLessons || []).length;
+  const ctx = {
+    xp: userState.xp || 0,
+    streak: userState.streak || 0,
+    completedCount: (userState.completedLessons || []).length,
+    totalLessons,
+    reward,
+  };
 
   const newlyEarned = [];
   for (const ach of allAchievements) {
     if (earned.has(ach.id)) continue;
-    let qualifies = false;
-    switch (ach.id) {
-      case 'first':   qualifies = completed >= 1; break;
-      case 'streak7': qualifies = streak >= 7; break;
-      case 'xp100':   qualifies = xp >= 100; break;
-      case 'xp1000':  qualifies = xp >= 1000; break;
-      case 'perfect': qualifies = reward?.perfect === true && !reward?.isReview; break;
-      case 'expert':  qualifies = totalLessons > 0 && completed >= totalLessons; break;
-    }
-    if (qualifies) newlyEarned.push(ach.id);
+    if (evaluateAchievementRule(ach.rule, ctx)) newlyEarned.push(ach.id);
   }
   return newlyEarned;
 }

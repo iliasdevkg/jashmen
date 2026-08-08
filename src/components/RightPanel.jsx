@@ -1,31 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Trophy } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
+import { useI18n } from '../i18n.jsx';
 import { getCurrentLeague } from '../utils.js';
 import * as api from '../api.js';
-
-const AVATAR_COLORS = ['#F97316','#8B5CF6','#EAB308','#06B6D4','#10B981','#EF4444','#EC4899','#3B82F6','#A855F7','#14B8A6'];
-function avatarColor(name = '') {
-  let h = 0;
-  for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length];
-}
-
-function MiniAvatar({ name }) {
-  return (
-    <div
-      className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-[11px] shrink-0"
-      style={{ background: avatarColor(name) }}
-    >
-      {name?.slice(0, 1)?.toUpperCase() || '?'}
-    </div>
-  );
-}
+import Avatar from './Avatar.jsx';
+import LeagueBadge from './icons/LeagueBadges.jsx';
 
 export default function RightPanel() {
   const { user, state } = useAuth();
   const content = useContent();
   const { bright } = useBrightMode();
+  const { t } = useI18n();
   const [leaderboard, setLeaderboard] = useState([]);
 
   const leagues  = content?.leagues || [];
@@ -59,9 +45,9 @@ export default function RightPanel() {
       {myLeague && (
         <div className="rounded-2xl p-4" style={{ background: cardBg, border: `1.5px solid ${cardBorder}` }}>
           <div className="flex items-center gap-3 mb-3">
-            <span className="text-3xl">{myLeague.emoji}</span>
+            <LeagueBadge id={myLeague.id} color={myLeague.color} size={44} />
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: textFaint }}>Лигаң</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: textFaint }}>{t('league.myLeague')}</p>
               <p className="font-bold text-sm" style={{ color: textPri }}>{myLeague.name}</p>
             </div>
             <span className="font-bold text-sm shrink-0" style={{ color: myLeague.color }}>
@@ -78,8 +64,8 @@ export default function RightPanel() {
                 />
               </div>
               <p className="text-[10px]" style={{ color: textFaint }}>
-                Кийинки: <span className="font-semibold" style={{ color: textMut }}>{nextLeague.name}</span>
-                {' · '}{(nextLeague.minXp - xp).toLocaleString()} XP калды
+                {t('league.next')} <span className="font-semibold" style={{ color: textMut }}>{nextLeague.name}</span>
+                {' · '}{(nextLeague.minXp - xp).toLocaleString()} {t('league.xpLeft')}
               </p>
             </>
           )}
@@ -94,8 +80,8 @@ export default function RightPanel() {
         >
           <span className="text-2xl">🔥</span>
           <div>
-            <p className="font-bold text-sm" style={{ color: textPri }}>{streak} күндүк стрик</p>
-            <p className="text-xs" style={{ color: textMut }}>Үзгүлтүксүз окуу</p>
+            <p className="font-bold text-sm" style={{ color: textPri }}>{t('league.streakBadge', { n: streak })}</p>
+            <p className="text-xs" style={{ color: textMut }}>{t('league.streakDesc')}</p>
           </div>
         </div>
       )}
@@ -108,7 +94,7 @@ export default function RightPanel() {
             style={{ borderBottom: `1px solid ${headerDiv}` }}
           >
             <Trophy size={14} color="#FFD700" fill="#FFD700" />
-            <p className="font-bold text-sm" style={{ color: textPri }}>Рейтинг</p>
+            <p className="font-bold text-sm" style={{ color: textPri }}>{t('league.rating')}</p>
           </div>
 
           <div className="flex flex-col">
@@ -128,7 +114,7 @@ export default function RightPanel() {
                   <span className="w-5 text-center text-xs font-bold shrink-0" style={{ color: rc }}>
                     {i + 1}
                   </span>
-                  <MiniAvatar name={u.name} />
+                  <Avatar name={u.name} size={28} />
                   <p className="text-xs font-medium flex-1 truncate" style={{ color: textPri }}>
                     {u.name}
                     {isMe && <span style={{ color: '#1CB0F6' }}> ●</span>}

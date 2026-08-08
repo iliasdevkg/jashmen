@@ -6,13 +6,22 @@
 // ever needs to know about the /admin/api prefix.
 
 import express from 'express';
+import cookieParser from 'cookie-parser';
 import routes from './routes.js';
+import adminRoutes from './adminRoutes.js';
+import cronRoutes from './cronRoutes.js';
+import { UPLOADS_DIR } from './uploads.js';
 
 const PORT = process.env.PORT || 3030;
 
 const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '100kb' }));
+// Reads the httpOnly refresh-token cookie into req.cookies for
+// /u/refresh, /u/logout, and their admin equivalents (auth.js/adminAuth.js
+// — Task 2's JWT-storage migration). No secret needed: the cookie's value
+// is an opaque token, not a signed/encrypted payload.
+app.use(cookieParser());
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -23,6 +32,12 @@ app.use((req, res, next) => {
 });
 
 app.get('/admin/api/health', (req, res) => res.json({ ok: true }));
+
+// Uploaded lesson media / partner logos / prize photos — public, read-only.
+app.use('/admin/api/uploads', express.static(UPLOADS_DIR));
+
+app.use('/admin/api/admin', adminRoutes);
+app.use('/admin/api/cron', cronRoutes);
 app.use('/admin/api', routes);
 
 app.use('/admin/api', (req, res) => {

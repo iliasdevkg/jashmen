@@ -1,17 +1,20 @@
-// admin-api/content.js
+// admin-api/content.seed.js
 //
-// The full JashMen curriculum: modules → lessons → questions, plus leagues,
-// achievements and shop items. This is the single source of truth the
-// frontend renders (`GET /admin/api/public/content`) and the backend
-// validates lesson/purchase requests against — nothing here is trusted
-// blindly from the client.
+// Default JashMen content — curriculum, leagues, achievements, shop items,
+// starting (empty) B2B partner/prize catalog and default limits. This is
+// ONLY the seed: contentStore.js loads it exactly once, the first time
+// admin-api/data/content.json doesn't exist yet, then every admin edit
+// after that lives in content.json (gitignored, like db.json). Editing this
+// file again after first boot has no effect on an existing deployment —
+// it only shapes what a brand-new one starts with.
 
-export const CONTENT = {
+export const SEED_CONTENT = {
   modules: [
     {
       id: 'money-basics',
       title: 'Акча деген эмне?',
       color: '#58CC02',
+      partnerId: null,
       lessons: [
         {
           id: 'm1-l1',
@@ -97,6 +100,7 @@ export const CONTENT = {
       id: 'saving',
       title: 'Сактоо жана топтоо',
       color: '#1CB0F6',
+      partnerId: null,
       lessons: [
         {
           id: 'm2-l1',
@@ -182,6 +186,7 @@ export const CONTENT = {
       id: 'banking',
       title: 'Банктар жана карттар',
       color: '#FF9600',
+      partnerId: null,
       lessons: [
         {
           id: 'm3-l1',
@@ -267,6 +272,7 @@ export const CONTENT = {
       id: 'credit',
       title: 'Насыя жана карыз',
       color: '#CE82FF',
+      partnerId: null,
       lessons: [
         {
           id: 'm4-l1',
@@ -352,6 +358,7 @@ export const CONTENT = {
       id: 'investing',
       title: 'Инвестициянын негиздери',
       color: '#FF4B4B',
+      partnerId: null,
       lessons: [
         {
           id: 'm5-l1',
@@ -437,6 +444,7 @@ export const CONTENT = {
       id: 'scams',
       title: 'Алдамчылыктан коргонуу',
       color: '#2B70C9',
+      partnerId: null,
       lessons: [
         {
           id: 'm6-l1',
@@ -520,73 +528,48 @@ export const CONTENT = {
     },
   ],
 
+  // Finance-themed league progression — visuals are custom vector badges
+  // (see src/components/icons/LeagueBadges.jsx, keyed by id), `emoji` is
+  // kept only as a harmless fallback/legacy field and is no longer
+  // rendered anywhere in the app.
   leagues: [
-    { id: 'bronze', name: 'Коло', emoji: '🥉', color: '#CD7F32', minXp: 0 },
-    { id: 'silver', name: 'Күмүш', emoji: '🥈', color: '#C0C0C0', minXp: 150 },
-    { id: 'gold', name: 'Алтын', emoji: '🥇', color: '#FFD700', minXp: 400 },
-    { id: 'sapphire', name: 'Сапфир', emoji: '💠', color: '#1CB0F6', minXp: 800 },
-    { id: 'ruby', name: 'Рубин', emoji: '♦️', color: '#FF4B4B', minXp: 1400 },
-    { id: 'emerald', name: 'Изумруд', emoji: '💚', color: '#58CC02', minXp: 2200 },
-    { id: 'amethyst', name: 'Аметист', emoji: '💜', color: '#8B5CF6', minXp: 3200 },
-    { id: 'diamond', name: 'Алмаз', emoji: '💎', color: '#06B6D4', minXp: 4500 },
+    { id: 'student', name: 'Студент', emoji: '🎓', color: '#3B82F6', minXp: 0 },
+    { id: 'savings', name: 'Үнөмдөөчү', emoji: '💰', color: '#10B981', minXp: 150 },
+    { id: 'investor', name: 'Инвестор', emoji: '📈', color: '#F5C242', minXp: 400 },
+    { id: 'entrepreneur', name: 'Ишкер', emoji: '🚀', color: '#F97316', minXp: 800 },
+    { id: 'startup', name: 'Стартап', emoji: '💡', color: '#1E40AF', minXp: 1400 },
+    { id: 'ceo', name: 'CEO', emoji: '👑', color: '#7C3AED', minXp: 2200 },
+    { id: 'billionaire', name: 'Миллиардер', emoji: '💎', color: '#E11D48', minXp: 3200 },
+    { id: 'legend', name: 'Легенда', emoji: '🦅', color: '#FFD24C', minXp: 4500 },
   ],
 
-  // ids MUST match the switch cases in src/utils.js#checkNewAchievements
+  // Each achievement's unlock condition is DATA (`rule`), not code — see
+  // contentStore.js#evaluateAchievementRule. That's what lets the admin
+  // panel add unlimited new achievements without a code change.
   achievements: [
-    { id: 'first', emoji: '🎯', title: 'Биринчи кадам', desc: 'Биринчи сабактыңды аяктадың', xp: 20 },
-    { id: 'streak7', emoji: '🔥', title: '7 күндүк стрик', desc: '7 күн катары менен окудуң', xp: 50 },
-    { id: 'xp100', emoji: '⭐', title: '100 XP', desc: 'Жалпы 100 XP топтодуң', xp: 15 },
-    { id: 'xp1000', emoji: '🌟', title: '1000 XP', desc: 'Жалпы 1000 XP топтодуң', xp: 100 },
-    { id: 'perfect', emoji: '🏆', title: 'Мыкты аткаруу', desc: 'Ката кетирбей сабак аяктадың', xp: 25 },
-    { id: 'expert', emoji: '🎓', title: 'Эксперт', desc: 'Бардык сабактарды аяктадың', xp: 200 },
+    { id: 'first', emoji: '🎯', title: 'Биринчи кадам', desc: 'Биринчи сабактыңды аяктадың', xp: 20, rule: { type: 'lessons_completed', value: 1 } },
+    { id: 'streak7', emoji: '🔥', title: '7 күндүк стрик', desc: '7 күн катары менен окудуң', xp: 50, rule: { type: 'streak_days', value: 7 } },
+    { id: 'xp100', emoji: '⭐', title: '100 XP', desc: 'Жалпы 100 XP топтодуң', xp: 15, rule: { type: 'xp_total', value: 100 } },
+    { id: 'xp1000', emoji: '🌟', title: '1000 XP', desc: 'Жалпы 1000 XP топтодуң', xp: 100, rule: { type: 'xp_total', value: 1000 } },
+    { id: 'perfect', emoji: '🏆', title: 'Мыкты аткаруу', desc: 'Ката кетирбей сабак аяктадың', xp: 25, rule: { type: 'perfect_lesson' } },
+    { id: 'expert', emoji: '🎓', title: 'Эксперт', desc: 'Бардык сабактарды аяктадың', xp: 200, rule: { type: 'all_lessons_completed' } },
   ],
 
   shop_items: [
-    { id: 'hearts', emoji: '❤️', title: 'Толук жашоо', desc: 'Жашоолоруңду дароо 5кө чейин толтурат', price: 150 },
+    { id: 'energy_refill', emoji: '⚡', title: 'Кошумча энергия', desc: 'Бүгүнгө +1 сабак ачат (күнүнө 3 жолуга чейин)', price: 20 },
     { id: 'streak_freeze', emoji: '🧊', title: 'Стрик коргоочу', desc: 'Бир күн окуй албай калсаң да стригиң үзүлбөйт (түбөлүккө)', price: 200 },
     { id: 'xp_boost', emoji: '⚡', title: 'XP күчөткүч', desc: 'Мындан ары бардык сабактардан алган XPиң 1.25x көбөйөт (түбөлүккө)', price: 250 },
     { id: 'vip_badge', emoji: '👑', title: 'VIP белги', desc: 'Профилиңде өзгөчө VIP белги көрсөтөт', price: 300 },
   ],
+
+  // B2B — banks/партнёрлор жана алардын сыйлык каталогу (Module Б).
+  // Бош тизме менен башталат — админ-панелден толтурулат.
+  partners: [],
+  prizes: [],
+
+  // Module В — Daily Cap Protection + "күнүнө N акысыз сабак" энергия лимити.
+  limits: {
+    dailyFreeLessons: 3,
+    dailyPrizeCap: 5,
+  },
 };
-
-// ── Lookup helpers ──────────────────────────────────────────────────────────
-
-export function findLesson(lessonId) {
-  for (const mod of CONTENT.modules) {
-    const lesson = mod.lessons.find(l => l.id === lessonId);
-    if (lesson) return { lesson, module: mod };
-  }
-  return null;
-}
-
-export function findShopItem(itemId) {
-  return CONTENT.shop_items.find(i => i.id === itemId) || null;
-}
-
-export const TOTAL_LESSONS = CONTENT.modules.reduce((sum, m) => sum + m.lessons.length, 0);
-
-// Mirrors src/utils.js#checkNewAchievements exactly, but runs server-side
-// against persisted state — the client's own copy is only used to render
-// the "new achievement" screen, never trusted for the actual grant.
-export function checkNewAchievements(state, reward, totalLessons = TOTAL_LESSONS) {
-  const earned = new Set(state?.achievements || []);
-  const xp = state?.xp || 0;
-  const streak = state?.streak || 0;
-  const completed = (state?.completedLessons || []).length;
-
-  const newlyEarned = [];
-  for (const ach of CONTENT.achievements) {
-    if (earned.has(ach.id)) continue;
-    let qualifies = false;
-    switch (ach.id) {
-      case 'first': qualifies = completed >= 1; break;
-      case 'streak7': qualifies = streak >= 7; break;
-      case 'xp100': qualifies = xp >= 100; break;
-      case 'xp1000': qualifies = xp >= 1000; break;
-      case 'perfect': qualifies = reward?.perfect === true && !reward?.isReview; break;
-      case 'expert': qualifies = totalLessons > 0 && completed >= totalLessons; break;
-    }
-    if (qualifies) newlyEarned.push(ach.id);
-  }
-  return newlyEarned;
-}
