@@ -279,15 +279,20 @@ router.post('/u/me/redeem', requireAuth, async (req, res, next) => {
 
     const { dailyPrizeCap } = getLimits();
     const today = todayUTC();
-    if (db.countRedemptionsToday(today) >= dailyPrizeCap) {
+    const code = `JASHMEN-${randomUUID().slice(0, 8).toUpperCase()}`;
+    // Cap-check + slot-reservation happen synchronously, back to back, with
+    // no `await` in between (see db.js#reserveRedemptionSlot) — that's what
+    // makes this atomic against concurrent requests.
+    const reserved = db.reserveRedemptionSlot(
+      { id: randomUUID(), userId: user.id, prizeId: prize.id, code, date: today, ts: Date.now() },
+      dailyPrizeCap
+    );
+    if (!reserved) {
       return res.status(403).json({ error: 'Бардык сыйлыктар бүгүнкүгө бүттү. Эртең кайра келиңиз!' });
     }
 
     state.coins -= prize.priceCoins;
-    await db.saveUser(user);
-
-    const code = `JASHMEN-${randomUUID().slice(0, 8).toUpperCase()}`;
-    await db.addRedemption({ id: randomUUID(), userId: user.id, prizeId: prize.id, code, date: today, ts: Date.now() });
+    await db.saveUser(user); // persists the coin deduction and the reservation above together
 
     res.status(201).json({ user: toPublicUser(user), code });
   } catch (err) { next(err); }

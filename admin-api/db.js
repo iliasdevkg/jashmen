@@ -87,10 +87,21 @@ export function listUsers() {
 
 // ── Redemptions (Module В: Daily Cap Protection) ────────────────────────
 
-export async function addRedemption(entry) {
+// Atomically checks the daily cap AND reserves the slot in one synchronous
+// step — no `await` between the count-check and the state.redemptions.push,
+// so two concurrent /u/me/redeem requests can't both observe the same
+// stale count before either commits. (The function this replaced,
+// addRedemption(), only pushed *after* the caller had already awaited
+// db.saveUser() — that yield was the race window: a second request's cap
+// check could run before the first request's redemption was ever pushed.)
+// Mirrors energy.js#spendEnergy's synchronous check-then-mutate pattern.
+// Persistence is the caller's job (call saveUser()/persist right after) —
+// this only guarantees the in-memory reservation itself is atomic.
+export function reserveRedemptionSlot(entry, dailyCap) {
+  const count = state.redemptions.filter(r => r.date === entry.date).length;
+  if (count >= dailyCap) return false;
   state.redemptions.push(entry);
-  await persist();
-  return entry;
+  return true;
 }
 
 export function countRedemptionsToday(dateStr) {
