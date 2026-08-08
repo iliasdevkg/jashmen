@@ -64,6 +64,23 @@ app.use('/admin/api', (req, res) => {
 const DIST_DIR = path.join(__dirname, '..', 'dist');
 if (!process.env.VERCEL && fs.existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
+
+  // A request for a *file* that express.static didn't find is a genuine 404,
+  // not a client-side route — no route in src/App.jsx has a dot in it. Without
+  // this, the SPA fallbacks below answer 200 + index.html for anything, which
+  // is a soft 404: /nope.html, /missing.js and /robots.txt-typo all look like
+  // real pages to a crawler, and it also silently breaks verification schemes
+  // that fetch a named file (Google Search Console's HTML-file method expects
+  // its own content back, not the app shell).
+  const looksLikeFile = /\.[a-z0-9]{1,8}$/i;
+  app.get(/^(?!\/admin\/api).*/, (req, res, next) => {
+    if (looksLikeFile.test(req.path)) {
+      res.status(404).type('txt').send('Not found');
+      return;
+    }
+    next();
+  });
+
   app.get(/^\/admin(\/.*)?$/, (req, res) => {
     res.sendFile(path.join(DIST_DIR, 'admin', 'index.html'));
   });
