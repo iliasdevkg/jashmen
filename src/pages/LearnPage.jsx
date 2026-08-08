@@ -183,6 +183,14 @@ function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleI
   const total = module.lessons.length;
   const pct   = total > 0 ? (completedCount / total) * 100 : 0;
 
+  // A broken/404 admin-uploaded iconUrl should silently fall back to the
+  // icon-less layout, not leave a bare browser broken-image glyph floating
+  // over the card. Keyed off iconUrl itself so swapping to a different
+  // (working) icon in the admin panel clears a stale error on reload.
+  const [iconError, setIconError] = useState(false);
+  useEffect(() => { setIconError(false); }, [module.iconUrl]);
+  const showIcon = module.iconUrl && !iconError;
+
   const statuses = module.lessons.map(l => getLessonStatus(l.id, lessonOrder, completedLessons));
   const points   = nodePositions(module.lessons.length);
   const pathD    = smoothPath(points);
@@ -193,42 +201,54 @@ function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleI
 
   return (
     <div className="mb-10">
-      <div
-        className="sticky top-14 lg:top-6 z-10 mx-4 rounded-2xl p-4 mb-6"
-        style={{ background: module.color, boxShadow: `0 8px 20px -6px ${module.color}80` }}
-      >
-        <div className="flex items-center gap-3 mb-1">
-          {module.iconUrl && (
-            <img
+      <div className="sticky top-14 lg:top-6 z-10 mx-4 mb-6">
+        {showIcon && (
+          <div className="relative z-10 flex justify-center pointer-events-none -mb-10">
+            <motion.img
               src={module.iconUrl}
               alt=""
-              className="w-10 h-10 rounded-xl object-cover shrink-0"
-              style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.25)', border: '1.5px solid rgba(255,255,255,0.3)' }}
+              draggable={false}
+              onError={() => setIconError(true)}
+              initial={{ opacity: 0, scale: 0.5, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              className="w-[90px] h-[90px] object-contain select-none"
+              style={{
+                filter: bright
+                  ? 'drop-shadow(0 2px 3px rgba(15,23,42,0.18)) drop-shadow(0 10px 14px rgba(15,23,42,0.22))'
+                  : 'drop-shadow(0 3px 4px rgba(0,0,0,0.45)) drop-shadow(0 14px 18px rgba(0,0,0,0.5))',
+              }}
             />
-          )}
-          <div className="flex-1 min-w-0">
+          </div>
+        )}
+
+        <div
+          className={`rounded-2xl px-4 pb-4 ${showIcon ? 'pt-14' : 'pt-4'}`}
+          style={{ background: module.color, boxShadow: `0 8px 20px -6px ${module.color}80` }}
+        >
+          <div className="mb-1">
             <p className="text-white/70 text-[11px] font-extrabold uppercase tracking-widest">
               {t('learn.moduleLabel', { n: moduleIndex + 1 })}
             </p>
             <p className="text-white font-extrabold text-xl leading-tight">{module.title}</p>
           </div>
-        </div>
-        {partner && (
-          <p className="flex items-center gap-1.5 text-white/85 text-[11px] font-semibold mb-2">
-            {partner.logoUrl && <img src={partner.logoUrl} alt="" className="w-4 h-4 rounded-full object-cover" />}
-            {t('learn.courseFrom', { partner: partner.name })}
-          </p>
-        )}
-        <div className="flex items-center gap-3 mt-2">
-          <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.3)' }}>
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${pct}%` }}
-              transition={{ duration: 0.7, ease: 'easeOut' }}
-              className="h-full rounded-full bg-white"
-            />
+          {partner && (
+            <p className="flex items-center gap-1.5 text-white/85 text-[11px] font-semibold mb-2">
+              {partner.logoUrl && <img src={partner.logoUrl} alt="" className="w-4 h-4 rounded-full object-cover" />}
+              {t('learn.courseFrom', { partner: partner.name })}
+            </p>
+          )}
+          <div className="flex items-center gap-3 mt-2">
+            <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.3)' }}>
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${pct}%` }}
+                transition={{ duration: 0.7, ease: 'easeOut' }}
+                className="h-full rounded-full bg-white"
+              />
+            </div>
+            <span className="text-white font-bold text-sm shrink-0">{completedCount}/{total}</span>
           </div>
-          <span className="text-white font-bold text-sm shrink-0">{completedCount}/{total}</span>
         </div>
       </div>
 
