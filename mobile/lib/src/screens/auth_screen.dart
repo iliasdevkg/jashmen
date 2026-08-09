@@ -5,6 +5,7 @@ import '../api/api_client.dart';
 import '../core/i18n.dart';
 import '../core/theme.dart';
 import '../state/providers.dart';
+import '../widgets/google_sign_in_button.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -184,6 +185,13 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                                   strokeWidth: 2.5, color: Colors.white),
                             )
                           : Text(_isSignup ? s.t('auth.signup') : s.t('auth.login')),
+                    ),
+
+                    // Renders nothing unless GOOGLE_SERVER_CLIENT_ID was
+                    // provided at build time — see docs/GOOGLE_SIGNIN.md.
+                    GoogleSignInButton(
+                      enabled: !_busy,
+                      onError: (msg) => setState(() => _serverError = msg),
                     ),
 
                     const SizedBox(height: Gap.lg),

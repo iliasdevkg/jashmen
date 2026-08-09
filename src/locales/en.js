@@ -21,6 +21,9 @@ export const en = {
 
   // ── auth ──
   'auth.tagline': 'Financial literacy — like a game',
+  'auth.or': 'or',
+  'auth.google': 'Continue with Google',
+  'auth.googleFailed': 'Google sign-in failed',
   'auth.login': 'Log in',
   'auth.signup': 'Sign up',
   'auth.namePlaceholder': 'Your name',

@@ -68,6 +68,10 @@ const Map<String, Map<String, String>> _strings = {
     'auth.emailRequired': 'Электрондук почтаңызды жазыңыз',
     'auth.emailInvalid': 'Электрондук почта туура эмес',
     'auth.passwordShort': 'Сыр сөз кеминде 8 белгиден турушу керек',
+    'auth.or': 'же',
+    'auth.google': 'Google менен улантуу',
+    'auth.googleFailed': 'Google аркылуу кирүү ишке ашкан жок',
+    'auth.googleCancelled': 'Кирүү жокко чыгарылды',
 
     'learn.title': 'Окуу',
     'learn.noEnergyTitle': 'Энергия түгөндү',
@@ -153,6 +157,10 @@ const Map<String, Map<String, String>> _strings = {
     'auth.emailRequired': 'Введите электронную почту',
     'auth.emailInvalid': 'Некорректная электронная почта',
     'auth.passwordShort': 'Пароль минимум 8 символов',
+    'auth.or': 'или',
+    'auth.google': 'Продолжить с Google',
+    'auth.googleFailed': 'Не удалось войти через Google',
+    'auth.googleCancelled': 'Вход отменён',
 
     'learn.title': 'Учёба',
     'learn.noEnergyTitle': 'Энергия закончилась',
@@ -238,6 +246,10 @@ const Map<String, Map<String, String>> _strings = {
     'auth.emailRequired': 'Enter your email',
     'auth.emailInvalid': 'Invalid email',
     'auth.passwordShort': 'Password must be at least 8 characters',
+    'auth.or': 'or',
+    'auth.google': 'Continue with Google',
+    'auth.googleFailed': 'Google sign-in failed',
+    'auth.googleCancelled': 'Sign-in cancelled',
 
     'learn.title': 'Learn',
     'learn.noEnergyTitle': 'Out of energy',

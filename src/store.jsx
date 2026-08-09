@@ -115,6 +115,18 @@ export function StoreProvider({ children }) {
     return u;
   }, [startRefreshTimer]);
 
+  // Google sign-in lands here with an id_token; the server turns it into the
+  // same session login/signup produce, so from this point on there is no
+  // difference in how the session is held or refreshed.
+  const loginWithGoogle = useCallback(async (idToken) => {
+    const { token: t, user: u } = await api.apiGoogleAuth(idToken);
+    setToken(t);
+    setUser(u);
+    startRefreshTimer();
+    api.claimDaily(t).then(({ user: u2 }) => setUser(u2)).catch(() => {});
+    return u;
+  }, [startRefreshTimer]);
+
   const logout = useCallback(() => {
     sessionEpoch.current += 1; // invalidate any refresh response still in flight
     clearInterval(refreshTimer.current);
@@ -128,7 +140,7 @@ export function StoreProvider({ children }) {
 
   return (
     <BrightCtx.Provider value={{ bright, setBright }}>
-      <AuthCtx.Provider value={{ token, user, loading, state: user?.state || null, login, signup, logout, updateUser }}>
+      <AuthCtx.Provider value={{ token, user, loading, state: user?.state || null, login, signup, loginWithGoogle, logout, updateUser }}>
         <ContentCtx.Provider value={content}>
           {children}
         </ContentCtx.Provider>

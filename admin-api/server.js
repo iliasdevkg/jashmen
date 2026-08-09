@@ -27,6 +27,19 @@ const PORT = process.env.PORT || 3030;
 
 const app = express();
 app.disable('x-powered-by');
+
+// Two proxies sit in front of this process in production:
+//   client → agay's Nginx Proxy Manager → our nginx (:80) → here (:3030)
+// Each appends to X-Forwarded-For, so the header arrives as
+// "<client>, <npm-ip>" and req.ip must skip 2 hops to land on the real
+// client. Without this every request looks like it came from 127.0.0.1 and
+// the rate limiters in rateLimit.js would share one bucket across all
+// users — the first attacker would lock everyone out.
+//
+// Off Vercel only: on Vercel the platform sets this itself.
+if (!process.env.VERCEL) {
+  app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 2));
+}
 app.use(express.json({ limit: '100kb' }));
 // Reads the httpOnly refresh-token cookie into req.cookies for
 // /u/refresh, /u/logout, and their admin equivalents (auth.js/adminAuth.js
@@ -104,7 +117,10 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Сервер катасы, кайра аракет кылыңыз' });
 });
 
-if (!process.env.VERCEL) {
+// NODE_ENV=test skips the listener so a test can import the app and bind it
+// to its own random port — importing this module must not seize 3030 out
+// from under a dev server or a parallel test run.
+if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
   const server = app.listen(PORT, () => {
     console.log(`[server] JashMen API listening on http://localhost:${PORT}`);
   });

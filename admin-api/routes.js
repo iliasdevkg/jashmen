@@ -12,6 +12,8 @@ import {
   REFRESH_TOKEN_TTL_MS, REFRESH_COOKIE_NAME,
 } from './auth.js';
 import { setRefreshCookie, clearRefreshCookie } from './cookies.js';
+import { verifyGoogleIdToken, resolveGoogleUser, GoogleAuthError } from './googleAuth.js';
+import { authLimiter, signupLimiter } from './rateLimit.js';
 import * as db from './db.js';
 import {
   getContent, findLesson, findShopItem, findPrize,
@@ -66,6 +68,19 @@ router.get('/public/content', (req, res) => {
   res.json(getContent());
 });
 
+// Public client config. The Google client ID is deliberately served at
+// runtime rather than baked in as a VITE_* env var: the frontend is built
+// inside the Docker image, where no production env exists, so a build-time
+// variable would have to be a build arg baked into the image — meaning a new
+// image for every config change. A client ID is public by design (it ships
+// in the page anyway), so there is nothing to protect by hiding it.
+//
+// Empty googleClientId → the client hides the Google button entirely, and
+// email/password sign-in carries on.
+router.get('/public/config', (req, res) => {
+  res.json({ googleClientId: process.env.GOOGLE_CLIENT_ID || null });
+});
+
 router.get('/public/push-key', (req, res) => {
   res.json({ publicKey: getPublicKey() });
 });
@@ -81,7 +96,7 @@ router.get('/u/leaderboard', (req, res) => {
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
-router.post('/u/signup', async (req, res, next) => {
+router.post('/u/signup', signupLimiter, async (req, res, next) => {
   try {
     const { name, email, password, avatar } = req.body || {};
     if (!name?.trim() || !email?.trim() || !password) {
@@ -112,13 +127,24 @@ router.post('/u/signup', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/u/login', async (req, res, next) => {
+router.post('/u/login', authLimiter, async (req, res, next) => {
   try {
     const { email, password } = req.body || {};
     if (!email?.trim() || !password) {
       return res.status(400).json({ error: 'Бардык талааларды толтуруңуз' });
     }
     const user = db.findUserByEmail(email);
+
+    // Google-only accounts carry passwordHash: null (googleAuth.js). Guard
+    // before verifyPassword — bcrypt.compare against a null hash is not a
+    // meaningful "wrong password" check, and the message below is the one
+    // that actually helps: the account exists, just not with a password.
+    if (user && !user.passwordHash) {
+      return res.status(401).json({
+        error: 'Бул аккаунт Google аркылуу түзүлгөн — «Google менен кирүү» баскычын колдонуңуз',
+      });
+    }
+
     const ok = user && await verifyPassword(password, user.passwordHash);
     if (!ok) {
       return res.status(401).json({ error: 'Email же сырсөз туура эмес' });
@@ -127,6 +153,34 @@ router.post('/u/login', async (req, res, next) => {
     setRefreshCookie(res, REFRESH_COOKIE_NAME, refreshToken, REFRESH_TOKEN_TTL_MS);
     res.json({ token: signAccessToken(user.id), user: toPublicUser(user) });
   } catch (err) { next(err); }
+});
+
+// "Sign in with Google". Google proves the email; from there this issues the
+// *same* session as /u/login — same access JWT, same rotating refresh cookie
+// — so nothing downstream has a second code path to reason about.
+//
+// Sits under /u/ rather than a top-level /auth/ so it shares the user
+// namespace (and therefore the same cookie path) with login/signup/refresh.
+// The id_token is verified and dropped; it is never persisted or logged.
+router.post('/u/auth/google', authLimiter, async (req, res, next) => {
+  try {
+    const idToken = req.body?.idToken ?? req.body?.id_token;
+
+    const claims = await verifyGoogleIdToken(idToken);
+    const { user, created } = await resolveGoogleUser(claims, { defaultState });
+
+    const refreshToken = await issueRefreshToken(user.id);
+    setRefreshCookie(res, REFRESH_COOKIE_NAME, refreshToken, REFRESH_TOKEN_TTL_MS);
+    res.status(created ? 201 : 200).json({
+      token: signAccessToken(user.id),
+      user: toPublicUser(user),
+    });
+  } catch (err) {
+    if (err instanceof GoogleAuthError) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    next(err);
+  }
 });
 
 // Silently exchanges the httpOnly refresh cookie for a fresh access token

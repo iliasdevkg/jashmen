@@ -12,11 +12,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@react-oauth/google": "^0.13.5",
     "@vercel/blob": "^2.7.0",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
     "express": "^4.19.2",
+    "express-rate-limit": "^8.6.2",
     "framer-motion": "^11.2.0",
+    "google-auth-library": "^11.0.0",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.397.0",
     "multer": "^2.2.0",

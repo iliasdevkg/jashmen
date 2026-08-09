@@ -9,6 +9,7 @@
 // Everything past /login requires a valid admin token (requireAdmin).
 
 import { Router } from 'express';
+import { adminLoginLimiter } from './rateLimit.js';
 import {
   verifyAdminPassword, signAdminAccessToken, requireAdmin,
   issueAdminRefreshToken, refreshAdminAccessToken, revokeAdminRefreshToken,
@@ -27,7 +28,7 @@ function todayUTC() {
   return new Date().toISOString().slice(0, 10);
 }
 
-router.post('/login', async (req, res, next) => {
+router.post('/login', adminLoginLimiter, async (req, res, next) => {
   try {
     const { password } = req.body || {};
     if (!verifyAdminPassword(password)) {

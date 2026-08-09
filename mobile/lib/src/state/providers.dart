@@ -118,6 +118,12 @@ class AuthController extends StateNotifier<SessionState> {
     state = SessionSignedIn(user);
   }
 
+  /// Google sign-in: the server turns the id_token into the same session
+  /// login/signup produce, so nothing downstream changes.
+  Future<void> signInWithGoogle(String idToken) async {
+    state = SessionSignedIn(await _api.loginWithGoogle(idToken));
+  }
+
   Future<void> signOut() async {
     await _api.logout();
     state = const SessionSignedOut();

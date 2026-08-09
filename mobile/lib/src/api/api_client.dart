@@ -226,6 +226,21 @@ class ApiClient {
         },
       );
 
+  /// Exchanges a Google id_token for this app's own session. The server
+  /// verifies the token against Google's public keys and then issues the
+  /// same access JWT + refresh cookie the password path does, so callers
+  /// treat the result exactly like [login]'s.
+  Future<AppUser> loginWithGoogle(String idToken) => _run(
+        () => _dio.post('/u/auth/google',
+            data: {'idToken': idToken},
+            options: Options(extra: {'skipAuth': true})),
+        (res) {
+          final data = _asMap(res);
+          _saveToken(data['token'] as String);
+          return AppUser.fromJson((data['user'] as Map).cast<String, dynamic>());
+        },
+      );
+
   Future<void> logout() async {
     try {
       await _dio.post('/u/logout', options: Options(extra: {'skipAuth': true}));

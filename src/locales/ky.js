@@ -23,6 +23,9 @@ export const ky = {
 
   // ── auth ──
   'auth.tagline': 'Каржылык сабаттуулук — оюн сыяктуу',
+  'auth.or': 'же',
+  'auth.google': 'Google менен улантуу',
+  'auth.googleFailed': 'Google аркылуу кирүү ишке ашкан жок',
   'auth.login': 'Кирүү',
   'auth.signup': 'Катталуу',
   'auth.namePlaceholder': 'Атыңыз',

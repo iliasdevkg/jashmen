@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff } from 'lucide-react';
+import GoogleSignInButton from '../components/GoogleSignInButton.jsx';
 import { useAuth } from '../store.jsx';
 import { useI18n } from '../i18n.jsx';
 
@@ -150,6 +151,10 @@ export default function AuthPage() {
           >
             {loading ? t('common.loading') : mode === 'login' ? t('auth.login') : t('auth.createAccount')}
           </motion.button>
+
+          {/* Renders nothing unless the server reports a Google client ID,
+              so this is a no-op until GOOGLE_CLIENT_ID is configured. */}
+          <GoogleSignInButton disabled={loading} onError={setError} />
         </form>
       </motion.div>
     </div>

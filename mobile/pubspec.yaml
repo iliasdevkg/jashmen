@@ -36,6 +36,11 @@ dependencies:
   # policy to be reachable from inside the app, not just from the listing.
   url_launcher: ^6.3.1
 
+  # Sign in with Google. Yields an id_token that the backend verifies —
+  # exactly the same POST /u/auth/google the web client uses, so there is one
+  # server-side auth path, not two.
+  google_sign_in: ^6.2.2
+
   # Version string for the About row.
   package_info_plus: ^8.1.2
   intl: ^0.20.2

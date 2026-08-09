@@ -22,6 +22,9 @@ export const ru = {
 
   // ── auth ──
   'auth.tagline': 'Финансовая грамотность — как игра',
+  'auth.or': 'или',
+  'auth.google': 'Продолжить с Google',
+  'auth.googleFailed': 'Не удалось войти через Google',
   'auth.login': 'Войти',
   'auth.signup': 'Регистрация',
   'auth.namePlaceholder': 'Ваше имя',

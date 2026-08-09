@@ -28,6 +28,13 @@ async function req(method, path, body, token) {
 }
 
 export const fetchContent = () => req('GET', '/public/content');
+export const fetchPublicConfig = () => req('GET', '/public/config');
+
+// Exchanges a Google id_token for this app's own session. The server
+// verifies the token, then issues the same access JWT + refresh cookie the
+// password path does — so the caller treats the result exactly like
+// apiLogin's.
+export const apiGoogleAuth = (idToken) => req('POST', '/u/auth/google', { idToken });
 export const fetchLeaderboard = (n = 50) => req('GET', `/u/leaderboard?limit=${n}`);
 export const apiLogin = (email, password) => req('POST', '/u/login', { email, password });
 export const apiSignup = (name, email, password, avatar) =>
