@@ -240,6 +240,7 @@ function CardEditorRow({ card, index, total, onChange, onRemove, onMove, token }
 
 function LessonEditor({ token, moduleId, lesson, onDone, onCancel }) {
   const [title, setTitle] = useState(lesson?.title || '');
+  const [iconUrl, setIconUrl] = useState(lesson?.iconUrl || null);
   const [cards, setCards] = useState(lesson?.cards?.length ? lesson.cards : lesson?.questions?.map(q => ({ type: 'quiz', ...q })) || []);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -265,8 +266,8 @@ function LessonEditor({ token, moduleId, lesson, onDone, onCancel }) {
     }
     setSaving(true);
     try {
-      if (lesson) await api.updateLesson(token, lesson.id, { title: title.trim(), cards });
-      else await api.createLesson(token, moduleId, { title: title.trim(), cards });
+      if (lesson) await api.updateLesson(token, lesson.id, { title: title.trim(), cards, iconUrl });
+      else await api.createLesson(token, moduleId, { title: title.trim(), cards, iconUrl });
       onDone();
     } catch (err) {
       setError(err.message);
@@ -279,6 +280,10 @@ function LessonEditor({ token, moduleId, lesson, onDone, onCancel }) {
     <Card className="flex flex-col gap-4">
       <Field label="Сабактын аталышы">
         <TextInput value={title} onChange={e => setTitle(e.target.value)} placeholder="Мис. Акчанын тарыхы" />
+      </Field>
+
+      <Field label="Сабактын иконкасы (милдеттүү эмес)">
+        <OptionalImageUpload token={token} imageUrl={iconUrl} onChange={setIconUrl} />
       </Field>
 
       <div className="flex flex-col gap-3">
@@ -453,6 +458,14 @@ export default function LessonsModule({ token, content, reload }) {
                 <div className="flex flex-col gap-2">
                   {selectedModule.lessons.map(lesson => (
                     <div key={lesson.id} className="flex items-center gap-3 px-4 py-3 rounded-xl" style={{ background: '#12141c', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div
+                        className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden"
+                        style={{ background: '#0b1220', border: '1px solid #1e293b' }}
+                      >
+                        {lesson.iconUrl
+                          ? <img src={lesson.iconUrl} alt="" className="w-full h-full object-contain" />
+                          : <BookOpen size={14} color="#475569" />}
+                      </div>
                       <span className="flex-1 min-w-0 text-sm font-semibold text-white truncate">{lesson.title}</span>
                       <span className="text-[10px] text-slate-500 shrink-0">{(lesson.cards?.length ?? lesson.questions.length)} карта</span>
                       <button onClick={() => setEditingLesson(lesson)} className="text-xs font-semibold" style={{ color: '#1CB0F6' }}>Түзөтүү</button>

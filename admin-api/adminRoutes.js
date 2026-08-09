@@ -108,12 +108,12 @@ router.delete('/modules/:id', async (req, res, next) => {
 
 router.post('/modules/:id/lessons', async (req, res, next) => {
   try {
-    const { title, cards } = req.body || {};
+    const { title, cards, iconUrl } = req.body || {};
     if (!title?.trim()) return res.status(400).json({ error: 'Сабактын аталышы керек' });
     if (!Array.isArray(cards) || cards.length === 0) {
       return res.status(400).json({ error: 'Жок дегенде бир карта керек' });
     }
-    res.status(201).json(await content.addLesson(req.params.id, { title: title.trim(), cards }));
+    res.status(201).json(await content.addLesson(req.params.id, { title: title.trim(), cards, iconUrl }));
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
@@ -191,9 +191,9 @@ router.put('/limits', async (req, res, next) => {
 
 router.post('/leagues', async (req, res, next) => {
   try {
-    const { name, emoji, color, minXp } = req.body || {};
+    const { name, iconUrl, color, minXp } = req.body || {};
     if (!name?.trim()) return res.status(400).json({ error: 'Лиганын аты керек' });
-    res.status(201).json(await content.addLeague({ name: name.trim(), emoji, color, minXp }));
+    res.status(201).json(await content.addLeague({ name: name.trim(), iconUrl, color, minXp }));
   } catch (err) { next(err); }
 });
 
@@ -211,9 +211,9 @@ router.delete('/leagues/:id', async (req, res, next) => {
 
 router.post('/achievements', async (req, res, next) => {
   try {
-    const { emoji, title, desc, xp, rule } = req.body || {};
+    const { iconUrl, title, desc, xp, rule } = req.body || {};
     if (!title?.trim()) return res.status(400).json({ error: 'Жетишкендиктин аты керек' });
-    res.status(201).json(await content.addAchievement({ emoji, title: title.trim(), desc, xp, rule }));
+    res.status(201).json(await content.addAchievement({ iconUrl, title: title.trim(), desc, xp, rule }));
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 

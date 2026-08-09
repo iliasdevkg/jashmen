@@ -7,14 +7,32 @@ import { useI18n } from '../i18n.jsx';
 import { getLessonOrder, getLessonStatus, computeLiveEnergy, formatCountdown, quizCountOf } from '../utils.js';
 import LessonPreviewSheet from '../components/LessonPreviewSheet.jsx';
 
-// Placeholder path-node glyph — a plain lucide icon standing in for the
-// custom glossy GameStar token (src/components/icons/GameStar.jsx) while
-// the node-type art direction is still being decided. Swap back to
-// <GameStar/> once that's settled; nothing else about the node components
-// below needs to change. The checkpoint card uses GraduationCap directly
-// since it's a visually distinct node type, not a shared glyph slot.
-function LessonGlyph({ size = 26 }) {
-  return <Dumbbell size={size} color="white" strokeWidth={2.5} />;
+// Path-node glyph. An admin-uploaded per-lesson icon (contentStore.js#
+// addLesson) wins when it loads; otherwise `fallback` — a plain lucide icon
+// standing in for the custom glossy GameStar token
+// (src/components/icons/GameStar.jsx) while the node-type art direction is
+// still being decided. Swap the fallback back to <GameStar/> once that's
+// settled; nothing else about the node components below needs to change.
+//
+// A broken/404 upload silently falls back rather than leaving a torn-image
+// box on the node — same treatment the module header gives its own iconUrl.
+// Keyed off iconUrl so swapping to a different image re-arms the fallback.
+function LessonGlyph({ size = 26, iconUrl, fallback: Fallback = Dumbbell }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [iconUrl]);
+
+  if (iconUrl && !failed) {
+    return (
+      <img
+        src={iconUrl}
+        alt=""
+        onError={() => setFailed(true)}
+        className="object-contain"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return <Fallback size={size} color="white" strokeWidth={2.5} />;
 }
 
 // ── Path geometry ────────────────────────────────────────────────────────
@@ -131,7 +149,7 @@ function LessonNode({ lesson, status, moduleColor, x, y, bright, partnerLogoUrl,
         >
         {isLocked
           ? <Lock size={26} color="#64748b" strokeWidth={2.5} />
-          : <LessonGlyph />}
+          : <LessonGlyph iconUrl={lesson.iconUrl} />}
 
         {isCompleted && (
           <span
@@ -211,7 +229,7 @@ function NextLessonNode({ lesson, moduleColor, x, y, energyEmpty, bright, partne
             style={sphereStyle(moduleColor, false)}
             aria-label={lesson.title}
           >
-            <LessonGlyph size={32} />
+            <LessonGlyph size={32} iconUrl={lesson.iconUrl} />
             {/* Diagonal glass sheen. */}
             <span
               className="absolute inset-0 rounded-[18px] pointer-events-none"
@@ -284,7 +302,7 @@ function CheckpointNode({ lesson, status, moduleColor, x, y, bright, onOpenLesso
         >
           {isLocked
             ? <Lock size={20} color="#64748b" strokeWidth={2.5} />
-            : <GraduationCap size={22} color="white" strokeWidth={2.5} />}
+            : <LessonGlyph size={22} iconUrl={lesson.iconUrl} fallback={GraduationCap} />}
 
           {isCompleted && (
             <span

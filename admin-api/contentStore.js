@@ -48,15 +48,27 @@ const LEGACY_ACHIEVEMENT_RULES = {
   expert:  { type: 'all_lessons_completed' },
 };
 
+// Badges used to be an `emoji` string; they're now an admin-uploaded image
+// (`iconUrl`), with a vector fallback in the app when nothing is uploaded.
+// Any content.json written before that change still carries `emoji`, so we
+// drop it on load — same idempotent one-time-migration-on-every-load shape
+// as the rule backfill above. Dropping rather than converting is deliberate:
+// an emoji is not an image URL, and leaving it in would let a stale field
+// quietly resurface in a future renderer.
+function withoutEmoji(entity) {
+  const { emoji: _legacy, ...rest } = entity;
+  return { ...rest, iconUrl: rest.iconUrl ?? null };
+}
+
 function withDefaults(c) {
-  const achievements = (c.achievements || []).map(a =>
-    a.rule ? a : { ...a, rule: LEGACY_ACHIEVEMENT_RULES[a.id] || { type: 'lessons_completed', value: 1 } }
-  );
+  const achievements = (c.achievements || [])
+    .map(a => (a.rule ? a : { ...a, rule: LEGACY_ACHIEVEMENT_RULES[a.id] || { type: 'lessons_completed', value: 1 } }))
+    .map(withoutEmoji);
   return {
     modules: c.modules || [],
-    leagues: c.leagues || [],
+    leagues: (c.leagues || []).map(withoutEmoji),
     achievements,
-    shop_items: c.shop_items || [],
+    shop_items: (c.shop_items || []).map(withoutEmoji),
     partners: c.partners || [],
     prizes: c.prizes || [],
     retentionRules: c.retentionRules || [],
@@ -235,12 +247,16 @@ function questionsFromCards(cards) {
     .map(c => ({ q: c.q, opts: c.opts, a: c.a }));
 }
 
-export async function addLesson(moduleId, { title, cards }) {
+export async function addLesson(moduleId, { title, cards, iconUrl }) {
   const mod = state.modules.find(m => m.id === moduleId);
   if (!mod) throw new Error('Модуль табылган жок');
   const lesson = {
     id: `${moduleId}-l${mod.lessons.length + 1}-${randomUUID().slice(0, 4)}`,
     title,
+    // Per-lesson icon, uploaded from the admin panel. null → the app falls
+    // back to its own vector icon for the lesson node, same convention as
+    // modules/leagues/achievements.
+    iconUrl: sanitizeIconUrl(iconUrl),
     cards: cards || [],
     questions: questionsFromCards(cards),
   };
@@ -253,6 +269,9 @@ export async function updateLesson(lessonId, patch) {
   const found = findLesson(lessonId);
   if (!found) throw new Error('Сабак табылган жок');
   const { id: _drop, ...safe } = patch || {};
+  // Same guard as leagues/achievements: never let an arbitrary string through
+  // as an image source — only a site-relative path or an http(s) URL.
+  if ('iconUrl' in safe) safe.iconUrl = sanitizeIconUrl(safe.iconUrl);
   Object.assign(found.lesson, safe);
   if (safe.cards) found.lesson.questions = questionsFromCards(safe.cards);
   await persist();
@@ -333,13 +352,27 @@ export async function setLimits(patch) {
   return state.limits;
 }
 
+// Badge art ends up in an <img src> (and an SVG <image href>) in the app,
+// so only the two shapes saveUploadedFile actually produces are accepted:
+// a site-relative /admin/api/uploads/… path, or an absolute http(s) Blob
+// CDN URL. Everything else — javascript:, data:, protocol-relative — is
+// dropped to null rather than rejected, so a bad paste costs the admin a
+// missing image, not a failed save.
+function sanitizeIconUrl(url) {
+  if (url == null || url === '') return null;
+  const s = String(url).trim();
+  if (s.startsWith('/') && !s.startsWith('//')) return s.slice(0, 2048);
+  if (/^https?:\/\//i.test(s)) return s.slice(0, 2048);
+  return null;
+}
+
 // ── Leagues — unlimited, admin-defined ──────────────────────────────────
 
-export async function addLeague({ name, emoji, color, minXp }) {
+export async function addLeague({ name, iconUrl, color, minXp }) {
   const league = {
     id: randomUUID(),
     name,
-    emoji: emoji || '🏅',
+    iconUrl: sanitizeIconUrl(iconUrl),
     color: color || '#1CB0F6',
     minXp: Math.max(0, parseInt(minXp, 10) || 0),
   };
@@ -352,8 +385,9 @@ export async function addLeague({ name, emoji, color, minXp }) {
 export async function updateLeague(id, patch) {
   const league = state.leagues.find(l => l.id === id);
   if (!league) throw new Error('Лига табылган жок');
-  const { id: _drop, ...safe } = patch || {};
+  const { id: _drop, emoji: _legacy, ...safe } = patch || {};
   if (safe.minXp != null) safe.minXp = Math.max(0, parseInt(safe.minXp, 10) || 0);
+  if ('iconUrl' in safe) safe.iconUrl = sanitizeIconUrl(safe.iconUrl);
   Object.assign(league, safe);
   state.leagues.sort((a, b) => a.minXp - b.minXp);
   await persist();
@@ -381,10 +415,10 @@ function sanitizeRule(rule) {
     : { type: rule.type };
 }
 
-export async function addAchievement({ emoji, title, desc, xp, rule }) {
+export async function addAchievement({ iconUrl, title, desc, xp, rule }) {
   const achievement = {
     id: randomUUID(),
-    emoji: emoji || '🏅',
+    iconUrl: sanitizeIconUrl(iconUrl),
     title,
     desc: desc || '',
     xp: Math.max(0, parseInt(xp, 10) || 0),
@@ -398,9 +432,10 @@ export async function addAchievement({ emoji, title, desc, xp, rule }) {
 export async function updateAchievement(id, patch) {
   const achievement = state.achievements.find(a => a.id === id);
   if (!achievement) throw new Error('Жетишкендик табылган жок');
-  const { id: _drop, ...safe } = patch || {};
+  const { id: _drop, emoji: _legacy, ...safe } = patch || {};
   if (safe.xp != null) safe.xp = Math.max(0, parseInt(safe.xp, 10) || 0);
   if (safe.rule) safe.rule = sanitizeRule(safe.rule);
+  if ('iconUrl' in safe) safe.iconUrl = sanitizeIconUrl(safe.iconUrl);
   Object.assign(achievement, safe);
   await persist();
   return achievement;
