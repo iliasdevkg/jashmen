@@ -65,6 +65,14 @@ const DIST_DIR = path.join(__dirname, '..', 'dist');
 if (!process.env.VERCEL && fs.existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
 
+  // Extension-less alias for the privacy policy. Both app stores require a
+  // public privacy-policy URL and fetch it with a plain crawler that runs no
+  // JavaScript — without this, /privacy would fall through to the SPA shell
+  // below and a reviewer would see the login wall instead of the policy.
+  app.get('/privacy', (req, res) => {
+    res.sendFile(path.join(DIST_DIR, 'privacy.html'));
+  });
+
   // A request for a *file* that express.static didn't find is a genuine 404,
   // not a client-side route — no route in src/App.jsx has a dot in it. Without
   // this, the SPA fallbacks below answer 200 + index.html for anything, which

@@ -1,0 +1,64 @@
+name: jashmen
+description: "JashMen — каржы сабаттуулугун оюн аркылуу үйрөн."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State. Riverpod over Provider/Bloc because most of this app's state is
+  # "async data from one endpoint, cached, invalidated on write" — which is
+  # exactly what AsyncNotifier models without ceremony.
+  flutter_riverpod: ^2.6.1
+
+  # HTTP + cookies. The refresh token is an httpOnly cookie the browser
+  # handles for free; on mobile we have to persist and replay it ourselves,
+  # so the cookie jar is not optional — without it every cold start logs the
+  # user out. See lib/src/api/api_client.dart.
+  dio: ^5.7.0
+  cookie_jar: ^4.0.8
+  dio_cookie_manager: ^3.1.1
+  path_provider: ^2.1.5
+
+  # Access token (15-minute TTL) lives in the keychain/keystore, not in
+  # SharedPreferences.
+  flutter_secure_storage: ^9.2.2
+
+  cached_network_image: ^3.4.1
+
+  # Opens the privacy policy in the system browser. Both stores require the
+  # policy to be reachable from inside the app, not just from the listing.
+  url_launcher: ^6.3.1
+
+  # Version string for the About row.
+  package_info_plus: ^8.1.2
+  intl: ^0.20.2
+  shared_preferences: ^2.3.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.2
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+
+# Store icon generated from the web app's logo so the two brands match.
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/logo.png"
+  remove_alpha_ios: true
+  adaptive_icon_background: "#0F172A"
+  adaptive_icon_foreground: "assets/images/logo.png"

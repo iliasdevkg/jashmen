@@ -8,3 +8,14 @@ dist/
 admin-api/data/
 .vite/
 .env*
+
+# Flutter
+mobile/build/
+mobile/.dart_tool/
+mobile/ios/Pods/
+mobile/ios/Flutter/ephemeral/
+mobile/ios/.symlinks/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/key.properties
+mobile/.flutter-plugins-dependencies

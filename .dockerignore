@@ -1,5 +1,8 @@
 node_modules
 dist
+# The Flutter client is a separate artifact — it ships to the app stores, not
+# to this server. Keeping it out of the build context saves ~4MB per build.
+mobile
 admin-api/data
 admin-api/.env
 .env
