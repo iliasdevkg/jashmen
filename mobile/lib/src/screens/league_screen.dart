@@ -24,16 +24,19 @@ import '../models/user_state.dart';
 import '../state/providers.dart';
 import '../widgets/states.dart';
 
-// ── Design tokens, taken verbatim from the mockup ─────────────────────────
+// ── Design tokens ─────────────────────────────────────────────────────────
+//
+// Split in two on purpose:
+//
+//   _C  — brand and medal colours. A gold medal is gold on any background,
+//         so these are the same in both themes.
+//   _Pal — surfaces, lines and text, which have to flip.
+//
+// The light values are the app's own bright-mode palette (theme.dart), so
+// this screen sits in the same world as the rest of the app rather than
+// inventing a second light theme.
 class _C {
   const _C._();
-  static const page = Color(0xFF0A0E18);
-  static const bar = Color(0xFF070B13);
-  static const card = Color(0xFF0D1220);
-  static const line = Color(0xFF161D2C);
-  static const lockBorder = Color(0xFF1B2334);
-  static const muted = Color(0xFF8A93A6);
-  static const faint = Color(0xFF6B7386);
   static const blue = Color(0xFF3B82F6);
   static const cyan = Color(0xFF38BDF8);
   static const gold = Color(0xFFEAB308);
@@ -45,8 +48,84 @@ class _C {
   static const bronze = Color(0xFFD97B3F);
   static const bronzeDeep = Color(0xFFB45F2A);
   static const bronzeText = Color(0xFF5C2E0E);
-  static const rankChip = Color(0xFF1A2132);
-  static const dotOff = Color(0xFF2A3142);
+  static const fire = Color(0xFFF97316);
+}
+
+class _Pal {
+  const _Pal({
+    required this.bright,
+    required this.page,
+    required this.bar,
+    required this.card,
+    required this.line,
+    required this.lockBorder,
+    required this.text,
+    required this.muted,
+    required this.faint,
+    required this.rankChip,
+    required this.dotOff,
+    required this.lockTop,
+    required this.lockBottom,
+    required this.lockIcon,
+    required this.chevronBg,
+    required this.chevronFg,
+    required this.glowOpacity,
+  });
+
+  final bool bright;
+  final Color page, bar, card, line, lockBorder;
+  final Color text, muted, faint;
+  final Color rankChip, dotOff;
+  final Color lockTop, lockBottom, lockIcon;
+  final Color chevronBg, chevronFg;
+
+  /// The pulsing halo is the design's signature, but a blue glow on a white
+  /// page reads as blur rather than light — so it's dialled down rather than
+  /// dropped, keeping the "this is your rank" cue in both themes.
+  final double glowOpacity;
+
+  static const dark = _Pal(
+    bright: false,
+    page: Color(0xFF0A0E18),
+    bar: Color(0xFF070B13),
+    card: Color(0xFF0D1220),
+    line: Color(0xFF161D2C),
+    lockBorder: Color(0xFF1B2334),
+    text: Colors.white,
+    muted: Color(0xFF8A93A6),
+    faint: Color(0xFF6B7386),
+    rankChip: Color(0xFF1A2132),
+    dotOff: Color(0xFF2A3142),
+    lockTop: Color(0xFF2A3142),
+    lockBottom: Color(0xFF151A26),
+    lockIcon: Color(0xFF4B5568),
+    chevronBg: Color(0xD9141A28),
+    chevronFg: Color(0xFFC8D0DE),
+    glowOpacity: 1,
+  );
+
+  static const light = _Pal(
+    bright: true,
+    page: Color(0xFFF8FAFC),
+    bar: Color(0xFFFFFFFF),
+    card: Color(0xFFFFFFFF),
+    line: Color(0xFFE2E8F0),
+    lockBorder: Color(0xFFE2E8F0),
+    text: Color(0xFF0F172A),
+    muted: Color(0xFF64748B),
+    faint: Color(0xFF94A3B8),
+    rankChip: Color(0xFFF1F5F9),
+    dotOff: Color(0xFFCBD5E1),
+    lockTop: Color(0xFFE2E8F0),
+    lockBottom: Color(0xFFCBD5E1),
+    lockIcon: Color(0xFF94A3B8),
+    chevronBg: Color(0xF2FFFFFF),
+    chevronFg: Color(0xFF475569),
+    glowOpacity: 0.45,
+  );
+
+  static _Pal of(WidgetRef ref) =>
+      ref.watch(brightModeProvider) ? light : dark;
 }
 
 /// clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%)
@@ -101,13 +180,14 @@ class LeagueScreen extends ConsumerWidget {
     final content = ref.watch(contentProvider);
     final session = ref.watch(authProvider);
     final me = session is SessionSignedIn ? session.user : null;
+    final p = _Pal.of(ref);
 
     return Scaffold(
-      backgroundColor: _C.page,
+      backgroundColor: p.page,
       body: SafeArea(
         bottom: false,
         child: RefreshIndicator(
-          backgroundColor: _C.card,
+          backgroundColor: p.card,
           color: _C.blue,
           onRefresh: () async {
             ref.invalidate(leaderboardProvider);
@@ -192,6 +272,7 @@ class _TopBar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final content = ref.watch(contentProvider);
+    final p = _Pal.of(ref);
     final st = me?.state;
     final energy = computeLiveEnergy(
       st,
@@ -199,15 +280,26 @@ class _TopBar extends ConsumerWidget {
     );
 
     return Container(
-      color: _C.bar,
+      color: p.bar,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      // A white bar needs a hairline against a near-white page; the dark
+      // theme already separates by value alone.
+      foregroundDecoration: p.bright
+          ? BoxDecoration(border: Border(bottom: BorderSide(color: p.line)))
+          : null,
       child: Row(
         children: [
           Image.asset('assets/images/logo.png',
               width: 34, height: 34, excludeFromSemantics: true),
           const SizedBox(width: 8),
-          Image.asset('assets/images/wordmark_white.png',
-              height: 13, fit: BoxFit.contain, excludeFromSemantics: true),
+          Image.asset(
+            p.bright
+                ? 'assets/images/wordmark_blue.png'
+                : 'assets/images/wordmark_white.png',
+            height: 13,
+            fit: BoxFit.contain,
+            excludeFromSemantics: true,
+          ),
           const SizedBox(width: 8),
           // Expanded, not Spacer + Flexible: a Spacer would claim the free
           // space first and squeeze the chips into a strip narrower than
@@ -221,33 +313,25 @@ class _TopBar extends ConsumerWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  const _Chip(
-                    icon: Icons.workspace_premium_rounded,
-                    border: Color(0xFF8A7A1E),
-                    bg: Color(0xFF191507),
-                    tint: _C.gold,
-                  ),
+                  _Chip(pal: p, icon: Icons.workspace_premium_rounded, tint: _C.gold),
                   const SizedBox(width: 7),
                   _Chip(
+                    pal: p,
                     icon: Icons.local_fire_department_rounded,
-                    border: const Color(0xFF7C3F12),
-                    bg: const Color(0xFF1A0F06),
-                    tint: const Color(0xFFF97316),
+                    tint: _C.fire,
                     value: '${st?.streak ?? 0}',
                   ),
                   const SizedBox(width: 7),
                   _Chip(
+                    pal: p,
                     icon: Icons.monetization_on_rounded,
-                    border: const Color(0xFF6B6B2A),
-                    bg: const Color(0xFF15150A),
-                    tint: const Color(0xFFD4C24A),
+                    tint: const Color(0xFFD4A72C),
                     value: '${st?.coins ?? 0}',
                   ),
                   const SizedBox(width: 7),
                   _Chip(
+                    pal: p,
                     icon: Icons.bolt_rounded,
-                    border: const Color(0xFF1D4ED8),
-                    bg: const Color(0xFF0A1526),
                     tint: _C.cyan,
                     value: '${energy.remaining}',
                   ),
@@ -263,38 +347,50 @@ class _TopBar extends ConsumerWidget {
 
 class _Chip extends StatelessWidget {
   const _Chip({
+    required this.pal,
     required this.icon,
-    required this.border,
-    required this.bg,
     required this.tint,
     this.value,
   });
 
+  final _Pal pal;
   final IconData icon;
-  final Color border, bg, tint;
+  final Color tint;
   final String? value;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: EdgeInsets.symmetric(horizontal: value == null ? 10 : 12, vertical: 5),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: border),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16, color: tint),
-            if (value != null) ...[
-              const SizedBox(width: 5),
-              Text(value!,
-                  style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white)),
-            ],
+  Widget build(BuildContext context) {
+    // The mockup hand-picked a near-black fill and a dim border per chip.
+    // Deriving both from the accent reproduces that in dark and gives a
+    // matching pale-tint treatment in light, without a second colour table.
+    final bg = pal.bright
+        ? Color.alphaBlend(tint.withValues(alpha: 0.10), pal.bar)
+        : Color.alphaBlend(tint.withValues(alpha: 0.10), const Color(0xFF0A0A0A));
+    final border = pal.bright
+        ? tint.withValues(alpha: 0.35)
+        : Color.alphaBlend(tint.withValues(alpha: 0.55), Colors.black);
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: value == null ? 10 : 12, vertical: 5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: tint),
+          if (value != null) ...[
+            const SizedBox(width: 5),
+            Text(value!,
+                style: TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w700, color: pal.text)),
           ],
-        ),
-      );
+        ],
+      ),
+    );
+  }
 }
 
 // ── Rank carousel ─────────────────────────────────────────────────────────
@@ -351,6 +447,7 @@ class _RankCarouselState extends ConsumerState<_RankCarousel> {
   @override
   Widget build(BuildContext context) {
     final canScrollRight = _page < widget.leagues.length - 1;
+    final p = _Pal.of(ref);
 
     return Padding(
       padding: const EdgeInsets.only(top: 16, bottom: 8),
@@ -386,13 +483,13 @@ class _RankCarouselState extends ConsumerState<_RankCarousel> {
                         child: Container(
                           width: 44,
                           height: 56,
-                          decoration: const BoxDecoration(
-                            color: Color(0xD9141A28),
-                            borderRadius: BorderRadius.horizontal(
+                          decoration: BoxDecoration(
+                            color: p.chevronBg,
+                            borderRadius: const BorderRadius.horizontal(
                                 left: Radius.circular(28)),
                           ),
-                          child: const Icon(Icons.chevron_right_rounded,
-                              color: Color(0xFFC8D0DE)),
+                          child: Icon(Icons.chevron_right_rounded,
+                              color: p.chevronFg),
                         ),
                       ),
                     ),
@@ -411,7 +508,7 @@ class _RankCarouselState extends ConsumerState<_RankCarousel> {
                   width: i == _page ? 22 : 6,
                   height: 6,
                   decoration: BoxDecoration(
-                    color: i == _page ? _C.blue : _C.dotOff,
+                    color: i == _page ? _C.blue : p.dotOff,
                     borderRadius: BorderRadius.circular(3),
                   ),
                 ),
@@ -439,6 +536,7 @@ class _RankCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = StringsScope.of(context);
+    final p = _Pal.of(ref);
     final tint = _parseHex(league.color);
 
     final badge = ClipPath(
@@ -456,15 +554,15 @@ class _RankCard extends ConsumerWidget {
                   ],
                   stops: const [0, 0.7],
                 )
-              : const LinearGradient(
+              : LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Color(0xFF2A3142), Color(0xFF151A26)],
+                  colors: [p.lockTop, p.lockBottom],
                 ),
         ),
         alignment: Alignment.center,
         child: !unlocked
-            ? Icon(Icons.lock_rounded, size: 26, color: const Color(0xFF4B5568))
+            ? Icon(Icons.lock_rounded, size: 26, color: p.lockIcon)
             : league.iconUrl != null
                 ? Padding(
                     padding: const EdgeInsets.all(22),
@@ -486,17 +584,22 @@ class _RankCard extends ConsumerWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: isCurrent ? _C.blue : _C.lockBorder,
+          color: isCurrent ? _C.blue : p.lockBorder,
           width: isCurrent ? 1.5 : 1,
         ),
+        // The current card's deep-blue wash is what lifts it off the page;
+        // on light it becomes a pale tint of the same hue rather than a
+        // near-black block.
         gradient: isCurrent
-            ? const LinearGradient(
+            ? LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Color(0xFF0E1A33), Color(0xFF0A1122)],
+                colors: p.bright
+                    ? [const Color(0xFFEFF6FF), const Color(0xFFDBEAFE)]
+                    : [const Color(0xFF0E1A33), const Color(0xFF0A1122)],
               )
             : null,
-        color: isCurrent ? null : _C.card,
+        color: isCurrent ? null : p.card,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -512,7 +615,7 @@ class _RankCard extends ConsumerWidget {
               fontSize: isCurrent ? 15 : 13,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.5,
-              color: isCurrent ? Colors.white : _C.muted,
+              color: isCurrent ? p.text : p.muted,
             ),
           ),
           const SizedBox(height: 4),
@@ -521,7 +624,7 @@ class _RankCard extends ConsumerWidget {
             style: TextStyle(
               fontSize: isCurrent ? 13 : 12,
               fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w600,
-              color: isCurrent ? _C.blue : _C.faint,
+              color: isCurrent ? _C.blue : p.faint,
             ),
           ),
         ],
@@ -555,10 +658,12 @@ class _GlowState extends ConsumerState<_Glow>
   @override
   Widget build(BuildContext context) {
     final animate = ref.watch(userStateProvider)?.settings.animations ?? true;
+    final k = _Pal.of(ref).glowOpacity;
+
     if (!animate) {
       return DecoratedBox(
         decoration: BoxDecoration(boxShadow: [
-          BoxShadow(color: _C.blue.withValues(alpha: 0.45), blurRadius: 24),
+          BoxShadow(color: _C.blue.withValues(alpha: 0.45 * k), blurRadius: 24),
         ]),
         child: widget.child,
       );
@@ -571,7 +676,7 @@ class _GlowState extends ConsumerState<_Glow>
         return DecoratedBox(
           decoration: BoxDecoration(boxShadow: [
             BoxShadow(
-              color: _C.blue.withValues(alpha: 0.45 + 0.30 * t),
+              color: _C.blue.withValues(alpha: (0.45 + 0.30 * t) * k),
               blurRadius: 24 + 16 * t,
             ),
           ]),
@@ -585,12 +690,12 @@ class _GlowState extends ConsumerState<_Glow>
 
 // ── Podium ────────────────────────────────────────────────────────────────
 
-class _Podium extends StatelessWidget {
+class _Podium extends ConsumerWidget {
   const _Podium({required this.rows});
   final List<LeaderboardEntry> rows;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     LeaderboardEntry? at(int i) => i < rows.length ? rows[i] : null;
 
     return Padding(
@@ -609,13 +714,14 @@ class _Podium extends StatelessWidget {
   }
 }
 
-class _PodiumSlot extends StatelessWidget {
+class _PodiumSlot extends ConsumerWidget {
   const _PodiumSlot({required this.entry, required this.place});
   final LeaderboardEntry? entry;
   final int place;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = _Pal.of(ref);
     // A league with fewer than three players leaves a slot empty; reserve the
     // block's height so the remaining podium keeps its stepped shape.
     final (blockH, blockTop, blockBottom, blockText) = switch (place) {
@@ -630,7 +736,7 @@ class _PodiumSlot extends StatelessWidget {
     };
     final xpColor = switch (place) {
       1 => _C.gold,
-      2 => const Color(0xFFC3C9D4),
+      2 => p.bright ? const Color(0xFF64748B) : const Color(0xFFC3C9D4),
       _ => const Color(0xFFF59E0B),
     };
     final avatarSize = place == 1 ? 72.0 : 58.0;
@@ -663,7 +769,7 @@ class _PodiumSlot extends StatelessWidget {
           style: TextStyle(
             fontSize: place == 1 ? 15 : 14,
             fontWeight: place == 1 ? FontWeight.w700 : FontWeight.w600,
-            color: Colors.white,
+            color: p.text,
           ),
         ),
         const SizedBox(height: 6),
@@ -686,6 +792,11 @@ class _PodiumSlot extends StatelessWidget {
               end: Alignment.bottomCenter,
               colors: [blockTop, blockBottom],
             ),
+            // Silver against a near-white page would otherwise dissolve into
+            // it; gold and bronze carry enough contrast on their own.
+            border: p.bright && place == 2
+                ? Border.all(color: const Color(0xFFCBD5E1))
+                : null,
           ),
           alignment: Alignment.center,
           child: Text(
@@ -758,7 +869,7 @@ class _Avatar extends StatelessWidget {
 
 // ── Stats strip ───────────────────────────────────────────────────────────
 
-class _StatsStrip extends StatelessWidget {
+class _StatsStrip extends ConsumerWidget {
   const _StatsStrip({
     required this.participants,
     required this.leaderXp,
@@ -770,15 +881,16 @@ class _StatsStrip extends StatelessWidget {
   final int? myRank;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final s = StringsScope.of(context);
+    final p = _Pal.of(ref);
 
     return Container(
-      decoration: const BoxDecoration(
-        color: _C.card,
+      decoration: BoxDecoration(
+        color: p.card,
         border: Border(
-          top: BorderSide(color: _C.line),
-          bottom: BorderSide(color: _C.line),
+          top: BorderSide(color: p.line),
+          bottom: BorderSide(color: p.line),
         ),
       ),
       child: IntrinsicHeight(
@@ -792,7 +904,7 @@ class _StatsStrip extends StatelessWidget {
                 label: s.t('league.participants'),
               ),
             ),
-            const VerticalDivider(width: 1, color: _C.line),
+            VerticalDivider(width: 1, color: p.line),
             Expanded(
               child: _Stat(
                 icon: Icons.emoji_events_rounded,
@@ -801,7 +913,7 @@ class _StatsStrip extends StatelessWidget {
                 label: s.t('league.leaderXp'),
               ),
             ),
-            const VerticalDivider(width: 1, color: _C.line),
+            VerticalDivider(width: 1, color: p.line),
             Expanded(
               child: _Stat(
                 icon: Icons.my_location_rounded,
@@ -819,7 +931,7 @@ class _StatsStrip extends StatelessWidget {
   }
 }
 
-class _Stat extends StatelessWidget {
+class _Stat extends ConsumerWidget {
   const _Stat({
     required this.icon,
     required this.tint,
@@ -832,29 +944,32 @@ class _Stat extends StatelessWidget {
   final String value, label;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: tint),
-            const SizedBox(height: 4),
-            Text(value,
-                style: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
-            const SizedBox(height: 4),
-            Text(label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 13, color: _C.muted)),
-          ],
-        ),
-      );
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = _Pal.of(ref);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: tint),
+          const SizedBox(height: 4),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 18, fontWeight: FontWeight.w800, color: p.text)),
+          const SizedBox(height: 4),
+          Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13, color: p.muted)),
+        ],
+      ),
+    );
+  }
 }
 
 // ── Leaderboard row ───────────────────────────────────────────────────────
 
-class _LeaderRow extends StatelessWidget {
+class _LeaderRow extends ConsumerWidget {
   const _LeaderRow({required this.rank, required this.entry, this.isMe = false});
 
   final int rank;
@@ -862,28 +977,29 @@ class _LeaderRow extends StatelessWidget {
   final bool isMe;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final s = StringsScope.of(context);
+    final p = _Pal.of(ref);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: _C.card,
+        color: p.card,
         borderRadius: BorderRadius.circular(14),
         // The signed-in player's own row is picked out, which the static
         // mockup had no way to show.
-        border: Border.all(color: isMe ? _C.blue : _C.line),
+        border: Border.all(color: isMe ? _C.blue : p.line),
       ),
       child: Row(
         children: [
           Container(
             width: 30,
             height: 30,
-            decoration: const BoxDecoration(color: _C.rankChip, shape: BoxShape.circle),
+            decoration: BoxDecoration(color: p.rankChip, shape: BoxShape.circle),
             alignment: Alignment.center,
             child: Text('$rank',
-                style: const TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w700, color: _C.muted)),
+                style: TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w700, color: p.muted)),
           ),
           const SizedBox(width: 12),
           _Avatar(entry: entry, size: 44),
@@ -897,19 +1013,19 @@ class _LeaderRow extends StatelessWidget {
                   entry.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white),
+                  style: TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w700, color: p.text),
                 ),
                 if (entry.streak > 0) ...[
                   const SizedBox(height: 2),
                   Row(
                     children: [
                       const Icon(Icons.local_fire_department_rounded,
-                          size: 13, color: Color(0xFFF97316)),
+                          size: 13, color: _C.fire),
                       const SizedBox(width: 3),
                       Text(
                         s.t('league.days', params: {'n': entry.streak}),
-                        style: const TextStyle(fontSize: 13, color: _C.muted),
+                        style: TextStyle(fontSize: 13, color: p.muted),
                       ),
                     ],
                   ),
@@ -923,13 +1039,13 @@ class _LeaderRow extends StatelessWidget {
               children: [
                 TextSpan(
                   text: '${entry.xp}',
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w900, color: Colors.white),
+                  style: TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w900, color: p.text),
                 ),
-                const TextSpan(
+                TextSpan(
                   text: ' XP',
                   style: TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w600, color: _C.muted),
+                      fontSize: 16, fontWeight: FontWeight.w600, color: p.muted),
                 ),
               ],
             ),
