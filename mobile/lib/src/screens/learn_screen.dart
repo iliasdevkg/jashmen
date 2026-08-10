@@ -681,7 +681,15 @@ class _CheckpointNode extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: locked
-                    ? BoxDecoration(color: const Color(0xFF1B2436), borderRadius: BorderRadius.circular(999))
+                    // Same reasoning as the path nodes: a locked checkpoint
+                    // should recede, and the dark chip was the loudest thing
+                    // on a light page.
+                    ? BoxDecoration(
+                        color: tokens.bright
+                            ? const Color(0xFFE2E8F0)
+                            : const Color(0xFF1B2436),
+                        borderRadius: BorderRadius.circular(999),
+                      )
                     : _sphere(tint, false, bright: tokens.bright),
                 alignment: Alignment.center,
                 child: locked

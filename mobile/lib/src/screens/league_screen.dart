@@ -289,16 +289,29 @@ class _TopBar extends ConsumerWidget {
           : null,
       child: Row(
         children: [
-          Image.asset('assets/images/logo.png',
-              width: 34, height: 34, excludeFromSemantics: true),
+          // Matches TopBar.jsx: a 32px round mark, 8px gap, 16px wordmark.
+          // Both the web header and the league mockup use a full circle —
+          // this was rendering as a hard-edged square because the asset was
+          // never clipped.
+          ClipOval(
+            child: Image.asset(
+              'assets/images/logo.png',
+              width: 32,
+              height: 32,
+              fit: BoxFit.cover,
+              excludeFromSemantics: true,
+            ),
+          ),
           const SizedBox(width: 8),
           Image.asset(
             p.bright
                 ? 'assets/images/wordmark_blue.png'
                 : 'assets/images/wordmark_white.png',
-            height: 13,
+            height: 16,
             fit: BoxFit.contain,
-            excludeFromSemantics: true,
+            // The wordmark *is* the product name, so it carries the label
+            // rather than being hidden from screen readers.
+            semanticLabel: 'JashMen',
           ),
           const SizedBox(width: 8),
           // Expanded, not Spacer + Flexible: a Spacer would claim the free
