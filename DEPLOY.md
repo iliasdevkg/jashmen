@@ -74,7 +74,22 @@ nginx конфигурациясы репозиторийде: [deploy/nginx/jas
 - Production сырлар: `/opt/jashmen/admin-api/.env.production` (серверде
   гана, git'ке эч качан коммит болбойт — `.gitignore`деги `.env*` эрежеси
   муну камсыз кылат)
-- Логин/пароль ушул файлда сакталбайт — агайдан же долбоордун ээсинен сура
+- Кирүү: `ssh jashmen` (ачкыч менен, төмөндө кара)
+
+## Серверге кирүү
+
+```bash
+ssh jashmen          # ~/.ssh/config'теги алиас — паролсуз, ачкыч менен
+scp file jashmen:/tmp/
+```
+
+Ачкыч `~/.ssh/id_ed25519_jashmen`, ал сервердеги `authorized_keys`те. Пароль
+керек эмес.
+
+**Күнүмдүк деплой `sudo`'суз иштейт:** `studio_adm` `docker` тобунда жана
+`/opt/jashmen`дин ээси. `sudo` бир гана хост деңгээлиндеги өзгөртүүлөргө
+керек (nginx конфигурациясы, пакет орнотуу) — анда пароль сурайт, ал
+`~/Desktop/1.txt` файлында.
 
 ## Жаңылоо (deploy)
 
@@ -84,22 +99,41 @@ nginx конфигурациясы репозиторийде: [deploy/nginx/jas
 
 ```bash
 # Локалдо, долбоордун түбүндө:
+npm run build            # dist/ жана admin/ жаңыртылат
+
 tar czf /tmp/jashmen-deploy.tar.gz \
   --exclude=node_modules --exclude=.git --exclude=dist \
   --exclude=admin-api/data --exclude=.vite --exclude=.gstack \
   --exclude=.vercel --exclude=.env.local --exclude=admin-api/.env \
+  --exclude=mobile \
   .
 
-scp -P 54251 /tmp/jashmen-deploy.tar.gz studio_adm@178.217.174.176:/tmp/
+scp /tmp/jashmen-deploy.tar.gz jashmen:/tmp/
 
-ssh -p 54251 studio_adm@178.217.174.176 '
-  rm -rf /opt/jashmen_new && mkdir /opt/jashmen_new &&
-  tar xzf /tmp/jashmen-deploy.tar.gz -C /opt/jashmen_new &&
-  cp /opt/jashmen/admin-api/.env.production /opt/jashmen_new/admin-api/.env.production &&
-  rm -rf /opt/jashmen && mv /opt/jashmen_new /opt/jashmen &&
+ssh jashmen '
+  set -e
+  # /opt is root-owned, so staging must live in the user home.
+  rm -rf ~/jashmen_stage && mkdir -p ~/jashmen_stage
+  tar xzf /tmp/jashmen-deploy.tar.gz -C ~/jashmen_stage
+
+  # --delete clears stale files; the two excludes are what must survive
+  # a release: production secrets and runtime data.
+  rsync -a --delete \
+    --exclude=admin-api/.env.production \
+    --exclude=admin-api/data \
+    ~/jashmen_stage/ /opt/jashmen/
+
+  rm -rf ~/jashmen_stage
   cd /opt/jashmen && docker compose up -d --build
 '
 ```
+
+⚠️ `/opt/jashmen`ди бүтүндөй `mv` кылууга **болбойт** — `/opt` root'ко
+таандык, ошондуктан жанына жаңы папка түзө албайсың. Ичиндегисин
+`rsync` менен алмаштыруу керек.
+
+Дайындар `jashmen_data` Docker volume'унда — `/opt/jashmen` алмашканы менен
+жоголбойт.
 
 GitHub push түзөтүлгөндөн кийин, идеалдуу жол: сервердеги `/opt/jashmen`'ди
 `git clone`/`git pull`'го которуу — азырынча tar/scp менен иштейбиз.
@@ -107,7 +141,7 @@ GitHub push түзөтүлгөндөн кийин, идеалдуу жол: се
 ## Секреттерди алмаштыруу (rotate)
 
 ```bash
-ssh -p 54251 studio_adm@178.217.174.176
+ssh jashmen
 cd /opt/jashmen
 nano admin-api/.env.production   # керектүү маанини алмаштыр
 docker compose restart jashmen
@@ -116,10 +150,9 @@ docker compose restart jashmen
 ## nginx конфигурациясын жаңылоо
 
 ```bash
-scp -P 54251 deploy/nginx/jashmenstudio.com.conf \
-  studio_adm@178.217.174.176:/tmp/jashmenstudio.com.conf
+scp deploy/nginx/jashmenstudio.com.conf jashmen:/tmp/jashmenstudio.com.conf
 
-ssh -p 54251 studio_adm@178.217.174.176 '
+ssh jashmen '
   sudo cp /tmp/jashmenstudio.com.conf /etc/nginx/sites-available/jashmenstudio.com &&
   sudo nginx -t && sudo systemctl reload nginx
 '
@@ -131,7 +164,7 @@ ssh -p 54251 studio_adm@178.217.174.176 '
 ## Маселе чыкса (troubleshooting)
 
 ```bash
-ssh -p 54251 studio_adm@178.217.174.176
+ssh jashmen
 
 # 1. Контейнер иштеп жатабы (127.0.0.1:3030->3030/tcp көрүнүшү керек)
 cd /opt/jashmen && docker compose ps
@@ -147,7 +180,6 @@ curl -s -H "Host: jashmenstudio.com" http://localhost/admin/api/health
 # 4. nginx өзү тирүүбү
 sudo systemctl status nginx
 sudo tail -n 50 /var/log/nginx/error.log
-```
 
 # 5. Так NPM көрө турган сурам — ички IP аркылуу
 curl -s -H "Host: jashmenstudio.com" http://192.168.100.87/admin/api/health
