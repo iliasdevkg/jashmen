@@ -10,6 +10,7 @@ import '../core/i18n.dart';
 import '../core/theme.dart';
 import '../models/content.dart';
 import '../state/providers.dart';
+import '../widgets/app_header.dart';
 import '../widgets/states.dart';
 
 class ShopScreen extends ConsumerStatefulWidget {
@@ -59,25 +60,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
     final owned = userState?.ownedShop.toSet() ?? <String>{};
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(s.t('shop.title')),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: Gap.lg),
-            child: Row(
-              children: [
-                const Icon(Icons.monetization_on_rounded, color: AppColors.gold, size: 20),
-                const SizedBox(width: 4),
-                Text('$coins',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleSmall
-                        ?.copyWith(fontWeight: FontWeight.w800)),
-              ],
-            ),
-          ),
-        ],
-      ),
+      appBar: const AppHeader(),
       body: content.when(
         loading: () => ListView(
           padding: const EdgeInsets.all(Gap.lg),
@@ -99,16 +82,21 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
             );
           }
           return ListView.builder(
-            padding: const EdgeInsets.all(Gap.lg),
-            itemCount: data.shopItems.length,
-            itemBuilder: (context, i) {
+            padding: const EdgeInsets.only(bottom: Gap.lg),
+            itemCount: data.shopItems.length + 1,
+            itemBuilder: (context, index) {
+              if (index == 0) return PageTitle(s.t('shop.title'));
+              final i = index - 1;
               final item = data.shopItems[i];
-              return _ShopCard(
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: Gap.lg),
+                child: _ShopCard(
                 item: item,
                 owned: owned.contains(item.id),
                 affordable: coins >= item.price,
                 busy: _buying == item.id,
                 onBuy: () => _buy(item),
+              ),
               );
             },
           );

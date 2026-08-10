@@ -18,6 +18,7 @@ import '../core/theme.dart';
 import '../models/content.dart';
 import '../screens/lesson_screen.dart';
 import '../state/providers.dart';
+import '../widgets/app_header.dart';
 import '../widgets/states.dart';
 
 // LearnPage.jsx's path constants, unchanged. The canvas is a fixed width so
@@ -182,6 +183,7 @@ class LearnScreen extends ConsumerWidget {
     final s = StringsScope.of(context);
 
     return Scaffold(
+      appBar: const AppHeader(),
       body: SafeArea(
         bottom: false,
         child: content.when(
@@ -254,28 +256,6 @@ class _PathViewState extends ConsumerState<_PathView> {
       },
       child: CustomScrollView(
         slivers: [
-          SliverAppBar(
-            pinned: true,
-            title: Text(s.t('learn.title')),
-            actions: [
-              _StatChip(
-                icon: Icons.local_fire_department_rounded,
-                color: AppColors.warning,
-                value: '${userState?.streak ?? 0}',
-              ),
-              _StatChip(
-                icon: Icons.monetization_on_rounded,
-                color: AppColors.gold,
-                value: '${userState?.coins ?? 0}',
-              ),
-              _StatChip(
-                icon: Icons.bolt_rounded,
-                color: AppColors.primary,
-                value: '${energy.remaining}',
-              ),
-              const SizedBox(width: Gap.sm),
-            ],
-          ),
 
           if (energy.remaining <= 0)
             SliverToBoxAdapter(
@@ -322,34 +302,6 @@ class _PathViewState extends ConsumerState<_PathView> {
             ),
 
           const SliverToBoxAdapter(child: SizedBox(height: Gap.xxl)),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatChip extends StatelessWidget {
-  const _StatChip({required this.icon, required this.color, required this.value});
-
-  final IconData icon;
-  final Color color;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: color),
-          const SizedBox(width: 3),
-          Text(
-            value,
-            style: Theme.of(context)
-                .textTheme
-                .labelSmall
-                ?.copyWith(fontWeight: FontWeight.w800, color: context.tokens.text),
-          ),
         ],
       ),
     );

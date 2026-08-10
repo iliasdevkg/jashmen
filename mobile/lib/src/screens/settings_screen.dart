@@ -15,6 +15,7 @@ import '../api/api_client.dart';
 import '../core/i18n.dart';
 import '../core/theme.dart';
 import '../state/providers.dart';
+import '../widgets/app_header.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -111,11 +112,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final settings = ref.watch(userStateProvider)?.settings;
 
     return Scaffold(
-      appBar: AppBar(title: Text(s.t('settings.title'))),
+      appBar: const AppHeader(),
       body: ListView(
-        padding: const EdgeInsets.all(Gap.lg),
+        padding: const EdgeInsets.only(bottom: Gap.lg),
         children: [
-          _SectionLabel(s.t('settings.language')),
+          PageTitle(s.t('settings.title')),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Gap.lg),
+            child: _SectionLabel(s.t('settings.language')),
+          ),
           // Material, not a coloured Container: RadioListTile paints its ink
           // splash on the nearest Material ancestor, and a decorated box in
           // between would swallow the tap feedback.

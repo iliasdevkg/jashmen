@@ -10,6 +10,7 @@ import '../core/logic.dart';
 import '../core/theme.dart';
 import '../models/content.dart';
 import '../state/providers.dart';
+import '../widgets/app_header.dart';
 import '../widgets/states.dart';
 
 class ProfileScreen extends ConsumerWidget {
@@ -33,7 +34,7 @@ class ProfileScreen extends ConsumerWidget {
         : null;
 
     return Scaffold(
-      appBar: AppBar(title: Text(s.t('profile.title'))),
+      appBar: const AppHeader(),
       body: RefreshIndicator(
         onRefresh: () => ref.read(authProvider.notifier).refreshMe(),
         child: ListView(

@@ -18,10 +18,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/i18n.dart';
-import '../core/logic.dart';
 import '../models/content.dart';
 import '../models/user_state.dart';
 import '../state/providers.dart';
+import '../widgets/app_header.dart';
 import '../widgets/states.dart';
 
 // ── Design tokens ─────────────────────────────────────────────────────────
@@ -38,7 +38,6 @@ import '../widgets/states.dart';
 class _C {
   const _C._();
   static const blue = Color(0xFF3B82F6);
-  static const cyan = Color(0xFF38BDF8);
   static const gold = Color(0xFFEAB308);
   static const goldLight = Color(0xFFFDE047);
   static const goldDeep = Color(0xFF854D0E);
@@ -184,6 +183,7 @@ class LeagueScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: p.page,
+      appBar: const AppHeader(),
       body: SafeArea(
         bottom: false,
         child: RefreshIndicator(
@@ -215,8 +215,6 @@ class LeagueScreen extends ConsumerWidget {
 
               return CustomScrollView(
                 slivers: [
-                  SliverToBoxAdapter(child: _TopBar(me: me)),
-
                   if (leagues.isNotEmpty)
                     SliverToBoxAdapter(
                       child: _RankCarousel(leagues: leagues, myXp: myXp),
@@ -258,149 +256,6 @@ class LeagueScreen extends ConsumerWidget {
             },
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ── Top bar ───────────────────────────────────────────────────────────────
-
-class _TopBar extends ConsumerWidget {
-  const _TopBar({this.me});
-  final AppUser? me;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final content = ref.watch(contentProvider);
-    final p = _Pal.of(ref);
-    final st = me?.state;
-    final energy = computeLiveEnergy(
-      st,
-      dailyFreeLessons: content.valueOrNull?.limits.dailyFreeLessons ?? 3,
-    );
-
-    return Container(
-      color: p.bar,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      // A white bar needs a hairline against a near-white page; the dark
-      // theme already separates by value alone.
-      foregroundDecoration: p.bright
-          ? BoxDecoration(border: Border(bottom: BorderSide(color: p.line)))
-          : null,
-      child: Row(
-        children: [
-          // Matches TopBar.jsx: a 32px round mark, 8px gap, 16px wordmark.
-          // Both the web header and the league mockup use a full circle —
-          // this was rendering as a hard-edged square because the asset was
-          // never clipped.
-          ClipOval(
-            child: Image.asset(
-              'assets/images/logo.png',
-              width: 32,
-              height: 32,
-              fit: BoxFit.cover,
-              excludeFromSemantics: true,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Image.asset(
-            p.bright
-                ? 'assets/images/wordmark_blue.png'
-                : 'assets/images/wordmark_white.png',
-            height: 16,
-            fit: BoxFit.contain,
-            // The wordmark *is* the product name, so it carries the label
-            // rather than being hidden from screen readers.
-            semanticLabel: 'JashMen',
-          ),
-          const SizedBox(width: 8),
-          // Expanded, not Spacer + Flexible: a Spacer would claim the free
-          // space first and squeeze the chips into a strip narrower than
-          // their content, which then scrolled the first two off-screen.
-          // Right-aligned inside, and scrollable only as a safety valve for
-          // very large streak/coin values on a narrow phone.
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              reverse: true,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  _Chip(pal: p, icon: Icons.workspace_premium_rounded, tint: _C.gold),
-                  const SizedBox(width: 7),
-                  _Chip(
-                    pal: p,
-                    icon: Icons.local_fire_department_rounded,
-                    tint: _C.fire,
-                    value: '${st?.streak ?? 0}',
-                  ),
-                  const SizedBox(width: 7),
-                  _Chip(
-                    pal: p,
-                    icon: Icons.monetization_on_rounded,
-                    tint: const Color(0xFFD4A72C),
-                    value: '${st?.coins ?? 0}',
-                  ),
-                  const SizedBox(width: 7),
-                  _Chip(
-                    pal: p,
-                    icon: Icons.bolt_rounded,
-                    tint: _C.cyan,
-                    value: '${energy.remaining}',
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Chip extends StatelessWidget {
-  const _Chip({
-    required this.pal,
-    required this.icon,
-    required this.tint,
-    this.value,
-  });
-
-  final _Pal pal;
-  final IconData icon;
-  final Color tint;
-  final String? value;
-
-  @override
-  Widget build(BuildContext context) {
-    // The mockup hand-picked a near-black fill and a dim border per chip.
-    // Deriving both from the accent reproduces that in dark and gives a
-    // matching pale-tint treatment in light, without a second colour table.
-    final bg = pal.bright
-        ? Color.alphaBlend(tint.withValues(alpha: 0.10), pal.bar)
-        : Color.alphaBlend(tint.withValues(alpha: 0.10), const Color(0xFF0A0A0A));
-    final border = pal.bright
-        ? tint.withValues(alpha: 0.35)
-        : Color.alphaBlend(tint.withValues(alpha: 0.55), Colors.black);
-
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: value == null ? 10 : 12, vertical: 5),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: tint),
-          if (value != null) ...[
-            const SizedBox(width: 5),
-            Text(value!,
-                style: TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w700, color: pal.text)),
-          ],
-        ],
       ),
     );
   }
