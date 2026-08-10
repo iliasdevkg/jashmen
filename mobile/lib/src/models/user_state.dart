@@ -132,22 +132,33 @@ class AppUser {
       );
 }
 
-/// One row of GET /u/leaderboard.
+/// One row of GET /u/leaderboard, already sorted by xp descending server-side.
 class LeaderboardEntry {
   const LeaderboardEntry({
+    required this.id,
     required this.name,
     required this.xp,
-    this.isMe = false,
+    this.avatar,
+    this.streak = 0,
   });
 
+  final String id;
   final String name;
   final int xp;
-  final bool isMe;
+
+  /// Either an emoji (the historical default, '🦅') or an uploaded image
+  /// URL. The league screen shows an initial instead when it's an emoji,
+  /// matching the design.
+  final String? avatar;
+  final int streak;
 
   factory LeaderboardEntry.fromJson(Map<String, dynamic> json) =>
       LeaderboardEntry(
+        id: json['id']?.toString() ?? '',
         name: json['name']?.toString() ?? '',
         xp: _asInt(json['xp']),
+        avatar: json['avatar']?.toString(),
+        streak: _asInt(json['streak']),
       );
 }
 
