@@ -110,14 +110,20 @@ class _PathPainter extends CustomPainter {
 }
 
 /// Glossy sphere fill, ported from LearnPage.jsx#sphereStyle.
-BoxDecoration _sphere(Color color, bool locked, {double radius = 999}) {
+BoxDecoration _sphere(Color color, bool locked,
+    {double radius = 999, bool bright = false}) {
   if (locked) {
+    // A locked node should read as "not yet", i.e. recede into the page.
+    // The dark slate sphere does that on a dark background but becomes the
+    // heaviest thing on screen in bright mode, so light gets its own greys.
     return BoxDecoration(
       borderRadius: BorderRadius.circular(radius),
-      gradient: const RadialGradient(
-        center: Alignment(-0.4, -0.5),
-        colors: [Color(0xFF3A4459), Color(0xFF1B2436), Color(0xFF10161F)],
-        stops: [0, 0.62, 1],
+      gradient: RadialGradient(
+        center: const Alignment(-0.4, -0.5),
+        colors: bright
+            ? const [Color(0xFFF1F5F9), Color(0xFFE2E8F0), Color(0xFFCBD5E1)]
+            : const [Color(0xFF3A4459), Color(0xFF1B2436), Color(0xFF10161F)],
+        stops: const [0, 0.62, 1],
       ),
     );
   }
@@ -516,10 +522,12 @@ class _LessonNode extends StatelessWidget {
     final node = Container(
       width: _node,
       height: _node,
-      decoration: _sphere(tint, locked),
+      decoration: _sphere(tint, locked, bright: tokens.bright),
       alignment: Alignment.center,
       child: locked
-          ? const Icon(Icons.lock_rounded, size: 26, color: Color(0xFF64748B))
+          ? Icon(Icons.lock_rounded,
+              size: 26,
+              color: tokens.bright ? const Color(0xFF94A3B8) : const Color(0xFF64748B))
           : _LessonGlyph(iconUrl: lesson.iconUrl),
     );
 
@@ -674,10 +682,12 @@ class _CheckpointNode extends StatelessWidget {
                 height: 44,
                 decoration: locked
                     ? BoxDecoration(color: const Color(0xFF1B2436), borderRadius: BorderRadius.circular(999))
-                    : _sphere(tint, false),
+                    : _sphere(tint, false, bright: tokens.bright),
                 alignment: Alignment.center,
                 child: locked
-                    ? const Icon(Icons.lock_rounded, size: 20, color: Color(0xFF64748B))
+                    ? Icon(Icons.lock_rounded,
+                        size: 20,
+                        color: tokens.bright ? const Color(0xFF94A3B8) : const Color(0xFF64748B))
                     : _LessonGlyph(
                         iconUrl: lesson.iconUrl,
                         size: 22,

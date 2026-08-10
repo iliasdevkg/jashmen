@@ -112,31 +112,55 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
           ],
         ),
         const SizedBox(height: Gap.lg),
-        OutlinedButton(
-          onPressed: disabled ? null : _signIn,
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size.fromHeight(52),
-            side: BorderSide(color: tokens.border, width: 1.5),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            foregroundColor: tokens.text,
-          ),
-          child: _busy
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2.5),
-                )
-              : Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const _GoogleGlyph(size: 20),
-                    const SizedBox(width: Gap.md),
-                    Text(
-                      s.t('auth.google'),
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+        // Matches the web, which renders Google's own filled_black pill
+        // button: dark track, white circular "G" badge on the left, label
+        // centred. Google's brand guidelines require the mark to sit on
+        // white, hence the badge rather than a bare glyph.
+        Opacity(
+          opacity: disabled ? 0.6 : 1,
+          child: GestureDetector(
+            onTap: disabled ? null : _signIn,
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              height: 48,
+              decoration: BoxDecoration(
+                color: const Color(0xFF202124),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Text(
+                    s.t('auth.google'),
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFE8EAED),
                     ),
-                  ],
-                ),
+                  ),
+                  Positioned(
+                    left: 4,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: _busy
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const _GoogleGlyph(size: 20),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ],
     );

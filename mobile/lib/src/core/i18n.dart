@@ -54,6 +54,8 @@ const Map<String, Map<String, String>> _strings = {
     'nav.logout': 'Чыгуу',
 
     'auth.loginTitle': 'Кайра кош келиңиз',
+    'auth.tagline': 'Каржылык сабаттуулук — оюн сыяктуу',
+    'auth.createAccount': 'Аккаунт түзүү',
     'auth.signupTitle': 'JashMen\'ге кош келиңиз',
     'auth.loginSubtitle': 'Окууну улантуу үчүн кириңиз',
     'auth.signupSubtitle': 'Каржы сабаттуулугун бүгүн баштаңыз',
@@ -149,6 +151,8 @@ const Map<String, Map<String, String>> _strings = {
     'nav.logout': 'Выйти',
 
     'auth.loginTitle': 'С возвращением',
+    'auth.tagline': 'Финансовая грамотность — как игра',
+    'auth.createAccount': 'Создать аккаунт',
     'auth.signupTitle': 'Добро пожаловать в JashMen',
     'auth.loginSubtitle': 'Войдите, чтобы продолжить обучение',
     'auth.signupSubtitle': 'Начните финансовую грамотность сегодня',
@@ -244,6 +248,8 @@ const Map<String, Map<String, String>> _strings = {
     'nav.logout': 'Log out',
 
     'auth.loginTitle': 'Welcome back',
+    'auth.tagline': 'Financial literacy — like a game',
+    'auth.createAccount': 'Create account',
     'auth.signupTitle': 'Welcome to JashMen',
     'auth.loginSubtitle': 'Sign in to continue learning',
     'auth.signupSubtitle': 'Start your financial literacy today',
