@@ -77,7 +77,10 @@ class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
                 tokens.bright
                     ? 'assets/images/wordmark_blue.png'
                     : 'assets/images/wordmark_white.png',
-                height: 16,
+                // 12, not the web's 16: these assets are trimmed to their
+                // glyphs now, so 16 rendered wider than the web's padded
+                // original ever did and crowded the counter chips.
+                height: 12,
                 fit: BoxFit.contain,
                 semanticLabel: 'JashMen',
               ),
