@@ -376,28 +376,45 @@ function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleI
   return (
     <div className="mb-10">
       <div className="sticky top-14 lg:top-6 z-10 mx-4 mb-6">
+        {/* The module's admin-uploaded artwork, in the "Сабак жолу" design's
+            glass tile: a bevelled frame around an inner square tinted with
+            the module's own colour. Sits directly above the module card. */}
         {showIcon && (
-          <div className="relative z-10 flex justify-center pointer-events-none -mb-10">
-            <motion.img
-              src={module.iconUrl}
-              alt=""
-              draggable={false}
-              onError={() => setIconError(true)}
-              initial={{ opacity: 0, scale: 0.5, y: -10 }}
+          <div className="relative z-10 flex justify-center pointer-events-none -mb-8">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.85, y: -10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="w-[90px] h-[90px] object-contain select-none"
+              className="w-[112px] h-[112px] rounded-[24px] p-[13px] box-border select-none"
               style={{
-                filter: bright
-                  ? 'drop-shadow(0 2px 3px rgba(15,23,42,0.18)) drop-shadow(0 10px 14px rgba(15,23,42,0.22))'
-                  : 'drop-shadow(0 3px 4px rgba(0,0,0,0.45)) drop-shadow(0 14px 18px rgba(0,0,0,0.5))',
+                background: bright
+                  ? 'linear-gradient(180deg,#ffffff,#dde3ec)'
+                  : 'linear-gradient(180deg,#eef2f7,#c3ccd9)',
+                boxShadow: bright
+                  ? '0 8px 18px -6px rgba(15,23,42,0.25)'
+                  : '0 8px 18px -4px rgba(0,0,0,0.55)',
               }}
-            />
+            >
+              <div
+                className="w-full h-full rounded-[15px] overflow-hidden flex items-center justify-center"
+                style={{
+                  background: `linear-gradient(180deg, color-mix(in srgb, ${module.color} 85%, white), color-mix(in srgb, ${module.color} 82%, black))`,
+                }}
+              >
+                <img
+                  src={module.iconUrl}
+                  alt=""
+                  draggable={false}
+                  onError={() => setIconError(true)}
+                  className="w-full h-full object-contain"
+                />
+              </div>
+            </motion.div>
           </div>
         )}
 
         <div
-          className={`rounded-2xl px-4 pb-4 ${showIcon ? 'pt-14' : 'pt-4'}`}
+          className={`rounded-2xl px-4 pb-4 ${showIcon ? 'pt-12' : 'pt-4'}`}
           style={{ background: module.color, boxShadow: `0 8px 20px -6px ${module.color}80` }}
         >
           <div className="mb-1">

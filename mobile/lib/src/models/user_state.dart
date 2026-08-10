@@ -2,6 +2,8 @@
 /// Shape mirrors admin-api/routes.js#defaultState.
 library;
 
+import '../core/config.dart';
+
 int _asInt(dynamic v, [int fallback = 0]) => switch (v) {
       int i => i,
       num n => n.toInt(),
@@ -146,9 +148,10 @@ class LeaderboardEntry {
   final String name;
   final int xp;
 
-  /// Either an emoji (the historical default, '🦅') or an uploaded image
-  /// URL. The league screen shows an initial instead when it's an emoji,
-  /// matching the design.
+  /// An absolute image URL, or null when the account still carries the
+  /// historical emoji avatar ('🦅') — resolveMediaUrl rejects anything that
+  /// isn't a real image reference, so callers can treat non-null as
+  /// "loadable" and fall back to the initial otherwise.
   final String? avatar;
   final int streak;
 
@@ -157,7 +160,7 @@ class LeaderboardEntry {
         id: json['id']?.toString() ?? '',
         name: json['name']?.toString() ?? '',
         xp: _asInt(json['xp']),
-        avatar: json['avatar']?.toString(),
+        avatar: resolveMediaUrl(json['avatar']),
         streak: _asInt(json['streak']),
       );
 }

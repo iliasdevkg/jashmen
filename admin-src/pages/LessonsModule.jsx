@@ -362,7 +362,10 @@ function ModuleForm({ token, partners, mod, onDone, onCancel }) {
           {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </Select>
       </Field>
-      <Field label="Мини-иконка (милдеттүү эмес)">
+      {/* No longer a mini-badge: this artwork is now the large framed tile
+          shown directly above the module on the Learn path, so the label has
+          to say what the admin will actually see. */}
+      <Field label="Модулдун сүрөтү (сабак жолунда чоң көрүнөт)">
         <OptionalImageUpload token={token} imageUrl={iconUrl} onChange={setIconUrl} />
       </Field>
       <ErrorNote>{error}</ErrorNote>

@@ -334,9 +334,20 @@ class _ModuleSection extends StatelessWidget {
 
     return Column(
       children: [
-        // Module header — icon + title, tinted with the module colour.
+        // Module image, then the title card. The image sits directly above
+        // the module — the "Сабак жолу" design's glass-framed tile: a light
+        // bevelled frame around an inner square tinted with the module's own
+        // colour. It is whatever the admin uploaded for this module
+        // (iconUrl); with nothing uploaded the frame is skipped entirely
+        // rather than showing an empty plinth.
+        if (module.iconUrl != null)
+          Padding(
+            padding: const EdgeInsets.only(top: Gap.sm, bottom: Gap.md),
+            child: Center(child: _ModuleTile(module: module, tint: color)),
+          ),
+
         Container(
-          margin: const EdgeInsets.fromLTRB(Gap.lg, Gap.sm, Gap.lg, Gap.lg),
+          margin: const EdgeInsets.fromLTRB(Gap.lg, 0, Gap.lg, Gap.lg),
           padding: const EdgeInsets.all(Gap.lg),
           decoration: BoxDecoration(
             color: color.withValues(alpha: tokens.bright ? 0.08 : 0.14),
@@ -345,24 +356,22 @@ class _ModuleSection extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(14),
+              // The small badge is redundant once the tile is showing the
+              // same artwork, so it only appears when there is no tile.
+              if (module.iconUrl == null) ...[
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.school_rounded,
+                      color: Colors.white, size: 22),
                 ),
-                clipBehavior: Clip.antiAlias,
-                child: module.iconUrl == null
-                    ? const Icon(Icons.school_rounded, color: Colors.white, size: 22)
-                    : CachedNetworkImage(
-                        imageUrl: module.iconUrl!,
-                        fit: BoxFit.contain,
-                        errorWidget: (_, __, ___) =>
-                            const Icon(Icons.school_rounded, color: Colors.white, size: 22),
-                      ),
-              ),
-              const SizedBox(width: Gap.md),
+                const SizedBox(width: Gap.md),
+              ],
               Expanded(
                 child: Text(module.title,
                     style: Theme.of(context).textTheme.headlineSmall),
@@ -756,6 +765,88 @@ class _BobState extends ConsumerState<_Bob> with SingleTickerProviderStateMixin 
         child: child,
       ),
       child: widget.child,
+    );
+  }
+}
+
+/// The "Сабак жолу" tile: a 132px bevelled frame around a 16px-inset inner
+/// square carrying the module's uploaded artwork.
+class _ModuleTile extends StatefulWidget {
+  const _ModuleTile({required this.module, required this.tint});
+
+  final Module module;
+  final Color tint;
+
+  @override
+  State<_ModuleTile> createState() => _ModuleTileState();
+}
+
+class _ModuleTileState extends State<_ModuleTile> {
+  bool _failed = false;
+
+  @override
+  void didUpdateWidget(_ModuleTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Swapping to a different upload in the admin panel re-arms the fallback.
+    if (oldWidget.module.iconUrl != widget.module.iconUrl) _failed = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.tokens;
+    final url = widget.module.iconUrl;
+
+    // A broken upload collapses the tile rather than leaving an empty
+    // bevelled plinth on the page.
+    if (url == null || _failed) return const SizedBox.shrink();
+
+    return Container(
+      width: 132,
+      height: 132,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: tokens.bright
+              ? const [Color(0xFFFFFFFF), Color(0xFFDDE3EC)]
+              : const [Color(0xFFEEF2F7), Color(0xFFC3CCD9)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: tokens.bright ? 0.12 : 0.45),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color.lerp(widget.tint, Colors.white, 0.15)!,
+              Color.lerp(widget.tint, Colors.black, 0.18)!,
+            ],
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: CachedNetworkImage(
+          imageUrl: url,
+          fit: BoxFit.contain,
+          placeholder: (_, __) => const SizedBox.shrink(),
+          errorWidget: (_, __, ___) {
+            // setState during build is illegal, so defer to the next frame.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() => _failed = true);
+            });
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
     );
   }
 }

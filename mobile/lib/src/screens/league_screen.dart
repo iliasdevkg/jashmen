@@ -163,12 +163,6 @@ Color _avatarColor(String seed) =>
 String _initial(String name) =>
     name.trim().isEmpty ? '?' : name.trim().characters.first.toUpperCase();
 
-/// `avatar` is an emoji for most accounts and a URL for Google sign-ins.
-/// Only a real URL is worth fetching; anything else falls back to the
-/// initial, which is what the design shows.
-bool _isImageUrl(String? v) =>
-    v != null && (v.startsWith('http://') || v.startsWith('https://') || v.startsWith('/'));
-
 class LeagueScreen extends ConsumerWidget {
   const LeagueScreen({super.key});
 
@@ -713,7 +707,7 @@ class _Avatar extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       alignment: Alignment.center,
-      child: _isImageUrl(entry.avatar)
+      child: entry.avatar != null
           ? CachedNetworkImage(
               imageUrl: entry.avatar!,
               fit: BoxFit.cover,

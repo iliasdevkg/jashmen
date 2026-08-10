@@ -6,6 +6,8 @@
 /// blank the whole learn path.
 library;
 
+import '../core/config.dart';
+
 enum CardType { theory, media, quiz, unknown }
 
 CardType _cardType(String? raw) => switch (raw) {
@@ -25,17 +27,9 @@ int _asInt(dynamic v, [int fallback = 0]) => switch (v) {
 String _asString(dynamic v, [String fallback = '']) =>
     v == null ? fallback : v.toString();
 
-/// Only http(s) and site-relative paths are rendered. Mirrors the server's
-/// sanitizeIconUrl (admin-api/contentStore.js) so a value that slipped past
-/// an older server build still can't become an odd image source here.
-String? _asIconUrl(dynamic v) {
-  final s = v?.toString().trim();
-  if (s == null || s.isEmpty) return null;
-  if (s.startsWith('//')) return null;
-  if (s.startsWith('/')) return s;
-  if (s.startsWith('http://') || s.startsWith('https://')) return s;
-  return null;
-}
+/// Uploads arrive as site-relative paths; config.dart resolves them against
+/// the API origin and rejects anything that shouldn't become an image src.
+String? _asIconUrl(dynamic v) => resolveMediaUrl(v);
 
 List<T> _asList<T>(dynamic v, T Function(Map<String, dynamic>) fromJson) {
   if (v is! List) return const [];

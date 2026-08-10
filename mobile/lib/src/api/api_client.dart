@@ -25,10 +25,9 @@ import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../core/config.dart';
 import '../models/content.dart';
 import '../models/user_state.dart';
-
-const String kBaseUrl = 'https://jashmenstudio.com/admin/api';
 
 /// Errors the UI is expected to render differently. Anything the user can
 /// act on gets its own case; everything else collapses to [unknown] with the
@@ -67,7 +66,7 @@ class ApiClient {
     );
 
     final dio = Dio(BaseOptions(
-      baseUrl: kBaseUrl,
+      baseUrl: kApiBaseUrl,
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 20),
       sendTimeout: const Duration(seconds: 20),
