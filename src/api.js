@@ -56,10 +56,36 @@ export const patchState = (token, patch) =>
   req('PATCH', '/u/me/state', patch, token);
 export const redeemPrize = (token, prizeId) =>
   req('POST', '/u/me/redeem', { prizeId }, token);
+// The coupon history behind redeemPrize's one-shot code modal — newest
+// first, with prize/partner details joined server-side.
+export const fetchMyRedemptions = (token) =>
+  req('GET', '/u/me/redemptions', null, token);
 // Fire-and-forget analytics — callers should .catch(() => {}) this, never
 // let a telemetry failure block or surface in the UI.
 export const logEvent = (token, type, payload) =>
   req('POST', '/u/log-event', { type, ...payload }, token);
+
+// Task 6 — learner avatar upload. Separate from `req()` because a file
+// upload is FormData, not JSON: no Content-Type header set here on purpose
+// — the browser fills in the multipart boundary itself, same convention
+// admin-src/api.js#uploadMedia uses for the admin-side uploader.
+export async function uploadAvatar(token, file) {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${B}/u/me/avatar`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || `Ката ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
 
 export const fetchPushPublicKey = () => req('GET', '/public/push-key');
 export const subscribePush = (token, subscription) =>

@@ -2,11 +2,14 @@
 // badges (soft 3D gradient shell, glossy sheen, thick rounded outline,
 // small shine + sparkle), cast in a rounded-square "capsule" instead of the
 // league's hexagon so power-ups read as their own visual family in the
-// grid. Keyed by item.id so admin-added items with an unmapped id still
-// get a real capsule (just wrapping their configured emoji) instead of a
-// bare floating glyph.
+// grid. Keyed by item.effect (Task 12 made shop items effect-driven, not
+// id-hardcoded — any number of admin-created items can share one effect and
+// its glyph). An admin-uploaded item.iconUrl always wins when set, same
+// override convention as LeagueBadge; the effect glyph is the fallback, a
+// plain gift icon the last resort for an unrecognized effect.
 
 import { useId } from 'react';
+import { Gift } from 'lucide-react';
 
 function Sparkle({ x, y, s = 4, delay = 0, dur = 2.6 }) {
   const d =
@@ -70,7 +73,7 @@ function VipCrownGlyph() {
 
 const SHOP_ICONS = {
   energy_refill: { Glyph: EnergyGlyph, color: '#1CB0F6' },
-  streak_freeze: { Glyph: StreakFreezeGlyph, color: '#38BDF8' },
+  streak_shield: { Glyph: StreakFreezeGlyph, color: '#38BDF8' },
   xp_boost: { Glyph: XpBoostGlyph, color: '#8B5CF6' },
   vip_badge: { Glyph: VipCrownGlyph, color: '#F5C242' },
 };
@@ -82,10 +85,12 @@ export default function ShopItemIcon({ item, size = 44 }) {
   const fillId = `si-fill-${uid}`;
   const glossId = `si-gloss-${uid}`;
   const glowId = `si-glow-${uid}`;
+  const clipId = `si-clip-${uid}`;
 
-  const mapped = SHOP_ICONS[item?.id];
+  const mapped = SHOP_ICONS[item?.effect];
   const color = mapped?.color || '#64748B';
   const Glyph = mapped?.Glyph;
+  const iconUrl = item?.iconUrl;
 
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" style={{ overflow: 'visible', display: 'block' }}>
@@ -102,6 +107,11 @@ export default function ShopItemIcon({ item, size = 44 }) {
         <filter id={glowId} x="-70%" y="-70%" width="240%" height="240%">
           <feGaussianBlur stdDeviation="4" />
         </filter>
+        {iconUrl && (
+          <clipPath id={clipId}>
+            <path d={SQUIRCLE} transform="translate(50 50) scale(0.62) translate(-50 -50)" />
+          </clipPath>
+        )}
       </defs>
 
       <path d={SQUIRCLE} fill={color} opacity="0.5" filter={`url(#${glowId})`} transform="translate(50 50) scale(1.1) translate(-50 -50)" />
@@ -117,9 +127,13 @@ export default function ShopItemIcon({ item, size = 44 }) {
       <path d={SQUIRCLE} fill={`url(#${glossId})`} />
       <path d="M22,34 L34,22 L46,34 L34,46 Z" fill="white" opacity="0.13" transform="rotate(6 50 50)" />
 
-      {Glyph ? <Glyph /> : (
-        <text x="50" y="62" fontSize="40" textAnchor="middle">{item?.emoji || '🎁'}</text>
-      )}
+      {iconUrl
+        ? <image href={iconUrl} x="20" y="20" width="60" height="60" clipPath={`url(#${clipId})`} preserveAspectRatio="xMidYMid slice" />
+        : Glyph ? <Glyph /> : (
+          <g transform="translate(34 34)">
+            <Gift size={32} color="white" strokeWidth={2.2} />
+          </g>
+        )}
 
       <Sparkle x={83} y={18} s={3.6} delay={0.4} />
     </svg>

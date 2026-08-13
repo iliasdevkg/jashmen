@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Zap, Check, Dumbbell, GraduationCap } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
-import { useI18n } from '../i18n.jsx';
+import { useI18n, localizedText } from '../i18n.jsx';
 import { getLessonOrder, getLessonStatus, computeLiveEnergy, formatCountdown, quizCountOf } from '../utils.js';
 import LessonPreviewSheet from '../components/LessonPreviewSheet.jsx';
 
@@ -123,6 +123,8 @@ function NoEnergyBanner({ resetMs, bright }) {
 // 'available' is peeled off into NextLessonNode before this is reached, so
 // there's no gated/pulse state to account for here.
 function LessonNode({ lesson, status, moduleColor, x, y, bright, partnerLogoUrl, onOpenLesson }) {
+  const { locale } = useI18n();
+  const lessonTitle = localizedText(lesson.title, locale);
   const isLocked    = status === 'locked';
   const isCompleted = status === 'completed';
   const tint = isCompleted ? `color-mix(in srgb, ${moduleColor} 78%, #64748b)` : moduleColor;
@@ -145,7 +147,7 @@ function LessonNode({ lesson, status, moduleColor, x, y, bright, partnerLogoUrl,
           disabled={isLocked}
           className="absolute inset-0 rounded-full flex items-center justify-center"
           style={sphereStyle(tint, isLocked)}
-          aria-label={lesson.title}
+          aria-label={lessonTitle}
         >
         {isLocked
           ? <Lock size={26} color="#64748b" strokeWidth={2.5} />
@@ -184,7 +186,7 @@ function LessonNode({ lesson, status, moduleColor, x, y, bright, partnerLogoUrl,
         className="mt-2 text-[11px] text-center font-semibold truncate"
         style={{ color: labelColor, maxWidth: NODE + 36 }}
       >
-        {lesson.title}
+        {lessonTitle}
       </span>
     </div>
   );
@@ -199,6 +201,8 @@ const NEXT_SIZE = 88;
 const NEXT_HALF = NEXT_SIZE / 2;
 
 function NextLessonNode({ lesson, moduleColor, x, y, energyEmpty, bright, partnerLogoUrl, onOpenLesson }) {
+  const { locale } = useI18n();
+  const lessonTitle = localizedText(lesson.title, locale);
   const isGated = energyEmpty;
   // Clamp so the enlarged tile can't overhang the 288px canvas at the
   // sine wave's extremes — regular nodes are narrow enough to never need this.
@@ -227,7 +231,7 @@ function NextLessonNode({ lesson, moduleColor, x, y, energyEmpty, bright, partne
             onClick={() => onOpenLesson({ lesson, status: 'available', isCheckpoint: false, moduleColor, isGated })}
             className="relative w-full h-full rounded-[18px] flex items-center justify-center overflow-hidden"
             style={sphereStyle(moduleColor, false)}
-            aria-label={lesson.title}
+            aria-label={lessonTitle}
           >
             <LessonGlyph size={32} iconUrl={lesson.iconUrl} />
             {/* Diagonal glass sheen. */}
@@ -255,7 +259,7 @@ function NextLessonNode({ lesson, moduleColor, x, y, energyEmpty, bright, partne
         className="mt-2 text-[12px] text-center font-bold truncate"
         style={{ color: bright ? '#0f172a' : '#f1f5f9', maxWidth: NEXT_SIZE + 40 }}
       >
-        {lesson.title}
+        {lessonTitle}
       </span>
     </div>
   );
@@ -269,7 +273,8 @@ function NextLessonNode({ lesson, moduleColor, x, y, energyEmpty, bright, partne
 const CHECKPOINT_W = 232;
 
 function CheckpointNode({ lesson, status, moduleColor, x, y, bright, onOpenLesson }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const lessonTitle = localizedText(lesson.title, locale);
   const isLocked    = status === 'locked';
   const isCompleted = status === 'completed';
   const tint = isCompleted ? `color-mix(in srgb, ${moduleColor} 78%, #64748b)` : moduleColor;
@@ -294,7 +299,7 @@ function CheckpointNode({ lesson, status, moduleColor, x, y, bright, onOpenLesso
           border: `1.5px solid ${isLocked ? (bright ? '#cbd5e1' : '#243044') : `color-mix(in srgb, ${tint} 45%, transparent)`}`,
           boxShadow: isLocked ? 'none' : `0 8px 18px -8px ${tint}90`,
         }}
-        aria-label={lesson.title}
+        aria-label={lessonTitle}
       >
         <span
           className="relative shrink-0 w-11 h-11 rounded-full flex items-center justify-center"
@@ -328,7 +333,7 @@ function CheckpointNode({ lesson, status, moduleColor, x, y, bright, onOpenLesso
             className="block text-sm font-bold truncate"
             style={{ color: isLocked ? (bright ? '#94a3b8' : '#64748b') : (bright ? '#0f172a' : '#f1f5f9') }}
           >
-            {lesson.title}
+            {lessonTitle}
           </span>
         </span>
       </motion.button>
@@ -349,7 +354,7 @@ function CheckpointNode({ lesson, status, moduleColor, x, y, bright, onOpenLesso
 }
 
 function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleIndex, energyEmpty, bright, onOpenLesson }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const completedCount = module.lessons.filter(l => completedLessons.includes(l.id)).length;
   const total = module.lessons.length;
   const pct   = total > 0 ? (completedCount / total) * 100 : 0;
@@ -421,12 +426,12 @@ function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleI
             <p className="text-white/70 text-[11px] font-extrabold uppercase tracking-widest">
               {t('learn.moduleLabel', { n: moduleIndex + 1 })}
             </p>
-            <p className="text-white font-extrabold text-xl leading-tight">{module.title}</p>
+            <p className="text-white font-extrabold text-xl leading-tight">{localizedText(module.title, locale)}</p>
           </div>
           {partner && (
             <p className="flex items-center gap-1.5 text-white/85 text-[11px] font-semibold mb-2">
               {partner.logoUrl && <img src={partner.logoUrl} alt="" className="w-4 h-4 rounded-full object-cover" />}
-              {t('learn.courseFrom', { partner: partner.name })}
+              {t('learn.courseFrom', { partner: localizedText(partner.name, locale) })}
             </p>
           )}
           <div className="flex items-center gap-3 mt-2">

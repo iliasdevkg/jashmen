@@ -169,14 +169,21 @@ export const LEAGUE_ICONS = {
 // eagle, ultimate achievement").
 const LEGEND_BLACK = { top: '#4a4a4a', mid: '#161616', bottom: '#000000' };
 
-export default function LeagueBadge({ id, color, locked = false, size = 72 }) {
+// Task 10 — admin can optionally upload a custom icon per league (falls
+// back to the hand-drawn glyph set above when none is set, and the
+// built-in leagues keep their bespoke art either way unless overridden).
+// When present, the image is clipped into the SAME hexagon silhouette so
+// it reads as part of the gem rather than a sticker slapped on top.
+export default function LeagueBadge({ id, color, locked = false, size = 72, iconUrl }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const fillId = `lb-fill-${uid}`;
   const glossId = `lb-gloss-${uid}`;
   const glowId = `lb-glow-${uid}`;
+  const clipId = `lb-clip-${uid}`;
   const isLegend = id === 'legend' && !locked;
   const accent = isLegend ? '#FFD24C' : color;
   const Icon = LEAGUE_ICONS[id];
+  const showCustomIcon = !locked && !!iconUrl;
 
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" style={{ overflow: 'visible', display: 'block' }}>
@@ -210,6 +217,11 @@ export default function LeagueBadge({ id, color, locked = false, size = 72 }) {
           <filter id={glowId} x="-70%" y="-70%" width="240%" height="240%">
             <feGaussianBlur stdDeviation="4" />
           </filter>
+        )}
+        {showCustomIcon && (
+          <clipPath id={clipId}>
+            <path d={GEM_PATH} transform="translate(50 50) scale(0.6) translate(-50 -50)" />
+          </clipPath>
         )}
       </defs>
 
@@ -254,8 +266,12 @@ export default function LeagueBadge({ id, color, locked = false, size = 72 }) {
         <path d="M22,34 L34,22 L46,34 L34,46 Z" fill="white" opacity="0.13" transform="rotate(6 50 50)" />
       )}
 
-      {/* glyph */}
-      {locked ? <LockGlyph /> : Icon ? <Icon /> : null}
+      {/* glyph — an uploaded icon wins when set, else the hand-drawn glyph */}
+      {locked
+        ? <LockGlyph />
+        : showCustomIcon
+        ? <image href={iconUrl} x="18" y="18" width="64" height="64" clipPath={`url(#${clipId})`} preserveAspectRatio="xMidYMid slice" />
+        : Icon ? <Icon /> : null}
 
       {/* twinkles */}
       {!locked && (

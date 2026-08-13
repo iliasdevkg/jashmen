@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Flame, Zap, Crown } from 'lucide-react';
+import { Flame, Zap, Crown, Coins } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
 import { useI18n } from '../i18n.jsx';
 import { computeLiveEnergy, formatCountdown } from '../utils.js';
@@ -62,7 +62,7 @@ export default function TopBar() {
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
           style={{ background: 'rgba(255,215,0,0.15)', border: '1px solid rgba(255,215,0,0.3)' }}
         >
-          <span className="text-base leading-none">🪙</span>
+          <Coins size={15} color="#FFD700" fill="#FFD700" />
           <span className="font-bold text-sm leading-none" style={{ color: badgeText }}>{coins}</span>
         </div>
 

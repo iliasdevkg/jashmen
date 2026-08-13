@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, forwardRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Target, Flame, Trophy, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Users, Target, Flame, Trophy, ChevronLeft, ChevronRight, Crown } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
-import { useI18n, formatDays } from '../i18n.jsx';
+import { useI18n, formatDays, localizedText } from '../i18n.jsx';
 import { getCurrentLeague } from '../utils.js';
 import * as api from '../api.js';
 import LeagueBadge from '../components/icons/LeagueBadges.jsx';
@@ -12,7 +12,7 @@ import Avatar from '../components/Avatar.jsx';
 // and a league whose minXp the player hasn't reached yet renders as a dark
 // graphite crystal with a centered lock, active or not — you can still
 // browse ahead to preview it, you just can't earn its colors yet.
-function LeagueCard({ league, isActive, locked, onClick, bright }) {
+function LeagueCard({ league, isActive, locked, onClick, bright, locale }) {
   const textPri = bright ? '#0f172a' : '#ffffff';
   const textMut = bright ? '#64748b' : '#94a3b8';
   const accent = locked ? textMut : league.color;
@@ -35,10 +35,10 @@ function LeagueCard({ league, isActive, locked, onClick, bright }) {
       }}
     >
       <div style={{ marginBottom: 6 }}>
-        <LeagueBadge id={league.id} color={league.color} locked={locked} size={isActive ? 92 : 68} />
+        <LeagueBadge id={league.id} color={league.color} locked={locked} size={isActive ? 92 : 68} iconUrl={league.iconUrl} />
       </div>
       <p className="font-extrabold text-[11px] uppercase tracking-wide text-center px-1" style={{ color: isActive && !locked ? textPri : textMut }}>
-        {league.name}
+        {localizedText(league.name, locale)}
       </p>
       <p className="text-[10px] mt-0.5 font-medium" style={{ color: isActive ? accent : textMut }}>
         {league.minXp}+ XP
@@ -77,15 +77,15 @@ function Podium({ top3, heroTextPri }) {
           >
             {rank === 1 && (
               <motion.span
-                className="text-2xl mb-0.5"
+                className="mb-0.5"
                 animate={{ rotate: [-6, 6, -6] }}
                 transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
               >
-                👑
+                <Crown size={26} color="#FFD700" fill="#FFD700" />
               </motion.span>
             )}
             <div style={{ boxShadow: `0 0 0 3px ${podColor}, 0 4px 16px ${podColor}70` }} className="rounded-full">
-              <Avatar name={u.name} size={rank === 1 ? 62 : 50} />
+              <Avatar name={u.name} photoUrl={u.avatar} size={rank === 1 ? 62 : 50} />
             </div>
             <p className="font-bold text-xs text-center mt-1 w-full truncate" style={{ color: heroTextPri }}>
               {u.name}
@@ -149,7 +149,7 @@ const UserRow = forwardRef(function UserRow({ user, rank, isMe, bright }, ref) {
       >
         {rank}
       </span>
-      <Avatar name={user.name} size={36} />
+      <Avatar name={user.name} photoUrl={user.avatar} size={36} />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold truncate" style={{ color: textPri }}>{user.name}</p>
         {user.streak > 0 && (
@@ -171,7 +171,7 @@ export default function LeaguePage() {
   const content  = useContent();
   const { user, state } = useAuth();
   const { bright } = useBrightMode();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [leaderboard, setLeaderboard] = useState([]);
   const [loading, setLoading]         = useState(true);
   const [activeLeague, setActiveLeague] = useState(null);
@@ -260,6 +260,7 @@ export default function LeaguePage() {
                 locked={xp < l.minXp}
                 onClick={() => setActiveLeague(l)}
                 bright={bright}
+                locale={locale}
               />
             ))}
           </div>
@@ -312,13 +313,13 @@ export default function LeaguePage() {
 
         {loading ? (
           <div className="flex justify-center py-14">
-            <div className="text-3xl animate-pulse">🏆</div>
+            <Trophy size={30} color={heroTextMut} className="animate-pulse" />
           </div>
         ) : top3.length > 0 ? (
           <Podium top3={top3} heroTextPri={heroTextPri} />
         ) : (
           <div className="relative flex flex-col items-center gap-1 py-10 px-6 text-center">
-            <span className="text-3xl mb-1">🌌</span>
+            <Users size={30} color={heroTextMut} className="mb-1" />
             <p className="font-bold text-sm" style={{ color: heroTextPri }}>{t('league.emptyTitle')}</p>
             <p className="text-xs" style={{ color: heroTextMut }}>{t('league.emptyDesc')}</p>
           </div>

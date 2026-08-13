@@ -1,8 +1,10 @@
+import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Flame, Star, BookOpen } from 'lucide-react';
+import { Flame, Star, BookOpen, Award, Camera, Pencil, Check, X, Loader2, Coins, Ticket, Copy } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
-import { useI18n, formatDays } from '../i18n.jsx';
+import { useI18n, formatDays, localizedText } from '../i18n.jsx';
 import { getCurrentLeague } from '../utils.js';
+import * as api from '../api.js';
 import Avatar from '../components/Avatar.jsx';
 import LeagueBadge from '../components/icons/LeagueBadges.jsx';
 
@@ -22,7 +24,7 @@ function StatCard({ icon: Icon, label, value, color, bright }) {
   );
 }
 
-function AchievementBadge({ ach, earned, bright }) {
+function AchievementBadge({ ach, earned, bright, locale }) {
   return (
     <div
       className="flex flex-col items-center gap-2 p-3 rounded-2xl"
@@ -34,14 +36,73 @@ function AchievementBadge({ ach, earned, bright }) {
         opacity: earned ? 1 : 0.4,
       }}
     >
-      <span className="text-2xl">{ach.emoji}</span>
-      <p className="text-[10px] font-bold text-center leading-tight" style={{ color: bright ? '#0f172a' : 'white' }}>{ach.title}</p>
+      {ach.iconUrl
+        ? <img src={ach.iconUrl} alt="" className="w-8 h-8 rounded-lg object-cover" />
+        : <Award size={24} color="#FFD700" />}
+      <p className="text-[10px] font-bold text-center leading-tight" style={{ color: bright ? '#0f172a' : 'white' }}>{localizedText(ach.title, locale)}</p>
     </div>
   );
 }
 
+// One claimed coupon — the durable proof behind the shop's one-shot
+// redeemed-code modal. Clicking anywhere copies the code; the row keeps
+// standing even if the admin has since deleted the prize (title falls back
+// to the bare code).
+function CouponRow({ r, bright, locale, t }) {
+  const [copied, setCopied] = useState(false);
+  const title = localizedText(r.prize?.title, locale) || r.code;
+  const partner = localizedText(r.partner?.name, locale);
+  const date = r.date ? r.date.split('-').reverse().join('.') : '';
+  const subtitle = [partner, date].filter(Boolean).join(' · ');
+  const cardBg   = bright ? '#ffffff' : '#1e293b';
+  const cardBord = bright ? '#e2e8f0' : '#334155';
+  const textPri  = bright ? '#0f172a' : 'white';
+  const textMut  = bright ? '#64748b' : '#94a3b8';
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(r.code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch (_) {}
+  };
+
+  return (
+    <motion.button
+      layout
+      whileTap={{ scale: 0.98 }}
+      type="button"
+      onClick={copy}
+      aria-label={`${title}. ${t('profile.couponTapToCopy')}`}
+      className="w-full rounded-2xl p-3 text-left"
+      style={{ background: cardBg, border: `1.5px solid ${cardBord}` }}
+    >
+      <div className="flex items-center gap-3">
+        {r.partner?.logoUrl
+          ? <img src={r.partner.logoUrl} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />
+          : (
+            <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: bright ? '#f1f5f9' : '#0b1220' }}>
+              <Ticket size={18} color={textMut} />
+            </div>
+          )}
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-sm truncate" style={{ color: textPri }}>{title}</p>
+          {subtitle && <p className="text-xs mt-0.5" style={{ color: textMut }}>{subtitle}</p>}
+        </div>
+        {copied ? <Check size={15} color="#58CC02" className="shrink-0" /> : <Copy size={15} color={textMut} className="shrink-0" />}
+      </div>
+      <div
+        className="mt-2 rounded-xl py-2.5 text-center font-mono font-extrabold text-sm tracking-wider"
+        style={{ background: bright ? '#f1f5f9' : '#0b1220', color: '#1CB0F6' }}
+      >
+        {r.code}
+      </div>
+    </motion.button>
+  );
+}
+
 export default function ProfilePage() {
-  const { user, state } = useAuth();
+  const { user, state, token, updateUser } = useAuth();
   const content = useContent();
   const { bright } = useBrightMode();
   const { t, locale } = useI18n();
@@ -62,6 +123,58 @@ export default function ProfilePage() {
   const textPri    = bright ? '#0f172a' : 'white';
   const textMuted  = bright ? '#64748b' : '#94a3b8';
 
+  // Task 6 — avatar upload (tap the camera badge on the profile photo).
+  const fileInputRef = useRef(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState('');
+
+  const handleAvatarChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // let the same file be re-picked later if it fails
+    if (!file) return;
+    setAvatarError('');
+    setUploadingAvatar(true);
+    try {
+      const u = await api.uploadAvatar(token, file);
+      updateUser(u);
+    } catch (err) {
+      setAvatarError(err.message || t('common.error'));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  // Task 6 — editable username, right on the profile (Settings keeps its
+  // own copy of this control too; both write through the same endpoint).
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(user?.name || '');
+  const [savingName, setSavingName] = useState(false);
+
+  // Coupon history — null = still loading, [] = loaded (possibly empty).
+  const [coupons, setCoupons] = useState(null);
+  const [couponsError, setCouponsError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    api.fetchMyRedemptions(token)
+      .then(list => { if (alive) setCoupons(Array.isArray(list) ? list : []); })
+      .catch(err => {
+        if (alive) { setCouponsError(err.message || ''); setCoupons([]); }
+      });
+    return () => { alive = false; };
+  }, [token]);
+
+  const startEditName = () => { setNameDraft(user?.name || ''); setEditingName(true); };
+  const saveName = async () => {
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === user?.name) { setEditingName(false); return; }
+    setSavingName(true);
+    try {
+      const u = await api.patchState(token, { name: trimmed });
+      updateUser(u);
+    } catch (e) { console.error(e); }
+    finally { setSavingName(false); setEditingName(false); }
+  };
+
   return (
     <div className="py-4 px-4">
       <motion.div
@@ -69,17 +182,68 @@ export default function ProfilePage() {
         animate={{ opacity: 1, y: 0 }}
         className="flex flex-col lg:flex-row items-center lg:items-start gap-4 mb-6 pt-2"
       >
-        <Avatar name={user?.name} size={96} style={{ border: `3px solid ${cardBorder}` }} />
+        <div className="relative shrink-0">
+          <Avatar name={user?.name} photoUrl={user?.avatar} size={96} style={{ border: `3px solid ${cardBorder}` }} />
+          <motion.button
+            whileTap={{ scale: 0.92 }}
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadingAvatar}
+            aria-label={t('profile.changePhoto')}
+            className="absolute bottom-0 right-0 w-8 h-8 rounded-full flex items-center justify-center disabled:opacity-70"
+            style={{ background: '#1CB0F6', border: `2.5px solid ${bright ? '#f8fafc' : '#0f172a'}` }}
+          >
+            {uploadingAvatar
+              ? <Loader2 size={14} color="white" className="animate-spin" />
+              : <Camera size={14} color="white" />}
+          </motion.button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleAvatarChange}
+          />
+        </div>
         <div className="text-center lg:text-left">
-          <h2 className="font-extrabold text-xl" style={{ color: textPri }}>{user?.name}</h2>
+          {editingName ? (
+            <div className="flex items-center gap-1.5 justify-center lg:justify-start">
+              <input
+                autoFocus
+                value={nameDraft}
+                maxLength={60}
+                onChange={e => setNameDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') saveName();
+                  if (e.key === 'Escape') setEditingName(false);
+                }}
+                className="font-extrabold text-xl bg-transparent outline-none px-1 pb-0.5"
+                style={{ color: textPri, borderBottom: '2px solid #1CB0F6', maxWidth: 200 }}
+              />
+              <button onClick={saveName} disabled={savingName} className="p-1 disabled:opacity-50" style={{ color: '#58CC02' }}>
+                {savingName ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+              </button>
+              <button onClick={() => setEditingName(false)} className="p-1" style={{ color: '#FF4B4B' }}>
+                <X size={16} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 justify-center lg:justify-start">
+              <h2 className="font-extrabold text-xl" style={{ color: textPri }}>{user?.name}</h2>
+              <button onClick={startEditName} aria-label={t('settings.editName')} className="p-1" style={{ color: textMuted }}>
+                <Pencil size={13} />
+              </button>
+            </div>
+          )}
+          {avatarError && <p className="text-xs mt-1" style={{ color: '#FF4B4B' }}>{avatarError}</p>}
           {user?.email && <p className="text-xs mt-0.5" style={{ color: textMuted }}>{user.email}</p>}
           {myLeague && (
             <div
               className="inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full"
               style={{ background: `${myLeague.color}20`, border: `1px solid ${myLeague.color}40` }}
             >
-              <LeagueBadge id={myLeague.id} color={myLeague.color} size={20} />
-              <span className="text-xs font-bold" style={{ color: myLeague.color }}>{t('profile.leagueBadge', { name: myLeague.name })}</span>
+              <LeagueBadge id={myLeague.id} color={myLeague.color} size={20} iconUrl={myLeague.iconUrl} />
+              <span className="text-xs font-bold" style={{ color: myLeague.color }}>{t('profile.leagueBadge', { name: localizedText(myLeague.name, locale) })}</span>
             </div>
           )}
         </div>
@@ -96,7 +260,7 @@ export default function ProfilePage() {
         style={{ background: cardBg, border: `1.5px solid ${cardBorder}` }}
       >
         <div className="flex items-center gap-2">
-          <span className="text-2xl">🪙</span>
+          <Coins size={26} color="#FFD700" fill="#FFD700" />
           <div>
             <p className="font-bold text-sm" style={{ color: textPri }}>{t('profile.coinsTitle')}</p>
             <p className="text-xs" style={{ color: textMuted }}>{t('profile.coinsDesc')}</p>
@@ -110,11 +274,34 @@ export default function ProfilePage() {
           <h3 className="font-bold text-base mb-3" style={{ color: textPri }}>{t('profile.achievements')}</h3>
           <div className="grid grid-cols-3 lg:grid-cols-4 gap-2">
             {achievements.map(ach => (
-              <AchievementBadge key={ach.id} ach={ach} earned={earnedAchievements.has(ach.id)} bright={bright} />
+              <AchievementBadge key={ach.id} ach={ach} earned={earnedAchievements.has(ach.id)} bright={bright} locale={locale} />
             ))}
           </div>
         </div>
       )}
+
+      <div className="mt-6">
+        <h3 className="font-bold text-base mb-3" style={{ color: textPri }}>{t('profile.coupons')}</h3>
+        {coupons === null ? (
+          <div className="rounded-2xl h-24 animate-pulse" style={{ background: cardBg, border: `1.5px solid ${cardBorder}` }} />
+        ) : coupons.length === 0 ? (
+          <div
+            className="flex items-center gap-3 rounded-2xl px-4 py-3"
+            style={{ background: bright ? '#f1f5f9' : '#141e2e', border: `1.5px solid ${cardBorder}` }}
+          >
+            <Ticket size={18} color={textMuted} className="shrink-0" />
+            <p className="text-xs leading-relaxed" style={{ color: textMuted }}>
+              {couponsError || t('profile.couponsEmpty')}
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2 lg:grid lg:grid-cols-2">
+            {coupons.map(r => (
+              <CouponRow key={r.id} r={r} bright={bright} locale={locale} t={t} />
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="h-4" />
     </div>

@@ -75,5 +75,5 @@ export function formatDays(n, locale) {
 export function localizedText(value, locale) {
   if (value == null) return '';
   if (typeof value === 'string') return value;
-  return value[locale] || value.ky || value.ru || '';
+  return value[locale] || value.ky || value.ru || value.en || '';
 }

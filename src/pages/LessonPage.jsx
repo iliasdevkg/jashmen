@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Check, Star, ShoppingBag, PlayCircle, Share2 } from 'lucide-react';
+import { X, Check, Star, ShoppingBag, PlayCircle, Share2, Award, Zap, Trophy, CheckCircle2, Coins, Wallet } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
 import { useI18n, localizedText } from '../i18n.jsx';
 import { computeLiveEnergy, formatCountdown, checkNewAchievements, cardsOf } from '../utils.js';
@@ -82,8 +82,8 @@ function NoEnergyScreen({ onBack, onShop, resetMs, bright }) {
         initial={{ scale: 0.5 }}
         animate={{ scale: 1 }}
         transition={{ type: 'spring', stiffness: 280, damping: 22 }}
-        className="text-7xl mb-4"
-      >⚡</motion.div>
+        className="mb-4"
+      ><Zap size={72} color="#1CB0F6" fill="#1CB0F6" /></motion.div>
       <h2 className="font-extrabold text-xl mb-2" style={{ color: textPrimary }}>{t('lesson.noEnergyTitle')}</h2>
       <p className="text-sm mb-8 leading-relaxed" style={{ color: textMuted }}>
         {t('lesson.noEnergyDesc', { time: formatCountdown(ms) })}
@@ -213,14 +213,19 @@ function MediaCard({ card, moduleColor, bright, onContinue, isLast, submitting }
 }
 
 // ── Result screen ──────────────────────────────────────────────────────────────
-function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright, userName, lessonTitle }) {
-  const { t } = useI18n();
+function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright, userName, lessonTitle, totalQuestions = 0, correctCount = 0 }) {
+  const { t, locale } = useI18n();
   const [sharing, setSharing] = useState(false);
   const bg          = bright ? '#f8fafc' : '#0f172a';
   const textPrimary = bright ? '#0f172a' : 'white';
   const textMuted   = bright ? '#64748b' : '#94a3b8';
   const cardBg      = bright ? '#ffffff' : '#1e293b';
   const cardBorder  = bright ? '#e2e8f0' : 'transparent';
+  const trackBg     = bright ? '#e2e8f0' : '#1e293b';
+  const perfect     = !!reward?.perfect;
+  const accuracyPct = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
+  const allCorrect  = totalQuestions > 0 && correctCount >= totalQuestions;
+  const accentColor = allCorrect ? '#58CC02' : '#1CB0F6';
 
   const handleShare = async () => {
     if (sharing) return;
@@ -247,19 +252,60 @@ function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright
       className="fixed inset-0 flex flex-col items-center justify-center px-6 z-50"
       style={{ background: bg }}
     >
-      <motion.div
-        initial={{ scale: 0, rotate: -15 }}
-        animate={{ scale: 1, rotate: 0 }}
-        transition={{ type: 'spring', stiffness: 300, damping: 18, delay: 0.05 }}
-        className="text-8xl mb-4"
-      >{reward?.perfect ? '🏆' : '✅'}</motion.div>
+      <div className="relative mb-4 flex items-center justify-center">
+        {/* A soft celebratory halo behind the emoji — gold when perfect,
+            module-blue otherwise; a slow breathing pulse, never distracting. */}
+        <motion.div
+          initial={{ scale: 0.6, opacity: 0 }}
+          animate={{ scale: [1, 1.15, 1], opacity: [0.35, 0.5, 0.35] }}
+          transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
+          className="absolute w-28 h-28 rounded-full"
+          style={{ background: perfect ? 'radial-gradient(circle, #FFD70055, transparent 70%)' : 'radial-gradient(circle, #1CB0F644, transparent 70%)' }}
+        />
+        <motion.div
+          initial={{ scale: 0, rotate: -15 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 18, delay: 0.05 }}
+          className="relative"
+        >
+          {perfect
+            ? <Trophy size={88} color="#FFD700" fill="#FFD700" />
+            : <CheckCircle2 size={88} color="#58CC02" fill="#58CC02" stroke={bright ? '#f8fafc' : '#0f172a'} strokeWidth={1.5} />}
+        </motion.div>
+      </div>
 
-      <h2 className="text-2xl font-extrabold mb-1" style={{ color: textPrimary }}>
-        {reward?.perfect ? t('lesson.resultPerfect') : t('lesson.resultGood')}
-      </h2>
+      <motion.h2
+        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}
+        className="text-2xl font-extrabold mb-1" style={{ color: textPrimary }}>
+        {perfect ? t('lesson.resultPerfect') : t('lesson.resultGood')}
+      </motion.h2>
       <p className="text-sm mb-6 text-center" style={{ color: textMuted }}>
         {isReview ? t('lesson.reviewDone') : t('lesson.lessonDone')}
       </p>
+
+      {totalQuestions > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}
+          className="w-full max-w-sm mb-6"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: textMuted }}>
+              {t('lesson.accuracyLabel')}
+            </span>
+            <span className="text-sm font-extrabold" style={{ color: allCorrect ? '#58CC02' : textPrimary }}>
+              {correctCount}/{totalQuestions} · {accuracyPct}%
+            </span>
+          </div>
+          <div className="h-2.5 rounded-full overflow-hidden" style={{ background: trackBg }}>
+            <motion.div
+              initial={{ width: 0 }} animate={{ width: `${accuracyPct}%` }}
+              transition={{ delay: 0.28, duration: 0.6, ease: 'easeOut' }}
+              className="h-full rounded-full"
+              style={{ background: accentColor }}
+            />
+          </div>
+        </motion.div>
+      )}
 
       {!isReview && (
         <div className="flex gap-4 mb-6">
@@ -273,7 +319,7 @@ function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright
           <div className="flex flex-col items-center gap-1.5">
             <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
               style={{ background: cardBg, border: `1.5px solid ${cardBorder}` }}>
-              <span className="text-2xl">🪙</span>
+              <Coins size={26} color="#FFD700" fill="#FFD700" />
             </div>
             <span className="font-bold text-sm" style={{ color: textPrimary }}>+{reward?.coins || 0}</span>
           </div>
@@ -300,10 +346,12 @@ function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright
                 initial={{ x: 40, opacity: 0 }} animate={{ x: 0, opacity: 1 }}
                 className="flex items-center gap-3 px-4 py-3 rounded-2xl"
                 style={{ background: cardBg, border: '1.5px solid #FFD700' }}>
-                <span className="text-2xl">{ach.emoji}</span>
+                {ach.iconUrl
+                  ? <img src={ach.iconUrl} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />
+                  : <Award size={22} color="#FFD700" className="shrink-0" />}
                 <div>
-                  <p className="font-bold text-sm" style={{ color: textPrimary }}>{ach.title}</p>
-                  <p className="text-xs" style={{ color: textMuted }}>{ach.desc} · +{ach.xp} XP</p>
+                  <p className="font-bold text-sm" style={{ color: textPrimary }}>{localizedText(ach.title, locale)}</p>
+                  <p className="text-xs" style={{ color: textMuted }}>{localizedText(ach.desc, locale)} · +{ach.xp} XP</p>
                 </div>
               </motion.div>
             ))}
@@ -359,9 +407,14 @@ export default function LessonPage() {
   const { resetMs: initResetMs } = computeLiveEnergy(state, dailyFreeLessons);
 
   const [qIdx,        setQIdx]        = useState(0);
+  const [deck,        setDeck]        = useState(null);
   const [selected,    setSelected]    = useState(null);
   const [answered,    setAnswered]    = useState(false);
   const [mistakes,    setMistakes]    = useState(0);
+  // Distinct quiz cards missed at least once — the end-of-lesson accuracy
+  // summary ("N/total correct") is first-try, so re-queued retries (Task 7)
+  // don't retroactively count as correct. Keyed by original index in `cards`.
+  const [missed,      setMissed]      = useState(() => new Set());
   const [shake,       setShake]       = useState(false);
   const [phase,       setPhase]       = useState('quiz');
   const [reward,      setReward]      = useState(null);
@@ -369,6 +422,29 @@ export default function LessonPage() {
   const [submitting,  setSubmitting]  = useState(false);
   const shakeTimer = useRef(null);
   const startLogged = useRef(false);
+
+  // Task 7 — a wrong quiz answer re-queues that question to the end of the
+  // deck, and the lesson can't be finished until every question has been
+  // answered correctly at least once (Duolingo-style "repeat"). `deck` is
+  // the live play order: it starts as the lesson's cards and grows each time
+  // a question is missed. The `mistakes` tally is deliberately untouched, so
+  // scoring and the "perfect" flag still reflect first-try accuracy. Reset
+  // whenever the lesson changes or its cards first arrive from the API.
+  const activeDeck = deck ?? cards;
+  useEffect(() => {
+    if (cards.length) {
+      setDeck(cards);
+      setQIdx(0);
+      setSelected(null);
+      setAnswered(false);
+      setMistakes(0);
+      setMissed(new Set());
+    }
+    // cards.length flips 0→N exactly once per lesson; lessonId change is a
+    // route param swap that does NOT remount this component, so it must
+    // reset here too.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lessonId, cards.length]);
 
   useEffect(() => {
     if (!isReview && computeLiveEnergy(state, dailyFreeLessons).remaining === 0) setPhase('noenergy');
@@ -381,9 +457,12 @@ export default function LessonPage() {
     api.logEvent(token, 'lesson_start', { lessonId }).catch(() => {});
   }, [lesson, isReview, token, lessonId]);
 
-  const currentCard = cards[qIdx];
+  const currentCard = activeDeck[qIdx];
   const isQuiz = currentCard?.type === 'quiz';
-  const quizIndex = isQuiz ? cards.slice(0, qIdx + 1).filter(c => c.type === 'quiz').length - 1 : -1;
+  // Analytics index = this question's position among the ORIGINAL quiz cards.
+  // Re-queued cards are the same object reference, so indexOf still resolves
+  // to the question's first appearance rather than its retry slot.
+  const quizIndex = isQuiz ? cards.filter(c => c.type === 'quiz').indexOf(currentCard) : -1;
 
   const handleSelect = useCallback((idx) => {
     if (answered || !currentCard) return;
@@ -394,6 +473,10 @@ export default function LessonPage() {
       if (soundEnabled) playSound('correct');
     } else {
       if (soundEnabled) playSound('wrong');
+      // First-try accuracy: remember this question was missed at least once,
+      // keyed by its original position so Task 7 re-queues don't erase it.
+      const origIdx = cards.indexOf(currentCard);
+      setMissed(prev => (prev.has(origIdx) ? prev : new Set(prev).add(origIdx)));
       if (!isReview) {
         setMistakes(m => m + 1);
         setShake(true);
@@ -407,7 +490,16 @@ export default function LessonPage() {
   }, [answered, currentCard, isReview, soundEnabled, token, lessonId, quizIndex]);
 
   const handleContinue = useCallback(async () => {
-    if (qIdx < cards.length - 1) {
+    // Re-queue a missed question to the end so it comes back around. Review
+    // mode learns too, but doesn't affect the (unused) reward, so we re-queue
+    // there as well for the same "answer it right to move on" contract.
+    const wasWrongQuiz = currentCard?.type === 'quiz' && selected !== currentCard.a;
+    const base = deck ?? cards;
+    const nextDeck = wasWrongQuiz ? [...base, currentCard] : base;
+    if (nextDeck !== base) setDeck(nextDeck);
+    else if (deck === null) setDeck(base);
+
+    if (qIdx < nextDeck.length - 1) {
       setQIdx(i => i + 1);
       setSelected(null);
       setAnswered(false);
@@ -439,7 +531,7 @@ export default function LessonPage() {
     } finally {
       setSubmitting(false);
     }
-  }, [qIdx, cards.length, token, lessonId, mistakes, isReview, content, totalLessons, updateUser, soundEnabled]);
+  }, [qIdx, deck, cards, currentCard, selected, token, lessonId, mistakes, isReview, content, totalLessons, updateUser, soundEnabled]);
 
   if (!lesson) return (
     <div className="flex flex-col items-center justify-center h-64 gap-4">
@@ -457,13 +549,18 @@ export default function LessonPage() {
   if (phase === 'done') return (
     <ResultScreen reward={reward} earnedAchievements={earnedAchs}
       isReview={isReview} onContinue={() => navigate('/learn')} bright={bright}
-      userName={user?.name} lessonTitle={lesson?.title} />
+      userName={user?.name} lessonTitle={localizedText(lesson?.title, locale)}
+      totalQuestions={quizCount} correctCount={Math.max(0, quizCount - missed.size)} />
   );
 
   const moduleColor    = mod?.color || '#1CB0F6';
-  const progress       = cards.length > 0 ? (qIdx / cards.length) * 100 : 0;
+  const progress       = activeDeck.length > 0 ? (qIdx / activeDeck.length) * 100 : 0;
   const isCorrect      = selected === currentCard?.a;
-  const isLastCard     = qIdx === cards.length - 1;
+  // A wrong quiz answer will re-queue, so this is NOT the real last step even
+  // if it's the last deck slot — keep the button on "Continue", not "Finish".
+  const willRequeue    = answered && isQuiz && selected !== currentCard?.a;
+  const isLastCard     = qIdx === activeDeck.length - 1 && !willRequeue;
+  const explanation    = localizedText(currentCard?.explanation, locale);
 
   const pageBg         = bright ? '#f8fafc' : '#0f172a';
   const qBlockBg       = bright ? '#eff6ff' : '#0d1626';
@@ -499,10 +596,10 @@ export default function LessonPage() {
       </div>
 
       {/* Module label */}
-      <p className="text-xs font-extrabold uppercase tracking-wider mb-0.5" style={{ color: moduleColor }}>
-        💰 {mod?.title?.toUpperCase()}
+      <p className="flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wider mb-0.5" style={{ color: moduleColor }}>
+        <Wallet size={12} strokeWidth={2.5} /> {localizedText(mod?.title, locale).toUpperCase()}
       </p>
-      <p className="text-xs mb-5" style={{ color: counterColor }}>{t('lesson.stepCounter', { current: qIdx + 1, total: cards.length })}</p>
+      <p className="text-xs mb-5" style={{ color: counterColor }}>{t('lesson.stepCounter', { current: qIdx + 1, total: activeDeck.length })}</p>
 
       {!isQuiz ? (
         <AnimatePresence mode="wait">
@@ -586,6 +683,29 @@ export default function LessonPage() {
                       : t('lesson.correctAnswerIs', { answer: localizedText(currentCard?.opts?.[currentCard?.a], locale) })}
                   </p>
                 </div>
+
+                {/* Optional explanation authored per question in the admin
+                    panel — the "why". Shown after answering (right or wrong)
+                    so a correct guess still learns and a wrong one understands. */}
+                {explanation && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.08 }}
+                    className="rounded-2xl px-4 py-3 mb-3"
+                    style={{
+                      background: bright ? '#f8fafc' : '#0d1626',
+                      border: `1.5px solid ${bright ? '#e2e8f0' : '#1e293b'}`,
+                    }}
+                  >
+                    <p className="text-[11px] font-extrabold uppercase tracking-widest mb-1" style={{ color: moduleColor }}>
+                      {t('lesson.explanation')}
+                    </p>
+                    <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: bright ? '#334155' : '#cbd5e1' }}>
+                      {explanation}
+                    </p>
+                  </motion.div>
+                )}
 
                 <motion.button
                   whileTap={{ scale: 0.97 }}

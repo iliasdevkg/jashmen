@@ -9,6 +9,7 @@ export const en = {
   'common.error': 'Something went wrong',
   'common.cancel': 'Cancel',
   'common.close': 'Close',
+  'common.back': 'Back',
 
   // ── nav ──
   'nav.learn': 'Learn',
@@ -20,6 +21,19 @@ export const en = {
   'nav.achievements': 'Achievements',
 
   // ── auth ──
+  // ── onboarding (first launch) ──
+  'onboarding.skip': 'Skip',
+  'onboarding.next': 'Next',
+  'onboarding.getStarted': 'Get started',
+  'onboarding.slide1.title': 'Welcome to JashMen!',
+  'onboarding.slide1.desc': 'Learn financial literacy like a game — engaging lessons, quizzes, and rewards.',
+  'onboarding.slide2.title': 'Short lessons, fast learning',
+  'onboarding.slide2.desc': 'Each lesson takes just a few minutes. Answer questions to earn XP and coins.',
+  'onboarding.slide3.title': 'Compete with friends',
+  'onboarding.slide3.desc': 'Climb the leagues, rise in the rankings, and join the best.',
+  'onboarding.slide4.title': 'Win real rewards',
+  'onboarding.slide4.desc': 'Trade your coins for prizes in the shop and from partner brands.',
+
   'auth.tagline': 'Financial literacy — like a game',
   'auth.or': 'or',
   'auth.google': 'Continue with Google',
@@ -48,6 +62,8 @@ export const en = {
   'lesson.backArrow': '← Back',
   'lesson.correct': 'Correct!',
   'lesson.correctAnswerIs': 'Correct answer: {{answer}}',
+  'lesson.explanation': 'Explanation',
+  'lesson.accuracyLabel': 'Correct answers',
   'lesson.stepCounter': '{{current}}/{{total}} step',
   'lesson.resultPerfect': 'Perfect!',
   'lesson.resultGood': 'Good job!',
@@ -79,6 +95,9 @@ export const en = {
   'shop.partnerPrizes': 'Partner rewards',
   'shop.buySuccess': '{{title}} purchased!',
   'shop.redeemInstructions': 'Show this code to claim your prize:',
+  'shop.partnersTitle': 'Partners',
+  'shop.prizeCount': '{{n}} rewards',
+  'shop.noPrizesForPartner': 'This partner has no rewards yet',
 
   // ── profile ──
   'profile.leagueBadge': '{{name}} League',
@@ -88,6 +107,10 @@ export const en = {
   'profile.coinsTitle': 'Jashmen Coins',
   'profile.coinsDesc': 'For shop purchases and prize redemptions',
   'profile.achievements': 'Achievements',
+  'profile.changePhoto': 'Change photo',
+  'profile.coupons': 'My coupons',
+  'profile.couponsEmpty': 'No coupons yet. Redeem a partner reward in the shop and its code will be kept here.',
+  'profile.couponTapToCopy': 'Tap to copy',
 
   // ── settings ──
   'settings.title': 'Settings',

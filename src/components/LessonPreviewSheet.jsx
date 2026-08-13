@@ -5,8 +5,8 @@
 // or go buy energy if today's free lessons are used up. Exactly one
 // primary CTA per state — never a decorative second button that dead-ends.
 import { motion } from 'framer-motion';
-import { X, Dumbbell, GraduationCap } from 'lucide-react';
-import { useI18n } from '../i18n.jsx';
+import { X, Dumbbell, GraduationCap, Check, Zap } from 'lucide-react';
+import { useI18n, localizedText } from '../i18n.jsx';
 import { quizCountOf, maxLessonXp } from '../utils.js';
 
 // Same placeholder-icon note as LearnPage.jsx's LessonGlyph — plain lucide
@@ -14,7 +14,7 @@ import { quizCountOf, maxLessonXp } from '../utils.js';
 // icons/) while the node-type art direction is still being decided.
 
 export default function LessonPreviewSheet({ lesson, status, isCheckpoint, isGated, moduleColor, onStart, onReview, onGoShop, onClose, bright }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   if (!lesson) return null;
 
   const isCompleted = status === 'completed';
@@ -84,7 +84,7 @@ export default function LessonPreviewSheet({ lesson, status, isCheckpoint, isGat
           </span>
         </div>
 
-        <h3 className="font-extrabold text-xl leading-snug mb-2" style={{ color: textPri }}>{lesson.title}</h3>
+        <h3 className="font-extrabold text-xl leading-snug mb-2" style={{ color: textPri }}>{localizedText(lesson.title, locale)}</h3>
         <p className="text-sm leading-relaxed mb-5" style={{ color: textMut }}>{description}</p>
 
         <div className="flex items-center gap-2 mb-6">
@@ -96,14 +96,14 @@ export default function LessonPreviewSheet({ lesson, status, isCheckpoint, isGat
               className="text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1"
               style={{ background: bright ? '#f0fdf4' : '#16301d', color: '#58CC02' }}
             >
-              ✓ {t('lesson.previewCompletedBadge')}
+              <Check size={12} /> {t('lesson.previewCompletedBadge')}
             </span>
           ) : isGated ? (
             <span
               className="text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1"
               style={{ background: bright ? '#fef2f2' : '#2d1515', color: '#FF4B4B' }}
             >
-              ⚡ {t('lesson.previewNoEnergyBadge')}
+              <Zap size={12} /> {t('lesson.previewNoEnergyBadge')}
             </span>
           ) : (
             <span

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, Trophy, ShoppingBag, User, Settings, Zap, LogOut } from 'lucide-react';
+import { Home, Trophy, ShoppingBag, User, Settings, Zap, LogOut, Flame, Coins } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
 import { useI18n } from '../i18n.jsx';
 import { computeLiveEnergy } from '../utils.js';
@@ -89,14 +89,14 @@ export default function SideNav() {
             className="flex-1 flex flex-col items-center py-2.5 rounded-xl gap-1"
             style={{ background: 'rgba(251,146,60,0.1)', border: '1px solid rgba(251,146,60,0.2)' }}
           >
-            <span className="text-base leading-none">🔥</span>
+            <Flame size={14} color="#fb923c" fill="#fb923c" />
             <span className="font-bold text-[11px]" style={{ color: badgeText }}>{streak}</span>
           </div>
           <div
             className="flex-1 flex flex-col items-center py-2.5 rounded-xl gap-1"
             style={{ background: 'rgba(255,215,0,0.1)', border: '1px solid rgba(255,215,0,0.2)' }}
           >
-            <span className="text-base leading-none">🪙</span>
+            <Coins size={14} color="#FFD700" fill="#FFD700" />
             <span className="font-bold text-[11px]" style={{ color: badgeText }}>{coins}</span>
           </div>
           <div
@@ -113,7 +113,7 @@ export default function SideNav() {
             className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl"
             style={{ background: cardBg, border: cardBorder }}
           >
-            <Avatar name={user.name} size={32} />
+            <Avatar name={user.name} photoUrl={user.avatar} size={32} />
             <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold truncate" style={{ color: textPri }}>{user.name}</p>
               <p className="text-[10px] truncate" style={{ color: textMut }}>{user.email}</p>

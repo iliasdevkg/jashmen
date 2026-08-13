@@ -11,6 +11,7 @@ export const ky = {
   'common.error': 'Ката болду',
   'common.cancel': 'Жокко чыгаруу',
   'common.close': 'Жабуу',
+  'common.back': 'Артка',
 
   // ── nav ──
   'nav.learn': 'Үйрөнүү',
@@ -20,6 +21,19 @@ export const ky = {
   'nav.settings': 'Орнотуу',
   'nav.logout': 'Аккаунттан чыгуу',
   'nav.achievements': 'Жетишкендиктер',
+
+  // ── onboarding (first launch) ──
+  'onboarding.skip': 'Өткөрүп жиберүү',
+  'onboarding.next': 'Кийинки',
+  'onboarding.getStarted': 'Баштайлы',
+  'onboarding.slide1.title': 'JashMenге кош келдиң!',
+  'onboarding.slide1.desc': 'Каржылык сабаттуулукту оюн ойногондой үйрөн — кызыктуу сабактар, тесттер жана сыйлыктар менен.',
+  'onboarding.slide2.title': 'Кыска сабактар, тез үйрөнүү',
+  'onboarding.slide2.desc': 'Ар бир сабак бир нече мүнөткө созулат. Суроолорго жооп берип, XP жана монета топто.',
+  'onboarding.slide3.title': 'Досторуң менен атаандаш',
+  'onboarding.slide3.desc': 'Лигаларда орун ал, рейтингде жогорулап, эң мыктылардын катарына кош.',
+  'onboarding.slide4.title': 'Чыныгы сыйлыктарды ут',
+  'onboarding.slide4.desc': 'Топтогон монетаңды дүкөндөн жана өнөктөш компаниялардан сыйлыкка алмаштыр.',
 
   // ── auth ──
   'auth.tagline': 'Каржылык сабаттуулук — оюн сыяктуу',
@@ -50,6 +64,8 @@ export const ky = {
   'lesson.backArrow': '← Артка',
   'lesson.correct': 'Туура!',
   'lesson.correctAnswerIs': 'Туура жооп: {{answer}}',
+  'lesson.explanation': 'Түшүндүрмө',
+  'lesson.accuracyLabel': 'Туура жооптор',
   'lesson.stepCounter': '{{current}}/{{total}} кадам',
   'lesson.resultPerfect': 'Мыкты!',
   'lesson.resultGood': 'Жакшы!',
@@ -81,6 +97,9 @@ export const ky = {
   'shop.partnerPrizes': 'Өнөктөштөрдөн сыйлык',
   'shop.buySuccess': '{{title}} сатып алынды!',
   'shop.redeemInstructions': 'Бул кодду көрсөтүп сыйлыгыңды ал:',
+  'shop.partnersTitle': 'Өнөктөштөр',
+  'shop.prizeCount': '{{n}} сыйлык',
+  'shop.noPrizesForPartner': 'Бул өнөктөштүн азырынча сыйлыгы жок',
 
   // ── profile ──
   'profile.leagueBadge': '{{name}} лигасы',
@@ -90,6 +109,10 @@ export const ky = {
   'profile.coinsTitle': 'Jashmen Coins',
   'profile.coinsDesc': 'Дүкөндөн жана сыйлыктарга алмаштыруу үчүн',
   'profile.achievements': 'Жетишкендиктер',
+  'profile.changePhoto': 'Сүрөттү өзгөртүү',
+  'profile.coupons': 'Купондорум',
+  'profile.couponsEmpty': 'Азырынча купон жок. Дүкөндөгү өнөктөштөрдөн сыйлык алмаштырсаң, коду ушул жерде сакталат.',
+  'profile.couponTapToCopy': 'Көчүрүү үчүн бас',
 
   // ── settings ──
   'settings.title': 'Орнотуулар',

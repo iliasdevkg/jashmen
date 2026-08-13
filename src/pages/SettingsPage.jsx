@@ -130,7 +130,7 @@ export default function SettingsPage() {
           className="flex items-center gap-3 p-4 rounded-2xl mb-4"
           style={{ background: cardBg, border: `1.5px solid ${cardBorder}` }}
         >
-          <Avatar name={user.name} size={44} />
+          <Avatar name={user.name} photoUrl={user.avatar} size={44} />
           <div className="flex-1 min-w-0">
             {editingName ? (
               <div className="flex items-center gap-1.5">

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { StoreProvider, useAuth, useBrightMode } from './store.jsx';
 import { LocaleProvider } from './i18n.jsx';
@@ -5,6 +6,7 @@ import BottomNav from './components/BottomNav.jsx';
 import TopBar from './components/TopBar.jsx';
 import SideNav from './components/SideNav.jsx';
 import RightPanel from './components/RightPanel.jsx';
+import OnboardingPage from './pages/OnboardingPage.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import LearnPage from './pages/LearnPage.jsx';
 import LessonPage from './pages/LessonPage.jsx';
@@ -13,10 +15,17 @@ import ShopPage from './pages/ShopPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
 
+// Task 9 — shown exactly once, on a device/browser that's never dismissed
+// it before. A returning user (or one already signed in) never sees this
+// again — the flag persists in localStorage, same convention as the locale
+// and bright-mode preferences (src/i18n.jsx, src/store.jsx).
+const ONBOARDED_KEY = 'fl_onboarded';
+
 function AppRoutes() {
   const { user, loading } = useAuth();
   const { bright } = useBrightMode();
   const location = useLocation();
+  const [onboarded, setOnboarded] = useState(() => localStorage.getItem(ONBOARDED_KEY) === '1');
 
   const isLesson      = location.pathname.startsWith('/lesson/');
   const isLeaderboard = location.pathname === '/leaderboard';
@@ -28,6 +37,20 @@ function AppRoutes() {
       <div className="flex items-center justify-center flex-1" style={{ background: rootBg }}>
         <img src="/logo.png" alt="JashMen" className="w-20 h-20 rounded-2xl object-cover animate-pulse" />
       </div>
+    );
+  }
+
+  // Only a signed-out visitor sees onboarding — an already-live session
+  // (restored from the refresh cookie) skips straight to the app, same as
+  // before this existed.
+  if (!user && !onboarded) {
+    return (
+      <OnboardingPage
+        onDone={() => {
+          localStorage.setItem(ONBOARDED_KEY, '1');
+          setOnboarded(true);
+        }}
+      />
     );
   }
 

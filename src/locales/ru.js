@@ -10,6 +10,7 @@ export const ru = {
   'common.error': 'Произошла ошибка',
   'common.cancel': 'Отмена',
   'common.close': 'Закрыть',
+  'common.back': 'Назад',
 
   // ── nav ──
   'nav.learn': 'Учёба',
@@ -21,6 +22,19 @@ export const ru = {
   'nav.achievements': 'Достижения',
 
   // ── auth ──
+  // ── onboarding (первый запуск) ──
+  'onboarding.skip': 'Пропустить',
+  'onboarding.next': 'Далее',
+  'onboarding.getStarted': 'Начать',
+  'onboarding.slide1.title': 'Добро пожаловать в JashMen!',
+  'onboarding.slide1.desc': 'Изучай финансовую грамотность как игру — увлекательные уроки, тесты и награды.',
+  'onboarding.slide2.title': 'Короткие уроки, быстрое обучение',
+  'onboarding.slide2.desc': 'Каждый урок занимает всего пару минут. Отвечай на вопросы и получай XP и монеты.',
+  'onboarding.slide3.title': 'Соревнуйся с друзьями',
+  'onboarding.slide3.desc': 'Занимай место в лигах, поднимайся в рейтинге и попади в число лучших.',
+  'onboarding.slide4.title': 'Выигрывай настоящие призы',
+  'onboarding.slide4.desc': 'Обменивай накопленные монеты на призы в магазине и у партнёров.',
+
   'auth.tagline': 'Финансовая грамотность — как игра',
   'auth.or': 'или',
   'auth.google': 'Продолжить с Google',
@@ -49,6 +63,8 @@ export const ru = {
   'lesson.backArrow': '← Назад',
   'lesson.correct': 'Верно!',
   'lesson.correctAnswerIs': 'Правильный ответ: {{answer}}',
+  'lesson.explanation': 'Пояснение',
+  'lesson.accuracyLabel': 'Правильные ответы',
   'lesson.stepCounter': '{{current}}/{{total}} шаг',
   'lesson.resultPerfect': 'Отлично!',
   'lesson.resultGood': 'Хорошо!',
@@ -80,6 +96,9 @@ export const ru = {
   'shop.partnerPrizes': 'Призы от партнёров',
   'shop.buySuccess': '{{title}} куплено!',
   'shop.redeemInstructions': 'Покажи этот код и получи приз:',
+  'shop.partnersTitle': 'Партнёры',
+  'shop.prizeCount': '{{n}} призов',
+  'shop.noPrizesForPartner': 'У этого партнёра пока нет призов',
 
   // ── profile ──
   'profile.leagueBadge': 'Лига «{{name}}»',
@@ -89,6 +108,10 @@ export const ru = {
   'profile.coinsTitle': 'Jashmen Coins',
   'profile.coinsDesc': 'Для покупок в магазине и обмена призов',
   'profile.achievements': 'Достижения',
+  'profile.changePhoto': 'Изменить фото',
+  'profile.coupons': 'Мои купоны',
+  'profile.couponsEmpty': 'Пока нет купонов. Обменяй монеты на приз партнёра в магазине — код сохранится здесь.',
+  'profile.couponTapToCopy': 'Нажми, чтобы скопировать',
 
   // ── settings ──
   'settings.title': 'Настройки',

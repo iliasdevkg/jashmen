@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Trophy } from 'lucide-react';
+import { Trophy, Flame } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
-import { useI18n } from '../i18n.jsx';
+import { useI18n, localizedText } from '../i18n.jsx';
 import { getCurrentLeague } from '../utils.js';
 import * as api from '../api.js';
 import Avatar from './Avatar.jsx';
@@ -11,7 +11,7 @@ export default function RightPanel() {
   const { user, state } = useAuth();
   const content = useContent();
   const { bright } = useBrightMode();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [leaderboard, setLeaderboard] = useState([]);
 
   const leagues  = content?.leagues || [];
@@ -48,7 +48,7 @@ export default function RightPanel() {
             <LeagueBadge id={myLeague.id} color={myLeague.color} size={44} />
             <div className="flex-1 min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: textFaint }}>{t('league.myLeague')}</p>
-              <p className="font-bold text-sm" style={{ color: textPri }}>{myLeague.name}</p>
+              <p className="font-bold text-sm" style={{ color: textPri }}>{localizedText(myLeague.name, locale)}</p>
             </div>
             <span className="font-bold text-sm shrink-0" style={{ color: myLeague.color }}>
               {xp.toLocaleString()} XP
@@ -64,7 +64,7 @@ export default function RightPanel() {
                 />
               </div>
               <p className="text-[10px]" style={{ color: textFaint }}>
-                {t('league.next')} <span className="font-semibold" style={{ color: textMut }}>{nextLeague.name}</span>
+                {t('league.next')} <span className="font-semibold" style={{ color: textMut }}>{localizedText(nextLeague.name, locale)}</span>
                 {' · '}{(nextLeague.minXp - xp).toLocaleString()} {t('league.xpLeft')}
               </p>
             </>
@@ -78,7 +78,7 @@ export default function RightPanel() {
           className="rounded-2xl px-4 py-3 flex items-center gap-3"
           style={{ background: 'rgba(251,146,60,0.08)', border: '1.5px solid rgba(251,146,60,0.2)' }}
         >
-          <span className="text-2xl">🔥</span>
+          <Flame size={26} color="#fb923c" fill="#fb923c" />
           <div>
             <p className="font-bold text-sm" style={{ color: textPri }}>{t('league.streakBadge', { n: streak })}</p>
             <p className="text-xs" style={{ color: textMut }}>{t('league.streakDesc')}</p>
@@ -114,7 +114,7 @@ export default function RightPanel() {
                   <span className="w-5 text-center text-xs font-bold shrink-0" style={{ color: rc }}>
                     {i + 1}
                   </span>
-                  <Avatar name={u.name} size={28} />
+                  <Avatar name={u.name} photoUrl={u.avatar} size={28} />
                   <p className="text-xs font-medium flex-1 truncate" style={{ color: textPri }}>
                     {u.name}
                     {isMe && <span style={{ color: '#1CB0F6' }}> ●</span>}
