@@ -13,15 +13,16 @@ import {
 } from './auth.js';
 import { setRefreshCookie, clearRefreshCookie } from './cookies.js';
 import { verifyGoogleIdToken, resolveGoogleUser, GoogleAuthError } from './googleAuth.js';
-import { authLimiter, signupLimiter } from './rateLimit.js';
+import { authLimiter, signupLimiter, uploadLimiter } from './rateLimit.js';
 import * as db from './db.js';
 import {
-  getContent, findLesson, findShopItem, findPrize,
+  getContent, findLesson, findShopItem, findPrize, findPartner,
   checkNewAchievements, totalLessons, getLimits,
 } from './contentStore.js';
 import { computeLiveEnergy, spendEnergy, grantBonusEnergy } from './energy.js';
 import { logEvent } from './events.js';
 import { getPublicKey } from './push.js';
+import { upload, saveUploadedFile } from './uploads.js';
 
 const router = Router();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -295,12 +296,18 @@ router.post('/u/me/lesson', requireAuth, async (req, res, next) => {
         return res.status(403).json({ error: 'Бүгүнкү акысыз сабактарың бүттү. Эртең кайра келиңиз же энергия сатып алыңыз.' });
       }
 
-      const baseXp = questionCount * 10;
+      // Task 12 — every constant here is admin-editable (Limits panel),
+      // not hardcoded: points per question, the penalty per mistake, the
+      // mistake-proof floor, the perfect-lesson bonus, the xp_boost
+      // multiplier, and both coin payouts.
+      const lim = getLimits();
+      const baseXp = questionCount * (lim.xpPerQuestion ?? 10);
       const perfect = mistakes === 0;
-      let xp = Math.max(Math.round(baseXp * 0.4), baseXp - mistakes * 3);
-      if (perfect) xp += Math.round(baseXp * 0.2);
-      if (state.hasXpBoost) xp = Math.round(xp * 1.25);
-      const coins = perfect ? 10 : 5;
+      const floorPct = (lim.xpMinFloorPct ?? 40) / 100;
+      let xp = Math.max(Math.round(baseXp * floorPct), baseXp - mistakes * (lim.xpMistakePenalty ?? 3));
+      if (perfect) xp += Math.round(baseXp * ((lim.xpPerfectBonusPct ?? 20) / 100));
+      if (state.hasXpBoost) xp = Math.round(xp * ((lim.xpBoostMultiplierPct ?? 125) / 100));
+      const coins = perfect ? (lim.coinsPerfectLesson ?? 10) : (lim.coinsNormalLesson ?? 5);
       reward = { xp, coins, perfect, isReview: false };
 
       state.completedLessons = [...(state.completedLessons || []), lessonId];
@@ -338,7 +345,11 @@ router.post('/u/me/buy', requireAuth, async (req, res, next) => {
     if (!item) return res.status(404).json({ error: 'Товар табылган жок' });
 
     const { state } = user;
-    const isEnergyRefill = item.id === 'energy_refill';
+    // Task 12 — items are no longer recognized by a fixed set of hardcoded
+    // ids; any admin-created item dispatches on its `effect`. `energy_refill`
+    // is the one repeatable effect (consumable, not a permanent unlock) —
+    // everything else is a one-time purchase per item id, same as before.
+    const isEnergyRefill = item.effect === 'energy_refill';
     if (!isEnergyRefill && (state.ownedShop || []).includes(item.id)) {
       return res.status(400).json({ error: 'Бул товар мурунтан сатылып алынган' });
     }
@@ -348,16 +359,16 @@ router.post('/u/me/buy', requireAuth, async (req, res, next) => {
     }
 
     if (isEnergyRefill) {
-      if (!grantBonusEnergy(state)) {
+      if (!grantBonusEnergy(state, getLimits().maxBonusEnergyPerDay)) {
         return res.status(400).json({ error: 'Бүгүн үчүн максимум энергия толтурулду' });
       }
       state.coins -= item.price;
     } else {
       state.coins -= item.price;
       state.ownedShop = [...(state.ownedShop || []), item.id];
-      if (item.id === 'streak_freeze') state.hasStreakShield = true;
-      if (item.id === 'xp_boost') state.hasXpBoost = true;
-      if (item.id === 'vip_badge') state.vipBadge = true;
+      if (item.effect === 'streak_shield') state.hasStreakShield = true;
+      if (item.effect === 'xp_boost') state.hasXpBoost = true;
+      if (item.effect === 'vip_badge') state.vipBadge = true;
     }
 
     await db.saveUser(user);
@@ -402,6 +413,33 @@ router.post('/u/me/redeem', requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// The learner's own redemption history — proof they claimed a code, kept
+// even after they close the dialog. Prize/partner details are joined at
+// read time rather than snapshotted, so a prize the admin later deletes
+// degrades gracefully to just the code + date instead of breaking the row.
+router.get('/u/me/redemptions', requireAuth, (req, res, next) => {
+  try {
+    const items = db.listRedemptions()
+      .filter(r => r.userId === req.userId)
+      .sort((a, b) => (b.ts || 0) - (a.ts || 0))
+      .map(r => {
+        const prize = findPrize(r.prizeId);
+        const partner = prize ? findPartner(prize.partnerId) : null;
+        return {
+          id: r.id,
+          code: r.code,
+          date: r.date,
+          ts: r.ts || null,
+          prize: prize
+            ? { title: prize.title, photoUrl: prize.photoUrl || null, priceCoins: prize.priceCoins }
+            : null,
+          partner: partner ? { name: partner.name, logoUrl: partner.logoUrl || null } : null,
+        };
+      });
+    res.json(items);
+  } catch (err) { next(err); }
+});
+
 // ── Web Push subscriptions ──────────────────────────────────────────────
 
 router.post('/u/me/push/subscribe', requireAuth, async (req, res, next) => {
@@ -433,6 +471,25 @@ router.post('/u/me/push/unsubscribe', requireAuth, async (req, res, next) => {
     await db.saveUser(user);
 
     res.status(204).end();
+  } catch (err) { next(err); }
+});
+
+// ── Task 6: learner-facing avatar upload ────────────────────────────────
+//
+// Separate from admin-api/adminRoutes.js's /media/upload — that one is
+// admin-token-gated (lesson/module/partner art); this is the one path a
+// learner can upload media through, gated by their own auth and reusing
+// the exact same storage plumbing (uploads.js — local disk or Vercel Blob,
+// whichever this deploy has configured).
+router.post('/u/me/avatar', requireAuth, uploadLimiter, upload.single('file'), async (req, res, next) => {
+  try {
+    const user = db.findUserById(req.userId);
+    if (!user) return res.status(401).json({ error: 'Колдонуучу табылган жок' });
+    if (!req.file) return res.status(400).json({ error: 'Файл алынган жок (түрү уруксат берилбейт же өтө чоң)' });
+
+    user.avatar = await saveUploadedFile(req.file);
+    await db.saveUser(user);
+    res.status(201).json(toPublicUser(user));
   } catch (err) { next(err); }
 });
 

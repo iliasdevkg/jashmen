@@ -1,25 +1,34 @@
-// admin-src/pages/LeaguesModule.jsx — leagues are pure data (name, emoji,
+// admin-src/pages/LeaguesModule.jsx — leagues are pure data (name, icon,
 // color, XP threshold), so admin gets unlimited add/edit/delete straight
 // away. Sorted by minXp so the ladder always reads top-to-bottom correctly.
+//
+// Task 10: an uploaded icon is OPTIONAL — the built-in leagues (student,
+// savings, investor, …) keep their bespoke hand-drawn gem badges on web,
+// and mobile already renders league.iconUrl when present. This is purely
+// for leagues the admin adds beyond the built-in set, or to override one.
 import { useState } from 'react';
 import { Plus, Trash2, Trophy } from 'lucide-react';
 import * as api from '../api.js';
-import { Card, Field, TextInput, Button, EmptyState, ErrorNote } from '../components/ui.jsx';
+import { Card, Field, TextInput, Button, EmptyState, ErrorNote, TrilingualInput, ImageUpload, previewText } from '../components/ui.jsx';
+
+function kyOf(v) {
+  return (typeof v === 'string' ? v : v?.ky || '').trim();
+}
 
 function LeagueForm({ token, league, onDone, onCancel }) {
-  const [name, setName] = useState(league?.name || '');
-  const [emoji, setEmoji] = useState(league?.emoji || '🏅');
+  const [name, setName] = useState(league?.name || { ky: '', ru: '', en: '' });
+  const [iconUrl, setIconUrl] = useState(league?.iconUrl || '');
   const [color, setColor] = useState(league?.color || '#1CB0F6');
   const [minXp, setMinXp] = useState(league?.minXp ?? 0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const handleSave = async () => {
-    if (!name.trim()) return setError('Лиганын аты керек');
+    if (!kyOf(name)) return setError('Лиганын аты керек');
     setSaving(true);
     setError('');
     try {
-      const body = { name: name.trim(), emoji, color, minXp };
+      const body = { name, iconUrl: iconUrl || null, color, minXp };
       if (league) await api.updateLeague(token, league.id, body);
       else await api.createLeague(token, body);
       onDone();
@@ -32,14 +41,10 @@ function LeagueForm({ token, league, onDone, onCancel }) {
 
   return (
     <Card className="flex flex-col gap-3">
-      <div className="grid grid-cols-[1fr_80px] gap-3">
-        <Field label="Лиганын аты">
-          <TextInput value={name} onChange={e => setName(e.target.value)} placeholder="Мис. Платина" />
-        </Field>
-        <Field label="Эмодзи">
-          <TextInput value={emoji} onChange={e => setEmoji(e.target.value)} className="text-center text-lg" />
-        </Field>
-      </div>
+      <TrilingualInput label="Лиганын аты" value={name} onChange={setName} kyRequired />
+      <Field label="Өзгөчө иконка (милдеттүү эмес — коюлбаса даяр гем-белги колдонулат)">
+        <ImageUpload token={token} url={iconUrl} onChange={setIconUrl} variant="block" emptyIcon={Trophy} />
+      </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Керектүү XP (минимум)">
           <TextInput type="number" min={0} value={minXp} onChange={e => setMinXp(e.target.value)} />
@@ -66,7 +71,7 @@ export default function LeaguesModule({ token, content, reload }) {
   const leagues = [...content.leagues].sort((a, b) => a.minXp - b.minXp);
 
   const handleDelete = async (league) => {
-    if (!confirm(`"${league.name}" лигасын өчүрөсүзбү?`)) return;
+    if (!confirm(`"${previewText(league.name)}" лигасын өчүрөсүзбү?`)) return;
     await api.deleteLeague(token, league.id);
     reload();
   };
@@ -98,9 +103,11 @@ export default function LeaguesModule({ token, content, reload }) {
         <div className="flex flex-col gap-2">
           {leagues.map(l => (
             <div key={l.id} className="flex items-center gap-3 px-4 py-3 rounded-xl" style={{ background: '#12141c', border: `1.5px solid ${l.color}40` }}>
-              <span className="text-2xl">{l.emoji}</span>
+              {l.iconUrl
+                ? <img src={l.iconUrl} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />
+                : <Trophy size={20} color={l.color} className="shrink-0" />}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-white truncate">{l.name}</p>
+                <p className="text-sm font-bold text-white truncate">{previewText(l.name)}</p>
                 <p className="text-[11px]" style={{ color: l.color }}>{l.minXp}+ XP</p>
               </div>
               <button onClick={() => { setEditing(l); setShowForm(true); }} className="text-xs font-semibold" style={{ color: '#1CB0F6' }}>Түзөтүү</button>

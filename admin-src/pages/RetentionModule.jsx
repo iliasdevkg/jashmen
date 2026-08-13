@@ -7,22 +7,26 @@
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, BellRing, Send, Check, X } from 'lucide-react';
 import * as api from '../api.js';
-import { Card, Field, TextInput, TextArea, Button, EmptyState, ErrorNote } from '../components/ui.jsx';
+import { Card, Field, TextInput, Button, EmptyState, ErrorNote, TrilingualInput, previewText } from '../components/ui.jsx';
+
+function kyOf(v) {
+  return (typeof v === 'string' ? v : v?.ky || '').trim();
+}
 
 function RuleForm({ token, rule, onDone, onCancel }) {
   const [daysInactive, setDaysInactive] = useState(rule?.daysInactive ?? 3);
-  const [title, setTitle] = useState(rule?.title || 'JashMen');
-  const [body, setBody] = useState(rule?.body || '');
+  const [title, setTitle] = useState(rule?.title || { ky: 'JashMen', ru: '', en: '' });
+  const [body, setBody] = useState(rule?.body || { ky: '', ru: '', en: '' });
   const [enabled, setEnabled] = useState(rule?.enabled ?? true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const handleSave = async () => {
-    if (!body.trim()) return setError('Билдирүүнүн тексти керек');
+    if (!kyOf(body)) return setError('Билдирүүнүн тексти керек');
     setSaving(true);
     setError('');
     try {
-      const payload = { daysInactive, title: title.trim(), body: body.trim(), enabled };
+      const payload = { daysInactive, title, body, enabled };
       if (rule) await api.updateRetentionRule(token, rule.id, payload);
       else await api.createRetentionRule(token, payload);
       onDone();
@@ -35,17 +39,11 @@ function RuleForm({ token, rule, onDone, onCancel }) {
 
   return (
     <Card className="flex flex-col gap-3">
-      <div className="grid grid-cols-[1fr_140px] gap-3">
-        <Field label="Билдирүүнүн аталышы">
-          <TextInput value={title} onChange={e => setTitle(e.target.value)} placeholder="JashMen" />
-        </Field>
-        <Field label="Канча күн кирбесе">
-          <TextInput type="number" min={1} value={daysInactive} onChange={e => setDaysInactive(e.target.value)} />
-        </Field>
-      </div>
-      <Field label="Билдирүүнүн тексти">
-        <TextArea rows={2} value={body} onChange={e => setBody(e.target.value)} placeholder="Мис. Сени сагындык! 3 күндөн бери кирген жоксуң — бир сабак өтүп кал." />
+      <Field label="Канча күн кирбесе">
+        <TextInput type="number" min={1} value={daysInactive} onChange={e => setDaysInactive(e.target.value)} className="w-32" />
       </Field>
+      <TrilingualInput label="Билдирүүнүн аталышы" value={title} onChange={setTitle} kyRequired />
+      <TrilingualInput label="Билдирүүнүн тексти" value={body} onChange={setBody} kyRequired multiline />
       <button
         type="button"
         onClick={() => setEnabled(v => !v)}
@@ -80,7 +78,7 @@ export default function RetentionModule({ token, content, reload }) {
   const rules = content.retentionRules || [];
 
   const handleDelete = async (rule) => {
-    if (!confirm(`"${rule.title}" эрежесин өчүрөсүзбү?`)) return;
+    if (!confirm(`"${previewText(rule.title)}" эрежесин өчүрөсүзбү?`)) return;
     await api.deleteRetentionRule(token, rule.id);
     reload();
   };
@@ -150,8 +148,8 @@ export default function RetentionModule({ token, content, reload }) {
                 {rule.enabled ? <Check size={14} /> : <X size={14} />}
               </button>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-white truncate">{rule.daysInactive} күн кирбесе → {rule.title}</p>
-                <p className="text-[11px] text-slate-500 truncate">{rule.body}</p>
+                <p className="text-sm font-bold text-white truncate">{rule.daysInactive} күн кирбесе → {previewText(rule.title)}</p>
+                <p className="text-[11px] text-slate-500 truncate">{previewText(rule.body)}</p>
               </div>
               <button onClick={() => { setEditing(rule); setShowForm(true); }} className="text-xs font-semibold shrink-0" style={{ color: '#1CB0F6' }}>Түзөтүү</button>
               <button onClick={() => handleDelete(rule)} className="p-1 shrink-0" style={{ color: '#f87171' }}><Trash2 size={14} /></button>

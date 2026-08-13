@@ -48,6 +48,20 @@ const LEGACY_ACHIEVEMENT_RULES = {
   expert:  { type: 'all_lessons_completed' },
 };
 
+// Task 12 — shop items are effect-driven (see "Shop items" section below)
+// rather than hardcoded-by-id. Content saved before `effect` existed only
+// had these four fixed ids with hardcoded behavior in routes.js; withDefaults()
+// backfills the matching effect once on load so existing purchases/behavior
+// are unaffected by the migration. Declared here (not next to addShopItem
+// further down) because withDefaults() below needs it at module-load time.
+export const SHOP_EFFECTS = new Set(['energy_refill', 'streak_shield', 'xp_boost', 'vip_badge']);
+const LEGACY_SHOP_EFFECTS = {
+  energy_refill: 'energy_refill',
+  streak_freeze: 'streak_shield',
+  xp_boost: 'xp_boost',
+  vip_badge: 'vip_badge',
+};
+
 // Badges used to be an `emoji` string; they're now an admin-uploaded image
 // (`iconUrl`), with a vector fallback in the app when nothing is uploaded.
 // Any content.json written before that change still carries `emoji`, so we
@@ -64,15 +78,38 @@ function withDefaults(c) {
   const achievements = (c.achievements || [])
     .map(a => (a.rule ? a : { ...a, rule: LEGACY_ACHIEVEMENT_RULES[a.id] || { type: 'lessons_completed', value: 1 } }))
     .map(withoutEmoji);
+  // Task 12: shop items are now effect-driven (see addShopItem) rather than
+  // hardcoded-by-id — content written before `effect` existed gets it
+  // backfilled from the fixed id→effect map the code used to hardcode, so
+  // existing purchases/behavior are unaffected by the migration.
+  const shop_items = (c.shop_items || [])
+    .map(withoutEmoji)
+    .map(i => (i.effect ? i : { ...i, effect: LEGACY_SHOP_EFFECTS[i.id] || 'xp_boost' }));
   return {
     modules: c.modules || [],
     leagues: (c.leagues || []).map(withoutEmoji),
     achievements,
-    shop_items: (c.shop_items || []).map(withoutEmoji),
+    shop_items,
     partners: c.partners || [],
     prizes: c.prizes || [],
     retentionRules: c.retentionRules || [],
-    limits: { dailyFreeLessons: 3, dailyPrizeCap: 5, ...(c.limits || {}) },
+    // Task 12 — every previously-hardcoded gameplay/economy constant now
+    // lives here, fully admin-editable. Defaults reproduce the exact
+    // numbers routes.js/energy.js used to hardcode, so an existing deploy's
+    // behavior is byte-identical until an admin actually changes something.
+    limits: {
+      dailyFreeLessons: 3,
+      dailyPrizeCap: 5,
+      maxBonusEnergyPerDay: 3,
+      xpPerQuestion: 10,
+      xpMistakePenalty: 3,
+      xpMinFloorPct: 40,      // floor = xpPerQuestion*questions*this%, even with many mistakes
+      xpPerfectBonusPct: 20,  // bonus added on a mistake-free lesson
+      xpBoostMultiplierPct: 125, // applied on top when the learner owns the xp_boost effect
+      coinsPerfectLesson: 10,
+      coinsNormalLesson: 5,
+      ...(c.limits || {}),
+    },
   };
 }
 
@@ -134,6 +171,53 @@ function persist() {
   const task = writeChain.then(() => (BLOB_TOKEN ? persistToBlob() : persistToDisk()));
   writeChain = task.catch(err => console.error('[contentStore] failed to persist content.json:', err));
   return task;
+}
+
+// ── Trilingual text (Task 13) ───────────────────────────────────────────
+//
+// Every admin-authored name/title/description across the content model —
+// module/lesson titles, partner names, prize copy, league names,
+// achievement copy, shop item copy, retention push copy — is a trilingual
+// `{ky, ru?, en?}` value (ky required, ru/en optional), the same shape
+// lesson-card text already used for ky/ru. `en` is simply one more optional
+// key in that same shape. A plain string is legacy content written before
+// this existed and is passed through unchanged — src/i18n.jsx#localizedText
+// and mobile's localizedContent() already read both shapes, falling back
+// ky → ru → en → any non-empty value, so nothing needs a data migration.
+function trimStr(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+// The one required language, whichever shape `value` arrives in — used both
+// to validate ("is this field non-empty?") and, before this change existed,
+// as the sole read path for a plain-string field.
+export function kyOf(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value.trim();
+  return trimStr(value.ky);
+}
+
+// Normalizes a raw admin-submitted value into storage shape: always an
+// object once any translation is provided, with blank ru/en OMITTED rather
+// than stored as empty strings (keeps content.json readable and matches the
+// `explanation` convention from Task 2). Returns null if `ky` ends up empty
+// after trimming — callers that require the field treat null as invalid.
+export function normalizeTrilingual(value) {
+  const ky = kyOf(value);
+  if (!ky) return null;
+  const ru = typeof value === 'object' ? trimStr(value?.ru) : '';
+  const en = typeof value === 'object' ? trimStr(value?.en) : '';
+  const out = { ky };
+  if (ru) out.ru = ru;
+  if (en) out.en = en;
+  return out;
+}
+
+// Same as normalizeTrilingual but for an OPTIONAL field (descriptions,
+// captions) — empty input is valid and stored as '', matching the previous
+// plain-string default rather than being rejected.
+export function normalizeTrilingualOptional(value) {
+  return normalizeTrilingual(value) ?? '';
 }
 
 function slugify(s) {
@@ -217,7 +301,9 @@ export function checkNewAchievements(userState, reward, totalLessonsCount = tota
 // ── Module A: modules/lessons ───────────────────────────────────────────
 
 export async function addModule({ title, color, iconUrl }) {
-  const mod = { id: `${slugify(title)}-${randomUUID().slice(0, 4)}`, title, color: color || '#1CB0F6', partnerId: null, iconUrl: iconUrl || null, lessons: [] };
+  const name = normalizeTrilingual(title);
+  if (!name) throw new Error('Модулдун аталышы керек');
+  const mod = { id: `${slugify(kyOf(title))}-${randomUUID().slice(0, 4)}`, title: name, color: color || '#1CB0F6', partnerId: null, iconUrl: iconUrl || null, lessons: [] };
   state.modules.push(mod);
   await persist();
   return mod;
@@ -227,6 +313,11 @@ export async function updateModule(id, patch) {
   const mod = state.modules.find(m => m.id === id);
   if (!mod) throw new Error('Модуль табылган жок');
   const { id: _drop, lessons: _drop2, ...safe } = patch || {};
+  if ('title' in safe) {
+    const name = normalizeTrilingual(safe.title);
+    if (!name) throw new Error('Модулдун аталышы керек');
+    safe.title = name;
+  }
   Object.assign(mod, safe);
   await persist();
   return mod;
@@ -241,18 +332,38 @@ export async function deleteModule(id) {
 // order) — `questions` is derived from the quiz-type cards so the existing
 // scoring code (LessonPage, routes.js#/u/me/lesson) never has to know
 // cards exist at all.
+//
+// `explanation` (bilingual {ky, ru}) is the optional "why this answer is
+// right / why yours was wrong" note the app reveals after the learner
+// commits to an answer. It's carried through here so legacy lessons that
+// only ship a flat `questions` array (see utils.js#cardsOf / the mobile
+// Lesson.fromJson fallback) still surface it — but only when actually
+// filled in, so content.json isn't littered with empty `{ky:'',ru:''}`.
+function hasBilingualText(v) {
+  if (v == null) return false;
+  if (typeof v === 'string') return v.trim() !== '';
+  return String(v.ky || '').trim() !== '' || String(v.ru || '').trim() !== '';
+}
+
 function questionsFromCards(cards) {
   return (cards || [])
     .filter(c => c.type === 'quiz')
-    .map(c => ({ q: c.q, opts: c.opts, a: c.a }));
+    .map(c => ({
+      q: c.q,
+      opts: c.opts,
+      a: c.a,
+      ...(hasBilingualText(c.explanation) ? { explanation: c.explanation } : {}),
+    }));
 }
 
 export async function addLesson(moduleId, { title, cards, iconUrl }) {
   const mod = state.modules.find(m => m.id === moduleId);
   if (!mod) throw new Error('Модуль табылган жок');
+  const name = normalizeTrilingual(title);
+  if (!name) throw new Error('Сабактын аталышы керек');
   const lesson = {
     id: `${moduleId}-l${mod.lessons.length + 1}-${randomUUID().slice(0, 4)}`,
-    title,
+    title: name,
     // Per-lesson icon, uploaded from the admin panel. null → the app falls
     // back to its own vector icon for the lesson node, same convention as
     // modules/leagues/achievements.
@@ -269,6 +380,11 @@ export async function updateLesson(lessonId, patch) {
   const found = findLesson(lessonId);
   if (!found) throw new Error('Сабак табылган жок');
   const { id: _drop, ...safe } = patch || {};
+  if ('title' in safe) {
+    const name = normalizeTrilingual(safe.title);
+    if (!name) throw new Error('Сабактын аталышы керек');
+    safe.title = name;
+  }
   // Same guard as leagues/achievements: never let an arbitrary string through
   // as an image source — only a site-relative path or an http(s) URL.
   if ('iconUrl' in safe) safe.iconUrl = sanitizeIconUrl(safe.iconUrl);
@@ -289,7 +405,9 @@ export async function deleteLesson(lessonId) {
 // ── Module Б: B2B partners + their prize catalog ───────────────────────
 
 export async function addPartner({ name, logoUrl }) {
-  const partner = { id: randomUUID(), name, logoUrl: logoUrl || null };
+  const label = normalizeTrilingual(name);
+  if (!label) throw new Error('Партнёрдун аты керек');
+  const partner = { id: randomUUID(), name: label, logoUrl: logoUrl || null };
   state.partners.push(partner);
   await persist();
   return partner;
@@ -299,6 +417,11 @@ export async function updatePartner(id, patch) {
   const partner = findPartner(id);
   if (!partner) throw new Error('Партнёр табылган жок');
   const { id: _drop, ...safe } = patch || {};
+  if ('name' in safe) {
+    const label = normalizeTrilingual(safe.name);
+    if (!label) throw new Error('Партнёрдун аты керек');
+    safe.name = label;
+  }
   Object.assign(partner, safe);
   await persist();
   return partner;
@@ -316,11 +439,13 @@ export async function deletePartner(id) {
 }
 
 export async function addPrize({ partnerId, title, description, photoUrl, priceCoins }) {
+  const label = normalizeTrilingual(title);
+  if (!label) throw new Error('Сыйлыктын аталышы керек');
   const prize = {
     id: randomUUID(),
     partnerId,
-    title,
-    description: description || '',
+    title: label,
+    description: normalizeTrilingualOptional(description),
     photoUrl: photoUrl || null,
     priceCoins: Math.max(0, parseInt(priceCoins, 10) || 0),
   };
@@ -333,6 +458,12 @@ export async function updatePrize(id, patch) {
   const prize = findPrize(id);
   if (!prize) throw new Error('Сыйлык табылган жок');
   const { id: _drop, partnerId: _drop2, ...safe } = patch || {};
+  if ('title' in safe) {
+    const label = normalizeTrilingual(safe.title);
+    if (!label) throw new Error('Сыйлыктын аталышы керек');
+    safe.title = label;
+  }
+  if ('description' in safe) safe.description = normalizeTrilingualOptional(safe.description);
   if (safe.priceCoins != null) safe.priceCoins = Math.max(0, parseInt(safe.priceCoins, 10) || 0);
   Object.assign(prize, safe);
   await persist();
@@ -341,6 +472,57 @@ export async function updatePrize(id, patch) {
 
 export async function deletePrize(id) {
   state.prizes = state.prizes.filter(p => p.id !== id);
+  await persist();
+}
+
+// ── Shop items — unlimited, effect-driven ───────────────────────────────
+//
+// Same pattern as the achievement rule engine: an admin-created item isn't
+// hardcoded by id, it declares one of a fixed set of `effect`s and
+// routes.js#/u/me/buy dispatches on THAT, not on which specific item was
+// bought. `energy_refill` is the one repeatable effect (consumable, not a
+// permanent unlock) — see routes.js for the ownership-check exception.
+// (SHOP_EFFECTS / LEGACY_SHOP_EFFECTS live near the top of the file,
+// alongside LEGACY_ACHIEVEMENT_RULES — withDefaults() needs the legacy map
+// at module-load time, before this section of the file is reached.)
+
+export async function addShopItem({ title, desc, price, effect, iconUrl }) {
+  const label = normalizeTrilingual(title);
+  if (!label) throw new Error('Товардын аталышы керек');
+  if (!SHOP_EFFECTS.has(effect)) throw new Error('Эффекттин түрү туура эмес');
+  const item = {
+    id: `${slugify(kyOf(title))}-${randomUUID().slice(0, 4)}`,
+    title: label,
+    desc: normalizeTrilingualOptional(desc),
+    price: Math.max(0, parseInt(price, 10) || 0),
+    effect,
+    iconUrl: sanitizeIconUrl(iconUrl),
+  };
+  state.shop_items.push(item);
+  await persist();
+  return item;
+}
+
+export async function updateShopItem(id, patch) {
+  const item = state.shop_items.find(i => i.id === id);
+  if (!item) throw new Error('Товар табылган жок');
+  const { id: _drop, ...safe } = patch || {};
+  if ('title' in safe) {
+    const label = normalizeTrilingual(safe.title);
+    if (!label) throw new Error('Товардын аталышы керек');
+    safe.title = label;
+  }
+  if ('desc' in safe) safe.desc = normalizeTrilingualOptional(safe.desc);
+  if (safe.price != null) safe.price = Math.max(0, parseInt(safe.price, 10) || 0);
+  if ('effect' in safe && !SHOP_EFFECTS.has(safe.effect)) throw new Error('Эффекттин түрү туура эмес');
+  if ('iconUrl' in safe) safe.iconUrl = sanitizeIconUrl(safe.iconUrl);
+  Object.assign(item, safe);
+  await persist();
+  return item;
+}
+
+export async function deleteShopItem(id) {
+  state.shop_items = state.shop_items.filter(i => i.id !== id);
   await persist();
 }
 
@@ -369,9 +551,11 @@ function sanitizeIconUrl(url) {
 // ── Leagues — unlimited, admin-defined ──────────────────────────────────
 
 export async function addLeague({ name, iconUrl, color, minXp }) {
+  const label = normalizeTrilingual(name);
+  if (!label) throw new Error('Лиганын аты керек');
   const league = {
     id: randomUUID(),
-    name,
+    name: label,
     iconUrl: sanitizeIconUrl(iconUrl),
     color: color || '#1CB0F6',
     minXp: Math.max(0, parseInt(minXp, 10) || 0),
@@ -386,6 +570,11 @@ export async function updateLeague(id, patch) {
   const league = state.leagues.find(l => l.id === id);
   if (!league) throw new Error('Лига табылган жок');
   const { id: _drop, emoji: _legacy, ...safe } = patch || {};
+  if ('name' in safe) {
+    const label = normalizeTrilingual(safe.name);
+    if (!label) throw new Error('Лиганын аты керек');
+    safe.name = label;
+  }
   if (safe.minXp != null) safe.minXp = Math.max(0, parseInt(safe.minXp, 10) || 0);
   if ('iconUrl' in safe) safe.iconUrl = sanitizeIconUrl(safe.iconUrl);
   Object.assign(league, safe);
@@ -416,11 +605,13 @@ function sanitizeRule(rule) {
 }
 
 export async function addAchievement({ iconUrl, title, desc, xp, rule }) {
+  const label = normalizeTrilingual(title);
+  if (!label) throw new Error('Жетишкендиктин аты керек');
   const achievement = {
     id: randomUUID(),
     iconUrl: sanitizeIconUrl(iconUrl),
-    title,
-    desc: desc || '',
+    title: label,
+    desc: normalizeTrilingualOptional(desc),
     xp: Math.max(0, parseInt(xp, 10) || 0),
     rule: sanitizeRule(rule),
   };
@@ -433,6 +624,12 @@ export async function updateAchievement(id, patch) {
   const achievement = state.achievements.find(a => a.id === id);
   if (!achievement) throw new Error('Жетишкендик табылган жок');
   const { id: _drop, emoji: _legacy, ...safe } = patch || {};
+  if ('title' in safe) {
+    const label = normalizeTrilingual(safe.title);
+    if (!label) throw new Error('Жетишкендиктин аты керек');
+    safe.title = label;
+  }
+  if ('desc' in safe) safe.desc = normalizeTrilingualOptional(safe.desc);
   if (safe.xp != null) safe.xp = Math.max(0, parseInt(safe.xp, 10) || 0);
   if (safe.rule) safe.rule = sanitizeRule(safe.rule);
   if ('iconUrl' in safe) safe.iconUrl = sanitizeIconUrl(safe.iconUrl);
@@ -461,8 +658,8 @@ export async function deleteAchievement(id) {
 function sanitizeRetentionRule({ daysInactive, title, body, enabled }) {
   return {
     daysInactive: Math.max(1, parseInt(daysInactive, 10) || 1),
-    title: String(title || '').trim().slice(0, 60) || 'JashMen',
-    body: String(body || '').trim().slice(0, 200),
+    title: normalizeTrilingual(title) || { ky: 'JashMen' },
+    body: normalizeTrilingualOptional(body),
     enabled: enabled !== false,
   };
 }

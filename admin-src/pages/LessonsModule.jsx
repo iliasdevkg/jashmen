@@ -4,101 +4,30 @@
 // Медиа-Инфо (media), Интерактивный Квиз (quiz) — exactly the three types
 // the manifest calls for.
 import { useState } from 'react';
-import { Plus, Trash2, GripVertical, ChevronUp, ChevronDown, Upload, BookOpen, Check } from 'lucide-react';
+import { Plus, Trash2, GripVertical, ChevronUp, ChevronDown, BookOpen, Check } from 'lucide-react';
 import * as api from '../api.js';
-import { Card, Field, TextInput, TextArea, Select, Button, EmptyState, ErrorNote } from '../components/ui.jsx';
+import { Card, Field, TextInput, Select, Button, EmptyState, ErrorNote, TrilingualInput, ImageUpload, previewText } from '../components/ui.jsx';
 
 const COLORS = ['#58CC02', '#1CB0F6', '#FF9600', '#CE82FF', '#FF4B4B', '#2B70C9', '#EAB308', '#EC4899'];
 
-// Card text is bilingual ({ky, ru}) per the manifest's Module A spec
-// ("на двух языках: КР/РУ") — ky required, ru optional (app falls back to
-// ky if ru is blank). A plain string is legacy content from before this
-// existed; bilingualValue() upgrades it to {ky, ru} the moment it's edited.
+// Card text is trilingual ({ky, ru, en}) per Task 13 — ky required, ru/en
+// optional (the app falls back to ky if a translation is blank). A plain
+// string is legacy content from before this existed; TrilingualInput
+// upgrades it to {ky, ru, en} the moment it's edited.
 function emptyCard(type) {
-  if (type === 'theory') return { type: 'theory', title: { ky: '', ru: '' }, body: { ky: '', ru: '' }, imageUrl: '' };
-  if (type === 'media')  return { type: 'media', mediaType: 'image', url: '', caption: { ky: '', ru: '' } };
-  return { type: 'quiz', q: { ky: '', ru: '' }, opts: [{ ky: '', ru: '' }, { ky: '', ru: '' }, { ky: '', ru: '' }], a: 0, imageUrl: '' };
+  if (type === 'theory') return { type: 'theory', title: { ky: '', ru: '', en: '' }, body: { ky: '', ru: '', en: '' }, imageUrl: '' };
+  if (type === 'media')  return { type: 'media', mediaType: 'image', url: '', caption: { ky: '', ru: '', en: '' } };
+  return { type: 'quiz', q: { ky: '', ru: '', en: '' }, opts: [{ ky: '', ru: '', en: '' }, { ky: '', ru: '', en: '' }, { ky: '', ru: '', en: '' }], a: 0, explanation: { ky: '', ru: '', en: '' }, imageUrl: '' };
 }
 
 function bilingualValue(v) {
-  if (v == null) return { ky: '', ru: '' };
-  if (typeof v === 'string') return { ky: v, ru: '' };
-  return { ky: v.ky || '', ru: v.ru || '' };
+  if (v == null) return { ky: '', ru: '', en: '' };
+  if (typeof v === 'string') return { ky: v, ru: '', en: '' };
+  return { ky: v.ky || '', ru: v.ru || '', en: v.en || '' };
 }
 
 function kyOf(v) {
   return (typeof v === 'string' ? v : v?.ky || '').trim();
-}
-
-function BilingualInput({ label, value, onChange, kyRequired, multiline }) {
-  const v = bilingualValue(value);
-  const Comp = multiline ? TextArea : TextInput;
-  return (
-    <div className="flex flex-col gap-1.5">
-      {label && <span className="text-xs font-semibold text-slate-400">{label}</span>}
-      <div className="flex items-start gap-2">
-        <span className="text-base pt-2.5 shrink-0">🇰🇬</span>
-        <Comp
-          placeholder={kyRequired ? 'Кыргызча (милдеттүү)' : 'Кыргызча'}
-          value={v.ky}
-          onChange={e => onChange({ ...v, ky: e.target.value })}
-          className="flex-1"
-          {...(multiline ? { rows: 3 } : {})}
-        />
-      </div>
-      <div className="flex items-start gap-2">
-        <span className="text-base pt-2.5 shrink-0">🇷🇺</span>
-        <Comp
-          placeholder="Орусча (милдеттүү эмес)"
-          value={v.ru}
-          onChange={e => onChange({ ...v, ru: e.target.value })}
-          className="flex-1"
-          {...(multiline ? { rows: 2 } : {})}
-        />
-      </div>
-    </div>
-  );
-}
-
-// Optional image on theory/quiz cards — same upload flow as the dedicated
-// media card, just attached instead of being the card's whole point. A
-// theory card with an imageUrl renders it above the text
-// (LessonPage.jsx#TheoryCard); a quiz card with one renders it above the
-// question (LessonPage.jsx's quiz question block).
-function OptionalImageUpload({ token, imageUrl, onChange }) {
-  const [uploading, setUploading] = useState(false);
-
-  const handleUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const { url } = await api.uploadMedia(token, file);
-      onChange(url);
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex gap-2 items-center">
-        <label className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm cursor-pointer" style={{ background: '#0f172a', border: '1.5px dashed #334155', color: '#94a3b8' }}>
-          <Upload size={14} />
-          {uploading ? 'Жүктөлүүдө...' : imageUrl ? 'Сүрөт алмаштыруу' : 'Сүрөт кошуу (милдеттүү эмес)'}
-          <input type="file" accept="image/*" className="hidden" onChange={handleUpload} />
-        </label>
-        {imageUrl && (
-          <button type="button" onClick={() => onChange('')} className="p-2.5 rounded-xl shrink-0" style={{ background: '#0f172a', border: '1.5px solid #334155', color: '#f87171' }} title="Сүрөттү алып салуу">
-            <Trash2 size={14} />
-          </button>
-        )}
-      </div>
-      {imageUrl && <img src={imageUrl} alt="" className="w-full rounded-lg max-h-32 object-cover" />}
-    </div>
-  );
 }
 
 function CardEditorRow({ card, index, total, onChange, onRemove, onMove, token }) {
@@ -146,9 +75,9 @@ function CardEditorRow({ card, index, total, onChange, onRemove, onMove, token }
 
       {card.type === 'theory' && (
         <>
-          <BilingualInput label="Аталышы (милдеттүү эмес)" value={card.title} onChange={v => patch({ title: v })} />
-          <BilingualInput label="Текст" value={card.body} onChange={v => patch({ body: v })} kyRequired multiline />
-          <OptionalImageUpload token={token} imageUrl={card.imageUrl} onChange={url => patch({ imageUrl: url })} />
+          <TrilingualInput label="Аталышы (милдеттүү эмес)" value={card.title} onChange={v => patch({ title: v })} />
+          <TrilingualInput label="Текст" value={card.body} onChange={v => patch({ body: v })} kyRequired multiline />
+          <ImageUpload token={token} url={card.imageUrl} onChange={url => patch({ imageUrl: url })} variant="block" />
         </>
       )}
 
@@ -160,7 +89,6 @@ function CardEditorRow({ card, index, total, onChange, onRemove, onMove, token }
               <option value="video">Видео</option>
             </Select>
             <label className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm cursor-pointer" style={{ background: '#0f172a', border: '1.5px dashed #334155', color: '#94a3b8' }}>
-              <Upload size={14} />
               {uploading ? 'Жүктөлүүдө...' : card.url ? 'Файл алмаштыруу' : 'Файл жүктөө'}
               <input type="file" accept="image/*,video/*" className="hidden" onChange={handleUpload} />
             </label>
@@ -170,14 +98,14 @@ function CardEditorRow({ card, index, total, onChange, onRemove, onMove, token }
               ? <video src={card.url} className="w-full rounded-lg max-h-40" controls />
               : <img src={card.url} alt="" className="w-full rounded-lg max-h-40 object-cover" />
           )}
-          <BilingualInput label="Кыска түшүндүрмө (1-2 сап)" value={card.caption} onChange={v => patch({ caption: v })} />
+          <TrilingualInput label="Кыска түшүндүрмө (1-2 сап)" value={card.caption} onChange={v => patch({ caption: v })} />
         </>
       )}
 
       {card.type === 'quiz' && (
         <>
-          <BilingualInput label="Суроонун тексти" value={card.q} onChange={v => patch({ q: v })} kyRequired />
-          <OptionalImageUpload token={token} imageUrl={card.imageUrl} onChange={url => patch({ imageUrl: url })} />
+          <TrilingualInput label="Суроонун тексти" value={card.q} onChange={v => patch({ q: v })} kyRequired />
+          <ImageUpload token={token} url={card.imageUrl} onChange={url => patch({ imageUrl: url })} variant="block" />
           {card.opts.map((opt, i) => {
             const ov = bilingualValue(opt);
             const setOpt = (patchV) => {
@@ -198,7 +126,7 @@ function CardEditorRow({ card, index, total, onChange, onRemove, onMove, token }
                 </button>
                 <div className="flex-1 flex flex-col gap-1.5">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm shrink-0">🇰🇬</span>
+                    <span className="text-sm shrink-0" title="Кыргызча">🇰🇬</span>
                     <TextInput
                       placeholder={`Вариант ${String.fromCharCode(65 + i)} (кыргызча)`}
                       value={ov.ky}
@@ -207,11 +135,20 @@ function CardEditorRow({ card, index, total, onChange, onRemove, onMove, token }
                     />
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm shrink-0">🇷🇺</span>
+                    <span className="text-sm shrink-0" title="Орусча">🇷🇺</span>
                     <TextInput
                       placeholder="орусча (милдеттүү эмес)"
                       value={ov.ru}
                       onChange={e => setOpt({ ru: e.target.value })}
+                      className="flex-1"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm shrink-0" title="Англисче">🇺🇸</span>
+                    <TextInput
+                      placeholder="англисче (милдеттүү эмес)"
+                      value={ov.en}
+                      onChange={e => setOpt({ en: e.target.value })}
                       className="flex-1"
                     />
                   </div>
@@ -228,10 +165,17 @@ function CardEditorRow({ card, index, total, onChange, onRemove, onMove, token }
             );
           })}
           {card.opts.length < 5 && (
-            <button type="button" onClick={() => patch({ opts: [...card.opts, { ky: '', ru: '' }] })} className="text-xs font-semibold self-start" style={{ color: '#1CB0F6' }}>
+            <button type="button" onClick={() => patch({ opts: [...card.opts, { ky: '', ru: '', en: '' }] })} className="text-xs font-semibold self-start" style={{ color: '#1CB0F6' }}>
               + Вариант кошуу
             </button>
           )}
+          {/* Optional per-question explanation, revealed to the learner right
+              after they commit to an answer — LessonPage.jsx / lesson_screen.dart
+              show it under the correct/wrong banner. "Why this is the right
+              answer / why yours was wrong." */}
+          <div className="pt-1 mt-1" style={{ borderTop: '1px dashed #1e293b' }}>
+            <TrilingualInput label="Түшүндүрмө (жооптон кийин чыгат, милдеттүү эмес)" value={card.explanation} onChange={v => patch({ explanation: v })} multiline />
+          </div>
         </>
       )}
     </div>
@@ -239,7 +183,7 @@ function CardEditorRow({ card, index, total, onChange, onRemove, onMove, token }
 }
 
 function LessonEditor({ token, moduleId, lesson, onDone, onCancel }) {
-  const [title, setTitle] = useState(lesson?.title || '');
+  const [title, setTitle] = useState(lesson?.title || { ky: '', ru: '', en: '' });
   const [iconUrl, setIconUrl] = useState(lesson?.iconUrl || null);
   const [cards, setCards] = useState(lesson?.cards?.length ? lesson.cards : lesson?.questions?.map(q => ({ type: 'quiz', ...q })) || []);
   const [saving, setSaving] = useState(false);
@@ -258,7 +202,7 @@ function LessonEditor({ token, moduleId, lesson, onDone, onCancel }) {
 
   const handleSave = async () => {
     setError('');
-    if (!title.trim()) return setError('Сабактын аталышы керек');
+    if (!kyOf(title)) return setError('Сабактын аталышы керек');
     if (cards.length === 0) return setError('Жок дегенде бир карта кошуңуз');
     for (const c of cards) {
       if (c.type === 'theory' && !kyOf(c.body)) return setError('Киришүү картасында кыргызча текст жок');
@@ -266,8 +210,8 @@ function LessonEditor({ token, moduleId, lesson, onDone, onCancel }) {
     }
     setSaving(true);
     try {
-      if (lesson) await api.updateLesson(token, lesson.id, { title: title.trim(), cards, iconUrl });
-      else await api.createLesson(token, moduleId, { title: title.trim(), cards, iconUrl });
+      if (lesson) await api.updateLesson(token, lesson.id, { title, cards, iconUrl });
+      else await api.createLesson(token, moduleId, { title, cards, iconUrl });
       onDone();
     } catch (err) {
       setError(err.message);
@@ -278,12 +222,10 @@ function LessonEditor({ token, moduleId, lesson, onDone, onCancel }) {
 
   return (
     <Card className="flex flex-col gap-4">
-      <Field label="Сабактын аталышы">
-        <TextInput value={title} onChange={e => setTitle(e.target.value)} placeholder="Мис. Акчанын тарыхы" />
-      </Field>
+      <TrilingualInput label="Сабактын аталышы" value={title} onChange={setTitle} kyRequired />
 
       <Field label="Сабактын иконкасы (милдеттүү эмес)">
-        <OptionalImageUpload token={token} imageUrl={iconUrl} onChange={setIconUrl} />
+        <ImageUpload token={token} url={iconUrl} onChange={setIconUrl} variant="block" />
       </Field>
 
       <div className="flex flex-col gap-3">
@@ -318,7 +260,7 @@ function LessonEditor({ token, moduleId, lesson, onDone, onCancel }) {
 }
 
 function ModuleForm({ token, partners, mod, onDone, onCancel }) {
-  const [title, setTitle] = useState(mod?.title || '');
+  const [title, setTitle] = useState(mod?.title || { ky: '', ru: '', en: '' });
   const [color, setColor] = useState(mod?.color || COLORS[0]);
   const [partnerId, setPartnerId] = useState(mod?.partnerId || '');
   const [iconUrl, setIconUrl] = useState(mod?.iconUrl || '');
@@ -326,11 +268,11 @@ function ModuleForm({ token, partners, mod, onDone, onCancel }) {
   const [error, setError] = useState('');
 
   const handleSave = async () => {
-    if (!title.trim()) return setError('Модулдун аталышы керек');
+    if (!kyOf(title)) return setError('Модулдун аталышы керек');
     setSaving(true);
     setError('');
     try {
-      const body = { title: title.trim(), color, partnerId: partnerId || null, iconUrl: iconUrl || null };
+      const body = { title, color, partnerId: partnerId || null, iconUrl: iconUrl || null };
       if (mod) await api.updateModule(token, mod.id, body);
       else await api.createModule(token, body);
       onDone();
@@ -343,9 +285,7 @@ function ModuleForm({ token, partners, mod, onDone, onCancel }) {
 
   return (
     <Card className="flex flex-col gap-3">
-      <Field label="Модулдун аталышы">
-        <TextInput value={title} onChange={e => setTitle(e.target.value)} placeholder="Мис. Инвестиция негиздери" />
-      </Field>
+      <TrilingualInput label="Модулдун аталышы" value={title} onChange={setTitle} kyRequired />
       <Field label="Түс">
         <div className="flex gap-2 flex-wrap">
           {COLORS.map(c => (
@@ -359,14 +299,14 @@ function ModuleForm({ token, partners, mod, onDone, onCancel }) {
       <Field label="Спонсор-банк (милдеттүү эмес)">
         <Select value={partnerId} onChange={e => setPartnerId(e.target.value)}>
           <option value="">— Жок —</option>
-          {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          {partners.map(p => <option key={p.id} value={p.id}>{previewText(p.name)}</option>)}
         </Select>
       </Field>
       {/* No longer a mini-badge: this artwork is now the large framed tile
           shown directly above the module on the Learn path, so the label has
           to say what the admin will actually see. */}
       <Field label="Модулдун сүрөтү (сабак жолунда чоң көрүнөт)">
-        <OptionalImageUpload token={token} imageUrl={iconUrl} onChange={setIconUrl} />
+        <ImageUpload token={token} url={iconUrl} onChange={setIconUrl} variant="block" />
       </Field>
       <ErrorNote>{error}</ErrorNote>
       <div className="flex gap-2">
@@ -386,14 +326,14 @@ export default function LessonsModule({ token, content, reload }) {
   const selectedModule = content.modules.find(m => m.id === selectedId);
 
   const handleDeleteModule = async (mod) => {
-    if (!confirm(`"${mod.title}" модулун бардык сабактары менен өчүрөсүзбү?`)) return;
+    if (!confirm(`"${previewText(mod.title)}" модулун бардык сабактары менен өчүрөсүзбү?`)) return;
     await api.deleteModule(token, mod.id);
     if (selectedId === mod.id) setSelectedId(null);
     reload();
   };
 
   const handleDeleteLesson = async (lesson) => {
-    if (!confirm(`"${lesson.title}" сабагын өчүрөсүзбү?`)) return;
+    if (!confirm(`"${previewText(lesson.title)}" сабагын өчүрөсүзбү?`)) return;
     await api.deleteLesson(token, lesson.id);
     reload();
   };
@@ -412,7 +352,7 @@ export default function LessonsModule({ token, content, reload }) {
               : { background: '#12141c', border: '1.5px solid transparent' }}
           >
             <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: mod.color }} />
-            <span className="flex-1 min-w-0 text-sm font-semibold text-white truncate">{mod.title}</span>
+            <span className="flex-1 min-w-0 text-sm font-semibold text-white truncate">{previewText(mod.title)}</span>
             <span className="text-[10px] text-slate-500 shrink-0">{mod.lessons.length}</span>
           </button>
         ))}
@@ -439,7 +379,7 @@ export default function LessonsModule({ token, content, reload }) {
           <>
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-extrabold text-white">{selectedModule.title}</h2>
+                <h2 className="text-lg font-extrabold text-white">{previewText(selectedModule.title)}</h2>
                 <p className="text-xs text-slate-500">{selectedModule.lessons.length} сабак</p>
               </div>
               <div className="flex gap-2">
@@ -469,7 +409,7 @@ export default function LessonsModule({ token, content, reload }) {
                           ? <img src={lesson.iconUrl} alt="" className="w-full h-full object-contain" />
                           : <BookOpen size={14} color="#475569" />}
                       </div>
-                      <span className="flex-1 min-w-0 text-sm font-semibold text-white truncate">{lesson.title}</span>
+                      <span className="flex-1 min-w-0 text-sm font-semibold text-white truncate">{previewText(lesson.title)}</span>
                       <span className="text-[10px] text-slate-500 shrink-0">{(lesson.cards?.length ?? lesson.questions.length)} карта</span>
                       <button onClick={() => setEditingLesson(lesson)} className="text-xs font-semibold" style={{ color: '#1CB0F6' }}>Түзөтүү</button>
                       <button onClick={() => handleDeleteLesson(lesson)} className="p-1" style={{ color: '#f87171' }}><Trash2 size={14} /></button>

@@ -56,6 +56,10 @@ export const deletePrize = (token, id) => req('DELETE', `/prizes/${id}`, null, t
 export const fetchLimits = (token) => req('GET', '/limits', null, token);
 export const saveLimits = (token, body) => req('PUT', '/limits', body, token);
 
+export const createShopItem = (token, body) => req('POST', '/shop-items', body, token);
+export const updateShopItem = (token, id, body) => req('PUT', `/shop-items/${id}`, body, token);
+export const deleteShopItem = (token, id) => req('DELETE', `/shop-items/${id}`, null, token);
+
 export const createLeague = (token, body) => req('POST', '/leagues', body, token);
 export const updateLeague = (token, id, body) => req('PUT', `/leagues/${id}`, body, token);
 export const deleteLeague = (token, id) => req('DELETE', `/leagues/${id}`, null, token);

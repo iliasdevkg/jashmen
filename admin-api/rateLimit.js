@@ -48,3 +48,14 @@ export const adminLoginLimiter = rateLimit({
   limit: 10,
   message: { error: 'Өтө көп аракет. 15 мүнөттөн кийин кайра аракет кылыңыз.' },
 });
+
+/// User-uploaded avatars. Uploads are capped at 25MB each and old files are
+/// never reclaimed, so an authenticated account could otherwise loop the
+/// endpoint and fill the disk — a few per hour is far more than anyone
+/// changing their picture needs.
+export const uploadLimiter = rateLimit({
+  ...common,
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  message: { error: 'Өтө көп сүрөт жүктөө. Бир сааттан кийин аракет кылыңыз.' },
+});

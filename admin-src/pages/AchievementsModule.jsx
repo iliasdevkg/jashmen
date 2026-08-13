@@ -3,10 +3,14 @@
 // five measurable conditions without any code change (see
 // admin-api/contentStore.js#evaluateAchievementRule, mirrored in
 // src/utils.js so the app can preview "newly earned" instantly client-side).
+//
+// Task 10: the badge is an uploaded icon (iconUrl) — web/mobile both fall
+// back to a vector trophy glyph when nothing is uploaded, same convention
+// as lesson/module/league art.
 import { useState } from 'react';
 import { Plus, Trash2, Award } from 'lucide-react';
 import * as api from '../api.js';
-import { Card, Field, TextInput, TextArea, Select, Button, EmptyState, ErrorNote } from '../components/ui.jsx';
+import { Card, Field, TextInput, Select, Button, EmptyState, ErrorNote, TrilingualInput, ImageUpload, previewText } from '../components/ui.jsx';
 
 const RULE_TYPES = [
   { value: 'lessons_completed',     label: 'Аяктаган сабак саны', needsValue: true,  unit: 'сабак' },
@@ -16,6 +20,10 @@ const RULE_TYPES = [
   { value: 'all_lessons_completed', label: 'Бардык сабактарды аяктоо',   needsValue: false },
 ];
 
+function kyOf(v) {
+  return (typeof v === 'string' ? v : v?.ky || '').trim();
+}
+
 function ruleLabel(rule) {
   const def = RULE_TYPES.find(r => r.value === rule?.type);
   if (!def) return '—';
@@ -23,9 +31,9 @@ function ruleLabel(rule) {
 }
 
 function AchievementForm({ token, achievement, onDone, onCancel }) {
-  const [emoji, setEmoji] = useState(achievement?.emoji || '🏅');
-  const [title, setTitle] = useState(achievement?.title || '');
-  const [desc, setDesc] = useState(achievement?.desc || '');
+  const [iconUrl, setIconUrl] = useState(achievement?.iconUrl || '');
+  const [title, setTitle] = useState(achievement?.title || { ky: '', ru: '', en: '' });
+  const [desc, setDesc] = useState(achievement?.desc || { ky: '', ru: '', en: '' });
   const [xp, setXp] = useState(achievement?.xp ?? 20);
   const [ruleType, setRuleType] = useState(achievement?.rule?.type || 'lessons_completed');
   const [ruleValue, setRuleValue] = useState(achievement?.rule?.value ?? 1);
@@ -35,12 +43,12 @@ function AchievementForm({ token, achievement, onDone, onCancel }) {
   const ruleDef = RULE_TYPES.find(r => r.value === ruleType);
 
   const handleSave = async () => {
-    if (!title.trim()) return setError('Жетишкендиктин аты керек');
+    if (!kyOf(title)) return setError('Жетишкендиктин аты керек');
     setSaving(true);
     setError('');
     try {
       const rule = ruleDef.needsValue ? { type: ruleType, value: ruleValue } : { type: ruleType };
-      const body = { emoji, title: title.trim(), desc, xp, rule };
+      const body = { iconUrl: iconUrl || null, title, desc, xp, rule };
       if (achievement) await api.updateAchievement(token, achievement.id, body);
       else await api.createAchievement(token, body);
       onDone();
@@ -53,16 +61,10 @@ function AchievementForm({ token, achievement, onDone, onCancel }) {
 
   return (
     <Card className="flex flex-col gap-3">
-      <div className="grid grid-cols-[1fr_80px] gap-3">
-        <Field label="Аталышы">
-          <TextInput value={title} onChange={e => setTitle(e.target.value)} placeholder="Мис. 30 күндүк стрик" />
-        </Field>
-        <Field label="Эмодзи">
-          <TextInput value={emoji} onChange={e => setEmoji(e.target.value)} className="text-center text-lg" />
-        </Field>
-      </div>
-      <Field label="Сүрөттөмө">
-        <TextArea rows={2} value={desc} onChange={e => setDesc(e.target.value)} placeholder="Колдонуучуга көрүнгөн кыска түшүндүрмө" />
+      <TrilingualInput label="Аталышы" value={title} onChange={setTitle} kyRequired />
+      <TrilingualInput label="Сүрөттөмө" value={desc} onChange={setDesc} multiline />
+      <Field label="Значка (милдеттүү эмес)">
+        <ImageUpload token={token} url={iconUrl} onChange={setIconUrl} variant="inline" emptyIcon={Award} />
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Шарт (эреже)">
@@ -99,7 +101,7 @@ export default function AchievementsModule({ token, content, reload }) {
   const [editing, setEditing] = useState(null);
 
   const handleDelete = async (ach) => {
-    if (!confirm(`"${ach.title}" жетишкендигин өчүрөсүзбү?`)) return;
+    if (!confirm(`"${previewText(ach.title)}" жетишкендигин өчүрөсүзбү?`)) return;
     await api.deleteAchievement(token, ach.id);
     reload();
   };
@@ -109,7 +111,7 @@ export default function AchievementsModule({ token, content, reload }) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-extrabold text-white mb-1">Жетишкендиктер</h2>
-          <p className="text-xs text-slate-500">Ар бир значка — эмодзи + шарт (эреже). Код өзгөртпөй чексиз кошо аласыз.</p>
+          <p className="text-xs text-slate-500">Ар бир значка — иконка + шарт (эреже). Код өзгөртпөй чексиз кошо аласыз.</p>
         </div>
         <Button variant="ghost" onClick={() => { setEditing('new'); setShowForm(true); }}>
           <Plus size={14} /> Жаңы значка
@@ -131,9 +133,11 @@ export default function AchievementsModule({ token, content, reload }) {
         <div className="flex flex-col gap-2">
           {content.achievements.map(ach => (
             <div key={ach.id} className="flex items-center gap-3 px-4 py-3 rounded-xl" style={{ background: '#12141c', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <span className="text-2xl">{ach.emoji}</span>
+              {ach.iconUrl
+                ? <img src={ach.iconUrl} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />
+                : <Award size={20} color="#FFD700" className="shrink-0" />}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-white truncate">{ach.title}</p>
+                <p className="text-sm font-bold text-white truncate">{previewText(ach.title)}</p>
                 <p className="text-[11px] text-slate-500 truncate">{ruleLabel(ach.rule)} · +{ach.xp} XP</p>
               </div>
               <button onClick={() => { setEditing(ach); setShowForm(true); }} className="text-xs font-semibold" style={{ color: '#1CB0F6' }}>Түзөтүү</button>

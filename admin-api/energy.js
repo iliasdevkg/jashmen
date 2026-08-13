@@ -18,7 +18,10 @@
 // already calls, same MAX_BONUS_PER_DAY cap applies automatically. Nothing
 // else in the energy system needs to change.
 
-export const MAX_BONUS_PER_DAY = 3; // cap on coin-bought refills so energy always stays finite
+// Default cap on coin-bought refills so energy always stays finite — actual
+// cap is admin-editable (Task 12, contentStore.js#getLimits().maxBonusEnergyPerDay);
+// this is only the fallback grantBonusEnergy() uses when no cap is passed in.
+export const MAX_BONUS_PER_DAY = 3;
 
 function todayUTC() {
   return new Date().toISOString().slice(0, 10);
@@ -57,9 +60,9 @@ export function spendEnergy(state) {
 
 // Coin-bought refill, capped per day so it can't be farmed into infinite
 // energy. Returns false if today's bonus cap is already used up.
-export function grantBonusEnergy(state) {
+export function grantBonusEnergy(state, maxPerDay = MAX_BONUS_PER_DAY) {
   rollIfNewDay(state);
-  if ((state.bonusEnergyToday || 0) >= MAX_BONUS_PER_DAY) return false;
+  if ((state.bonusEnergyToday || 0) >= maxPerDay) return false;
   state.bonusEnergyToday = (state.bonusEnergyToday || 0) + 1;
   return true;
 }

@@ -91,8 +91,8 @@ router.get('/content', (req, res) => res.json(content.getContent()));
 router.post('/modules', async (req, res, next) => {
   try {
     const { title, color } = req.body || {};
-    if (!title?.trim()) return res.status(400).json({ error: 'Модулдун аталышы керек' });
-    res.status(201).json(await content.addModule({ title: title.trim(), color }));
+    if (!content.kyOf(title)) return res.status(400).json({ error: 'Модулдун аталышы керек' });
+    res.status(201).json(await content.addModule({ title, color }));
   } catch (err) { next(err); }
 });
 
@@ -110,11 +110,11 @@ router.delete('/modules/:id', async (req, res, next) => {
 router.post('/modules/:id/lessons', async (req, res, next) => {
   try {
     const { title, cards, iconUrl } = req.body || {};
-    if (!title?.trim()) return res.status(400).json({ error: 'Сабактын аталышы керек' });
+    if (!content.kyOf(title)) return res.status(400).json({ error: 'Сабактын аталышы керек' });
     if (!Array.isArray(cards) || cards.length === 0) {
       return res.status(400).json({ error: 'Жок дегенде бир карта керек' });
     }
-    res.status(201).json(await content.addLesson(req.params.id, { title: title.trim(), cards, iconUrl }));
+    res.status(201).json(await content.addLesson(req.params.id, { title, cards, iconUrl }));
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
@@ -134,8 +134,8 @@ router.delete('/lessons/:id', async (req, res, next) => {
 router.post('/partners', async (req, res, next) => {
   try {
     const { name, logoUrl } = req.body || {};
-    if (!name?.trim()) return res.status(400).json({ error: 'Партнёрдун аты керек' });
-    res.status(201).json(await content.addPartner({ name: name.trim(), logoUrl }));
+    if (!content.kyOf(name)) return res.status(400).json({ error: 'Партнёрдун аты керек' });
+    res.status(201).json(await content.addPartner({ name, logoUrl }));
   } catch (err) { next(err); }
 });
 
@@ -153,11 +153,11 @@ router.delete('/partners/:id', async (req, res, next) => {
 router.post('/prizes', async (req, res, next) => {
   try {
     const { partnerId, title, description, photoUrl, priceCoins } = req.body || {};
-    if (!partnerId || !title?.trim()) {
+    if (!partnerId || !content.kyOf(title)) {
       return res.status(400).json({ error: 'Партнёр жана сыйлыктын аталышы керек' });
     }
     if (!content.findPartner(partnerId)) return res.status(404).json({ error: 'Партнёр табылган жок' });
-    res.status(201).json(await content.addPrize({ partnerId, title: title.trim(), description, photoUrl, priceCoins }));
+    res.status(201).json(await content.addPrize({ partnerId, title, description, photoUrl, priceCoins }));
   } catch (err) { next(err); }
 });
 
@@ -172,7 +172,38 @@ router.delete('/prizes/:id', async (req, res, next) => {
   catch (err) { next(err); }
 });
 
-// ── Module В: daily limits + today's redemption counter ────────────────
+// ── Shop items — unlimited, effect-driven (Task 12) ─────────────────────
+
+router.post('/shop-items', async (req, res, next) => {
+  try {
+    const { title, desc, price, effect, iconUrl } = req.body || {};
+    res.status(201).json(await content.addShopItem({ title, desc, price, effect, iconUrl }));
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+router.put('/shop-items/:id', async (req, res, next) => {
+  try { res.json(await content.updateShopItem(req.params.id, req.body || {})); }
+  catch (err) { res.status(err.message === 'Товар табылган жок' ? 404 : 400).json({ error: err.message }); }
+});
+
+router.delete('/shop-items/:id', async (req, res, next) => {
+  try { await content.deleteShopItem(req.params.id); res.status(204).end(); }
+  catch (err) { next(err); }
+});
+
+// ── Module В: daily limits — Task 12 expands this to EVERY previously-
+// hardcoded gameplay/economy constant, all admin-editable from one panel:
+// energy caps, the XP formula (points per question, mistake penalty, the
+// mistake-proof floor, the perfect-lesson bonus, the xp_boost multiplier),
+// and both coin payouts. See contentStore.js#withDefaults for the defaults
+// (byte-identical to what routes.js/energy.js used to hardcode) and
+// routes.js#/u/me/lesson + /u/me/buy for where each one is actually read.
+
+const LIMIT_FIELDS = [
+  'dailyFreeLessons', 'dailyPrizeCap', 'maxBonusEnergyPerDay',
+  'xpPerQuestion', 'xpMistakePenalty', 'xpMinFloorPct', 'xpPerfectBonusPct',
+  'xpBoostMultiplierPct', 'coinsPerfectLesson', 'coinsNormalLesson',
+];
 
 router.get('/limits', (req, res) => {
   res.json({ ...content.getLimits(), redeemedToday: db.countRedemptionsToday(todayUTC()) });
@@ -180,10 +211,17 @@ router.get('/limits', (req, res) => {
 
 router.put('/limits', async (req, res, next) => {
   try {
-    const { dailyFreeLessons, dailyPrizeCap } = req.body || {};
+    const body = req.body || {};
     const patch = {};
-    if (dailyFreeLessons != null) patch.dailyFreeLessons = Math.max(1, parseInt(dailyFreeLessons, 10) || 3);
-    if (dailyPrizeCap != null) patch.dailyPrizeCap = Math.max(1, parseInt(dailyPrizeCap, 10) || 5);
+    for (const key of LIMIT_FIELDS) {
+      if (body[key] != null) patch[key] = Math.max(0, parseInt(body[key], 10) || 0);
+    }
+    // These two floors match their pre-Task-12 hardcoded minimums — a cap of
+    // 0 would mean "no free lessons ever" / "no prizes ever", which is a
+    // real admin choice elsewhere, but these two specifically always had a
+    // floor of 1 and changing that is more likely a typo than an intent.
+    if (patch.dailyFreeLessons != null) patch.dailyFreeLessons = Math.max(1, patch.dailyFreeLessons);
+    if (patch.dailyPrizeCap != null) patch.dailyPrizeCap = Math.max(1, patch.dailyPrizeCap);
     res.json(await content.setLimits(patch));
   } catch (err) { next(err); }
 });
@@ -193,8 +231,8 @@ router.put('/limits', async (req, res, next) => {
 router.post('/leagues', async (req, res, next) => {
   try {
     const { name, iconUrl, color, minXp } = req.body || {};
-    if (!name?.trim()) return res.status(400).json({ error: 'Лиганын аты керек' });
-    res.status(201).json(await content.addLeague({ name: name.trim(), iconUrl, color, minXp }));
+    if (!content.kyOf(name)) return res.status(400).json({ error: 'Лиганын аты керек' });
+    res.status(201).json(await content.addLeague({ name, iconUrl, color, minXp }));
   } catch (err) { next(err); }
 });
 
@@ -213,8 +251,8 @@ router.delete('/leagues/:id', async (req, res, next) => {
 router.post('/achievements', async (req, res, next) => {
   try {
     const { iconUrl, title, desc, xp, rule } = req.body || {};
-    if (!title?.trim()) return res.status(400).json({ error: 'Жетишкендиктин аты керек' });
-    res.status(201).json(await content.addAchievement({ iconUrl, title: title.trim(), desc, xp, rule }));
+    if (!content.kyOf(title)) return res.status(400).json({ error: 'Жетишкендиктин аты керек' });
+    res.status(201).json(await content.addAchievement({ iconUrl, title, desc, xp, rule }));
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 

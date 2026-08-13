@@ -10,6 +10,18 @@ import webpush from 'web-push';
 import * as db from './db.js';
 import * as content from './contentStore.js';
 
+// Retention-rule title/body are trilingual ({ky, ru?, en?}) since Task 13,
+// same shape as every other admin-authored text field. There's no per-user
+// language stored server-side yet (only a client-side localStorage pick), so
+// a push always resolves to Kyrgyz, falling back to whatever IS filled in —
+// same fallback order src/i18n.jsx#localizedText and mobile's
+// localizedContent() use for reading a locale the value doesn't have.
+function pushText(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  return value.ky || value.ru || value.en || '';
+}
+
 const PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY || null;
 const PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || null;
 const SUBJECT      = process.env.VAPID_SUBJECT || 'mailto:admin@jashmen.app';
@@ -123,7 +135,7 @@ export async function sendRetentionReminders() {
     const rule = rulesByDays.get(inactiveDays);
     const survivors = [];
     for (const sub of user.state.pushSubscriptions) {
-      const result = await sendPush(sub, { title: rule.title, body: rule.body, url: '/learn' });
+      const result = await sendPush(sub, { title: pushText(rule.title), body: pushText(rule.body), url: '/learn' });
       if (result.ok) { sent += 1; survivors.push(sub); }
       else if (!result.gone) survivors.push(sub); // transient failure — keep it, don't drop on one hiccup
       else removedDead += 1;
