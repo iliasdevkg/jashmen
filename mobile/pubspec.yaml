@@ -32,6 +32,12 @@ dependencies:
 
   cached_network_image: ^3.4.1
 
+  # Task 6 — pick a photo library image for avatar upload (POST
+  # /u/me/avatar). Needs NSPhotoLibraryUsageDescription on iOS (added to
+  # ios/Runner/Info.plist); the modern Android photo picker needs no
+  # manifest permission.
+  image_picker: ^1.1.2
+
   # Opens the privacy policy in the system browser. Both stores require the
   # policy to be reachable from inside the app, not just from the listing.
   url_launcher: ^6.3.1

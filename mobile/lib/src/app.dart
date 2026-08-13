@@ -16,6 +16,7 @@ import 'core/theme.dart';
 import 'screens/auth_screen.dart';
 import 'screens/learn_screen.dart';
 import 'screens/league_screen.dart';
+import 'screens/onboarding_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/shop_screen.dart';
@@ -29,6 +30,7 @@ class JashMenApp extends ConsumerWidget {
     final bright = ref.watch(brightModeProvider);
     final strings = ref.watch(stringsProvider);
     final session = ref.watch(authProvider);
+    final onboarded = ref.watch(onboardedProvider);
 
     return StringsScope(
       strings: strings,
@@ -44,9 +46,13 @@ class JashMenApp extends ConsumerWidget {
           GlobalCupertinoLocalizations.delegate,
         ],
         // Routing is driven off session state rather than a redirect chain:
-        // there are only three top-level cases and this keeps them obvious.
+        // there are only four top-level cases and this keeps them obvious.
+        // Task 9 — onboarding only ever gets in front of a signed-OUT
+        // session; a live one (restored from the stored refresh token)
+        // skips straight to the app, same as before onboarding existed.
         home: switch (session) {
           SessionLoading() => const _Splash(),
+          SessionSignedOut() when !onboarded => const OnboardingScreen(),
           SessionSignedOut() => const AuthScreen(),
           SessionSignedIn() => const _HomeShell(),
         },
@@ -92,8 +98,6 @@ const _destinations = [
 ];
 
 class _HomeShellState extends ConsumerState<_HomeShell> {
-  int _index = 0;
-
   static const _tabs = [
     LearnScreen(),
     LeagueScreen(),
@@ -106,11 +110,12 @@ class _HomeShellState extends ConsumerState<_HomeShell> {
   Widget build(BuildContext context) {
     final s = StringsScope.of(context);
     final tokens = context.tokens;
+    final index = ref.watch(homeTabIndexProvider);
 
     return Scaffold(
       // IndexedStack rather than swapping children: tab state (scroll
       // offsets, in-flight requests) survives switching.
-      body: IndexedStack(index: _index, children: _tabs),
+      body: IndexedStack(index: index, children: _tabs),
       // BottomNav.jsx: a translucent blurred bar with a hairline top border,
       // 22px icons that thicken to strokeWidth 2.5 when active, and 10px
       // labels. Material's NavigationBar can't do the blur or the pill-free
@@ -140,9 +145,9 @@ class _HomeShellState extends ConsumerState<_HomeShell> {
                       child: _NavTab(
                         icon: _destinations[i].icon,
                         label: s.t(_destinations[i].labelKey),
-                        active: _index == i,
+                        active: index == i,
                         bright: tokens.bright,
-                        onTap: () => setState(() => _index = i),
+                        onTap: () => ref.read(homeTabIndexProvider.notifier).state = i,
                       ),
                     ),
                 ],

@@ -163,11 +163,42 @@ Color _avatarColor(String seed) =>
 String _initial(String name) =>
     name.trim().isEmpty ? '?' : name.trim().characters.first.toUpperCase();
 
-class LeagueScreen extends ConsumerWidget {
+/// A league "tab" is a real filter — port of src/pages/LeaguePage.jsx's
+/// `leagueBounds`/`viewLeaderboard`: each league owns the XP half-open
+/// range [thisLeague.minXp, nextLeague.minXp). `leagues` must already be
+/// sorted by minXp ascending.
+class _LeagueBand {
+  const _LeagueBand(this.min, this.max);
+  final int min;
+  final double max; // double so "no next league" can be +infinity
+  bool contains(int xp) => xp >= min && xp < max;
+}
+
+Map<String, _LeagueBand> _leagueBounds(List<League> sortedLeagues) {
+  final map = <String, _LeagueBand>{};
+  for (var i = 0; i < sortedLeagues.length; i++) {
+    final next = i + 1 < sortedLeagues.length ? sortedLeagues[i + 1] : null;
+    map[sortedLeagues[i].id] =
+        _LeagueBand(sortedLeagues[i].minXp, (next?.minXp ?? double.infinity).toDouble());
+  }
+  return map;
+}
+
+class LeagueScreen extends ConsumerStatefulWidget {
   const LeagueScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<LeagueScreen> createState() => _LeagueScreenState();
+}
+
+class _LeagueScreenState extends ConsumerState<LeagueScreen> {
+  /// null until leagues load, at which point it defaults to the player's
+  /// own current league — same as web's `useEffect(() => { if
+  /// (!activeLeague && myLeague) setActiveLeague(myLeague) }, [myLeague])`.
+  String? _activeLeagueId;
+
+  @override
+  Widget build(BuildContext context) {
     final s = StringsScope.of(context);
     final board = ref.watch(leaderboardProvider);
     final content = ref.watch(contentProvider);
@@ -205,16 +236,50 @@ class LeagueScreen extends ConsumerWidget {
                   ? ([...content.value!.leagues]..sort((a, b) => a.minXp.compareTo(b.minXp)))
                   : <League>[];
               final myXp = me?.state.xp ?? 0;
-              final myIndex = rows.indexWhere((r) => r.id == me?.id);
+
+              // Highest league whose threshold the player has met — the
+              // default selection, and what "browsing your own league"
+              // means for the synthetic row below.
+              String? currentLeagueId;
+              for (final l in leagues) {
+                if (myXp >= l.minXp) currentLeagueId = l.id;
+              }
+              currentLeagueId ??= leagues.isNotEmpty ? leagues.first.id : null;
+              final activeLeagueId = _activeLeagueId ?? currentLeagueId;
+
+              // Task 5 — each league tab genuinely filters the leaderboard
+              // into that league's XP band, matching the web leaderboard
+              // page 1:1, rather than showing one global list under a
+              // purely decorative carousel.
+              final bounds = _leagueBounds(leagues);
+              final activeBand = activeLeagueId == null ? null : bounds[activeLeagueId];
+              final viewRows = activeBand == null
+                  ? rows
+                  : rows.where((r) => activeBand.contains(r.xp)).toList(growable: false);
+
+              final myIndex = viewRows.indexWhere((r) => r.id == me?.id);
+              final iAmRanked = myIndex >= 0;
+              // Only synthesize a "you" row while browsing your OWN league —
+              // browsing a league you're not in shouldn't imply you have a
+              // rank there.
+              final showSyntheticMe = me != null &&
+                  !iAmRanked &&
+                  activeLeagueId != null &&
+                  activeLeagueId == currentLeagueId;
 
               return CustomScrollView(
                 slivers: [
                   if (leagues.isNotEmpty)
                     SliverToBoxAdapter(
-                      child: _RankCarousel(leagues: leagues, myXp: myXp),
+                      child: _RankCarousel(
+                        leagues: leagues,
+                        myXp: myXp,
+                        activeLeagueId: activeLeagueId,
+                        onSelect: (id) => setState(() => _activeLeagueId = id),
+                      ),
                     ),
 
-                  if (rows.isEmpty)
+                  if (viewRows.isEmpty && !showSyntheticMe)
                     SliverFillRemaining(
                       hasScrollBody: false,
                       child: EmptyView(
@@ -223,27 +288,44 @@ class LeagueScreen extends ConsumerWidget {
                       ),
                     )
                   else ...[
-                    SliverToBoxAdapter(child: _Podium(rows: rows)),
+                    SliverToBoxAdapter(child: _Podium(rows: viewRows)),
                     SliverToBoxAdapter(
                       child: _StatsStrip(
-                        participants: rows.length,
-                        leaderXp: rows.first.xp,
-                        myRank: myIndex >= 0 ? myIndex + 1 : null,
+                        participants: viewRows.length,
+                        leaderXp: viewRows.isNotEmpty ? viewRows.first.xp : 0,
+                        myRank: iAmRanked ? myIndex + 1 : null,
                       ),
                     ),
                     // Ranks 4+ — the podium already covers the top three.
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+                      padding: EdgeInsets.fromLTRB(12, 12, 12, showSyntheticMe ? 8 : 24),
                       sliver: SliverList.separated(
-                        itemCount: rows.length > 3 ? rows.length - 3 : 0,
+                        itemCount: viewRows.length > 3 ? viewRows.length - 3 : 0,
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, i) => _LeaderRow(
                           rank: i + 4,
-                          entry: rows[i + 3],
-                          isMe: rows[i + 3].id == me?.id,
+                          entry: viewRows[i + 3],
+                          isMe: viewRows[i + 3].id == me?.id,
                         ),
                       ),
                     ),
+                    if (showSyntheticMe)
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+                        sliver: SliverToBoxAdapter(
+                          child: _LeaderRow(
+                            rank: rows.length + 1,
+                            entry: LeaderboardEntry(
+                              id: me.id,
+                              name: me.name,
+                              xp: myXp,
+                              avatar: me.avatar,
+                              streak: me.state.streak,
+                            ),
+                            isMe: true,
+                          ),
+                        ),
+                      ),
                   ],
                 ],
               );
@@ -258,9 +340,16 @@ class LeagueScreen extends ConsumerWidget {
 // ── Rank carousel ─────────────────────────────────────────────────────────
 
 class _RankCarousel extends ConsumerStatefulWidget {
-  const _RankCarousel({required this.leagues, required this.myXp});
+  const _RankCarousel({
+    required this.leagues,
+    required this.myXp,
+    required this.activeLeagueId,
+    required this.onSelect,
+  });
   final List<League> leagues;
   final int myXp;
+  final String? activeLeagueId;
+  final ValueChanged<String> onSelect;
 
   @override
   ConsumerState<_RankCarousel> createState() => _RankCarouselState();
@@ -268,27 +357,30 @@ class _RankCarousel extends ConsumerStatefulWidget {
 
 class _RankCarouselState extends ConsumerState<_RankCarousel> {
   late final ScrollController _controller;
-  int _page = 0;
 
-  int get _currentIndex {
-    // Highest league whose threshold the user has met; the carousel opens
-    // there rather than at the very first rank.
-    var idx = 0;
-    for (var i = 0; i < widget.leagues.length; i++) {
-      if (widget.myXp >= widget.leagues[i].minXp) idx = i;
-    }
-    return idx;
+  int get _activeIndex {
+    final i = widget.leagues.indexWhere((l) => l.id == widget.activeLeagueId);
+    return i < 0 ? 0 : i;
   }
 
   @override
   void initState() {
     super.initState();
-    _page = _currentIndex;
-    _controller = ScrollController(initialScrollOffset: _currentIndex * 142.0);
-    _controller.addListener(() {
-      final p = (_controller.offset / 142.0).round().clamp(0, widget.leagues.length - 1);
-      if (p != _page) setState(() => _page = p);
-    });
+    _controller = ScrollController(initialScrollOffset: _activeIndex * 142.0);
+  }
+
+  @override
+  void didUpdateWidget(covariant _RankCarousel old) {
+    super.didUpdateWidget(old);
+    // Keep the selected card scrolled into view — including when a tap on
+    // a dot or another card moves the selection programmatically.
+    if (old.activeLeagueId != widget.activeLeagueId && _controller.hasClients) {
+      _controller.animateTo(
+        (_activeIndex * 142.0).clamp(0, _controller.position.maxScrollExtent),
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   @override
@@ -297,18 +389,14 @@ class _RankCarouselState extends ConsumerState<_RankCarousel> {
     super.dispose();
   }
 
-  void _next() {
-    final target = (_page + 1).clamp(0, widget.leagues.length - 1);
-    _controller.animateTo(
-      target * 142.0,
-      duration: const Duration(milliseconds: 320),
-      curve: Curves.easeOutCubic,
-    );
+  void _select(int i) {
+    if (i < 0 || i >= widget.leagues.length) return;
+    widget.onSelect(widget.leagues[i].id);
   }
 
   @override
   Widget build(BuildContext context) {
-    final canScrollRight = _page < widget.leagues.length - 1;
+    final canScrollRight = _activeIndex < widget.leagues.length - 1;
     final p = _Pal.of(ref);
 
     return Padding(
@@ -330,7 +418,8 @@ class _RankCarouselState extends ConsumerState<_RankCarousel> {
                     return _RankCard(
                       league: league,
                       unlocked: widget.myXp >= league.minXp,
-                      isCurrent: i == _currentIndex,
+                      isCurrent: i == _activeIndex,
+                      onTap: () => _select(i),
                     );
                   },
                 ),
@@ -341,7 +430,7 @@ class _RankCarouselState extends ConsumerState<_RankCarousel> {
                     bottom: 0,
                     child: Center(
                       child: GestureDetector(
-                        onTap: _next,
+                        onTap: () => _select(_activeIndex + 1),
                         child: Container(
                           width: 44,
                           height: 56,
@@ -365,13 +454,16 @@ class _RankCarouselState extends ConsumerState<_RankCarousel> {
             children: [
               for (var i = 0; i < widget.leagues.length; i++) ...[
                 if (i > 0) const SizedBox(width: 7),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: i == _page ? 22 : 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: i == _page ? _C.blue : p.dotOff,
-                    borderRadius: BorderRadius.circular(3),
+                GestureDetector(
+                  onTap: () => _select(i),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: i == _activeIndex ? 22 : 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: i == _activeIndex ? _C.blue : p.dotOff,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
                   ),
                 ),
               ],
@@ -389,16 +481,19 @@ class _RankCard extends ConsumerWidget {
     required this.league,
     required this.unlocked,
     required this.isCurrent,
+    required this.onTap,
   });
 
   final League league;
   final bool unlocked;
   final bool isCurrent;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = StringsScope.of(context);
     final p = _Pal.of(ref);
+    final locale = ref.watch(localeProvider);
     final tint = _parseHex(league.color);
 
     final badge = ClipPath(
@@ -440,7 +535,9 @@ class _RankCard extends ConsumerWidget {
       ),
     );
 
-    return Container(
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
       width: isCurrent ? 148 : 130,
       padding: EdgeInsets.fromLTRB(isCurrent ? 10 : 8, 20, isCurrent ? 10 : 8, 18),
       decoration: BoxDecoration(
@@ -469,7 +566,7 @@ class _RankCard extends ConsumerWidget {
           isCurrent ? _Glow(child: badge) : badge,
           const SizedBox(height: 10),
           Text(
-            league.name.toUpperCase(),
+            localizedContent(league.name, locale).toUpperCase(),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
@@ -490,6 +587,7 @@ class _RankCard extends ConsumerWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -614,7 +712,7 @@ class _PodiumSlot extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (place == 1)
-          const Text('👑', style: TextStyle(fontSize: 26, height: 1)),
+          const Icon(Icons.workspace_premium_rounded, size: 26, color: _C.gold),
         if (place == 1) const SizedBox(height: 6),
         _Avatar(
           entry: entry!,
@@ -707,13 +805,17 @@ class _Avatar extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       alignment: Alignment.center,
+      // ClipOval, not just the decoration clip: the explicit oval is what
+      // guarantees the photo renders as a true circle inside the ring.
       child: entry.avatar != null
-          ? CachedNetworkImage(
-              imageUrl: entry.avatar!,
-              fit: BoxFit.cover,
-              width: size,
-              height: size,
-              errorWidget: (_, __, ___) => _initialText(size),
+          ? ClipOval(
+              child: CachedNetworkImage(
+                imageUrl: entry.avatar!,
+                fit: BoxFit.cover,
+                width: size,
+                height: size,
+                errorWidget: (_, __, ___) => _initialText(size),
+              ),
             )
           : _initialText(size),
     );

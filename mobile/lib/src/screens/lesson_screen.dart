@@ -10,11 +10,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_client.dart';
+import '../core/haptics.dart';
 import '../core/i18n.dart';
+import '../core/logic.dart';
 import '../core/theme.dart';
 import '../models/content.dart';
 import '../models/user_state.dart';
 import '../state/providers.dart';
+import '../widgets/confetti.dart';
+import '../widgets/count_up.dart';
 import '../widgets/states.dart';
 
 class LessonScreen extends ConsumerStatefulWidget {
@@ -29,6 +33,14 @@ class _LessonScreenState extends ConsumerState<LessonScreen> {
   int _index = 0;
   int _mistakes = 0;
 
+  /// Task 7 — the live play order. Starts as the lesson's cards and grows
+  /// each time a quiz question is answered wrong: the missed card is appended
+  /// so it comes back around, and the lesson can't finish until every
+  /// question has been answered correctly at least once (Duolingo "repeat").
+  /// Lazily initialised on first build since the deck comes from async
+  /// content; `_mistakes` is untouched so scoring reflects first-try accuracy.
+  List<LessonCard>? _deck;
+
   /// Null until the learner commits to an answer on the current quiz card.
   int? _selected;
   bool _checked = false;
@@ -36,6 +48,25 @@ class _LessonScreenState extends ConsumerState<LessonScreen> {
   bool _submitting = false;
   LessonReward? _reward;
   String? _submitError;
+
+  /// Distinct quiz cards missed at least once (keyed by original index in
+  /// lesson.cards) — powers the first-try accuracy summary on the result
+  /// screen, so Task 7 re-queues don't retroactively read as correct.
+  final Set<int> _missed = {};
+
+  /// Achievements unlocked by finishing this lesson, shown on the result
+  /// screen. Populated in _submit after the server grants them.
+  List<Achievement> _earnedAchievements = const [];
+
+  /// The one deliberately showy moment in the lesson flow — fired once,
+  /// right as the result screen appears, for a genuine (non-review) win.
+  final _confetti = ConfettiController();
+
+  @override
+  void dispose() {
+    _confetti.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -58,9 +89,21 @@ class _LessonScreenState extends ConsumerState<LessonScreen> {
             ),
           );
         }
-        return _reward != null
-            ? _ResultView(reward: _reward!, lesson: lesson)
-            : _buildPlayer(context, lesson);
+        if (_reward != null) {
+          final totalQuiz =
+              lesson.cards.where((c) => c.type == CardType.quiz).length;
+          return ConfettiOverlay(
+            controller: _confetti,
+            child: _ResultView(
+              reward: _reward!,
+              lesson: lesson,
+              totalQuestions: totalQuiz,
+              correctCount: (totalQuiz - _missed.length).clamp(0, totalQuiz),
+              earnedAchievements: _earnedAchievements,
+            ),
+          );
+        }
+        return _buildPlayer(context, lesson);
       },
     );
   }
@@ -79,10 +122,14 @@ class _LessonScreenState extends ConsumerState<LessonScreen> {
     final locale = ref.watch(localeProvider);
     final tokens = context.tokens;
 
-    final card = lesson.cards[_index];
+    final deck = _deck ??= List.of(lesson.cards);
+    final card = deck[_index];
     final isQuiz = card.type == CardType.quiz;
-    final isLast = _index == lesson.cards.length - 1;
-    final progress = (_index + 1) / lesson.cards.length;
+    // A wrong quiz answer re-queues, so this is not truly the last step even
+    // when it's the last deck slot — keep the button on "Continue".
+    final willRequeue = isQuiz && _checked && _selected != card.answerIndex;
+    final isLast = _index == deck.length - 1 && !willRequeue;
+    final progress = (_index + 1) / deck.length;
 
     // Theory/media advance freely; a quiz must be answered and checked.
     final canAdvance = !isQuiz || _checked;
@@ -113,7 +160,7 @@ class _LessonScreenState extends ConsumerState<LessonScreen> {
             Padding(
               padding: const EdgeInsets.only(right: Gap.lg),
               child: Center(
-                child: Text('${_index + 1}/${lesson.cards.length}',
+                child: Text('${_index + 1}/${deck.length}',
                     style: Theme.of(context).textTheme.labelSmall),
               ),
             ),
@@ -150,21 +197,32 @@ class _LessonScreenState extends ConsumerState<LessonScreen> {
                   card.options.length > card.answerIndex ? card.options[card.answerIndex] : null,
                   locale,
                 ),
+                explanationText: localizedContent(card.explanation, locale),
                 onCheck: () {
+                  final isCorrect = _selected == card.answerIndex;
+                  isCorrect ? Haptics.success() : Haptics.error();
                   setState(() {
                     _checked = true;
-                    if (_selected != card.answerIndex) _mistakes++;
+                    if (!isCorrect) {
+                      _mistakes++;
+                      _missed.add(lesson.cards.indexOf(card));
+                    }
                   });
                 },
                 onNext: () {
-                  if (isLast) {
-                    _submit(lesson);
-                  } else {
+                  // Re-queue a missed question to the end of the deck, then
+                  // advance. Only truly finish when nothing is left to retry.
+                  final wrong = card.type == CardType.quiz &&
+                      _selected != card.answerIndex;
+                  if (wrong) deck.add(card);
+                  if (_index < deck.length - 1) {
                     setState(() {
                       _index++;
                       _selected = null;
                       _checked = false;
                     });
+                  } else {
+                    _submit(lesson);
                   }
                 },
               ),
@@ -209,8 +267,53 @@ class _LessonScreenState extends ConsumerState<LessonScreen> {
         lessonId: lesson.id,
         mistakes: _mistakes,
       );
-      ref.read(authProvider.notifier).applyState(result.state);
-      if (mounted) setState(() => _reward = result.reward);
+      var state = result.state;
+
+      // Mirror the web flow (LessonPage.jsx): propose the achievement ids
+      // this lesson may have unlocked; the server re-derives which actually
+      // qualify and grants their XP (it never trusts a client-sent xp). Then
+      // reflect the granted state and surface the new badges on the result.
+      final content = ref.read(contentProvider).value;
+      var earned = const <Achievement>[];
+      if (content != null) {
+        final ids = checkNewAchievements(
+          state: state,
+          all: content.achievements,
+          totalLessons: content.totalLessons,
+          rewardPerfect: result.reward.perfect,
+          rewardIsReview: result.reward.isReview,
+        );
+        if (ids.isNotEmpty) {
+          try {
+            state = await api.patchState({'achievements': ids});
+          } catch (_) {
+            // Non-fatal — the lesson itself already counted server-side.
+          }
+          earned = [
+            for (final id in ids)
+              for (final a in content.achievements)
+                if (a.id == id) a,
+          ];
+        }
+      }
+
+      ref.read(authProvider.notifier).applyState(state);
+      if (mounted) {
+        setState(() {
+          _reward = result.reward;
+          _earnedAchievements = earned;
+        });
+        // A review earns nothing, so it doesn't get the celebration either
+        // — firing confetti over a 0-XP screen would read as a glitch, not
+        // a win. Deferred a frame so ConfettiOverlay is already mounted.
+        if (!result.reward.isReview) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            Haptics.celebrate();
+            _confetti.play();
+          });
+        }
+      }
     } on ApiException catch (e) {
       if (!mounted) return;
       final s = StringsScope.of(context);
@@ -394,6 +497,7 @@ class _Footer extends StatelessWidget {
     required this.submitting,
     required this.error,
     required this.correctAnswerText,
+    required this.explanationText,
     required this.onCheck,
     required this.onNext,
   });
@@ -407,6 +511,7 @@ class _Footer extends StatelessWidget {
   final bool submitting;
   final String? error;
   final String correctAnswerText;
+  final String explanationText;
   final VoidCallback onCheck;
   final VoidCallback onNext;
 
@@ -460,6 +565,34 @@ class _Footer extends StatelessWidget {
                   ),
                 ],
               ),
+              if (explanationText.isNotEmpty) ...[
+                const SizedBox(height: Gap.md),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(Gap.md),
+                  decoration: BoxDecoration(
+                    color: tokens.card,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: tokens.border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        s.t('lesson.explanation').toUpperCase(),
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: tokens.muted,
+                              letterSpacing: 1,
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(explanationText,
+                          style: Theme.of(context).textTheme.bodyMedium),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: Gap.md),
             ],
             if (error != null) ...[
@@ -504,15 +637,28 @@ class _Footer extends StatelessWidget {
 }
 
 class _ResultView extends ConsumerWidget {
-  const _ResultView({required this.reward, required this.lesson});
+  const _ResultView({
+    required this.reward,
+    required this.lesson,
+    required this.totalQuestions,
+    required this.correctCount,
+    required this.earnedAchievements,
+  });
 
   final LessonReward reward;
   final Lesson lesson;
+  final int totalQuestions;
+  final int correctCount;
+  final List<Achievement> earnedAchievements;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = StringsScope.of(context);
     final tokens = context.tokens;
+    final locale = ref.watch(localeProvider);
+    final perfect = reward.perfect;
+    final allCorrect = totalQuestions > 0 && correctCount >= totalQuestions;
+    final haloColor = perfect ? AppColors.gold : AppColors.success;
 
     return Scaffold(
       body: SafeArea(
@@ -520,43 +666,153 @@ class _ResultView extends ConsumerWidget {
           padding: const EdgeInsets.all(Gap.xl),
           child: Column(
             children: [
-              const Spacer(),
-              Container(
-                width: 96,
-                height: 96,
-                decoration: const BoxDecoration(
-                  color: AppColors.success,
-                  shape: BoxShape.circle,
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: Gap.xl),
+                      // Icon medallion with a soft glow — Trophy for a
+                      // flawless run, a filled check otherwise — popped in
+                      // with an elastic scale.
+                      Center(
+                        child: TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0, end: 1),
+                          duration: const Duration(milliseconds: 500),
+                          curve: Curves.elasticOut,
+                          builder: (_, v, child) =>
+                              Transform.scale(scale: v, child: child),
+                          child: Container(
+                            width: 104,
+                            height: 104,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: haloColor,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: haloColor.withValues(alpha: 0.4),
+                                  blurRadius: 32,
+                                  spreadRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: Center(
+                              child: Icon(
+                                perfect ? Icons.emoji_events_rounded : Icons.check_circle_rounded,
+                                color: Colors.white,
+                                size: 50,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: Gap.xl),
+                      Text(
+                        perfect
+                            ? s.t('lesson.resultPerfect')
+                            : s.t('lesson.resultGood'),
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.displaySmall,
+                      ),
+                      const SizedBox(height: Gap.sm),
+                      Text(
+                        reward.isReview
+                            ? s.t('lesson.reviewDone')
+                            : s.t('lesson.lessonDone'),
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyMedium
+                            ?.copyWith(color: tokens.muted),
+                      ),
+                      if (totalQuestions > 0) ...[
+                        const SizedBox(height: Gap.xxl),
+                        _AccuracyBar(
+                          label: s.t('lesson.accuracyLabel'),
+                          correct: correctCount,
+                          total: totalQuestions,
+                          allCorrect: allCorrect,
+                          tokens: tokens,
+                        ),
+                      ],
+                      if (!reward.isReview) ...[
+                        const SizedBox(height: Gap.xxl),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _RewardTile(
+                              icon: Icons.star_rounded,
+                              color: AppColors.primary,
+                              label: 'XP',
+                              count: reward.xp,
+                              delay: const Duration(milliseconds: 280),
+                            ),
+                            const SizedBox(width: Gap.lg),
+                            _RewardTile(
+                              icon: Icons.monetization_on_rounded,
+                              color: AppColors.gold,
+                              label: s.t('profile.coins'),
+                              count: reward.coins,
+                              delay: const Duration(milliseconds: 440),
+                            ),
+                          ],
+                        ),
+                        if (perfect) ...[
+                          const SizedBox(height: Gap.lg),
+                          Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: Gap.lg, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: AppColors.success.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                    color: AppColors.success.withValues(alpha: 0.4)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.verified_rounded,
+                                      color: AppColors.success, size: 16),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    s.t('lesson.perfectBadge'),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelMedium
+                                        ?.copyWith(
+                                          color: AppColors.success,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                      if (earnedAchievements.isNotEmpty) ...[
+                        const SizedBox(height: Gap.xxl),
+                        Text(
+                          s.t('lesson.newAchievement').toUpperCase(),
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: tokens.muted,
+                                letterSpacing: 1,
+                                fontWeight: FontWeight.w800,
+                              ),
+                        ),
+                        const SizedBox(height: Gap.md),
+                        for (final a in earnedAchievements) ...[
+                          _AchievementRow(achievement: a, tokens: tokens, locale: locale),
+                          const SizedBox(height: Gap.sm),
+                        ],
+                      ],
+                    ],
+                  ),
                 ),
-                child: const Icon(Icons.check_rounded, size: 52, color: Colors.white),
               ),
-              const SizedBox(height: Gap.xl),
-              Text(s.t('lesson.complete'),
-                  style: Theme.of(context).textTheme.displaySmall),
-              const SizedBox(height: Gap.sm),
-              Text(lesson.title,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: tokens.muted)),
-              const SizedBox(height: Gap.xxl),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _RewardTile(
-                    icon: Icons.star_rounded,
-                    color: AppColors.primary,
-                    label: 'XP',
-                    value: '+${reward.xp}',
-                  ),
-                  const SizedBox(width: Gap.lg),
-                  _RewardTile(
-                    icon: Icons.monetization_on_rounded,
-                    color: AppColors.gold,
-                    label: s.t('profile.coins'),
-                    value: '+${reward.coins}',
-                  ),
-                ],
-              ),
-              const Spacer(),
+              const SizedBox(height: Gap.md),
               FilledButton(
                 onPressed: () {
                   // Content is unchanged by finishing a lesson, but the path's
@@ -574,18 +830,146 @@ class _ResultView extends ConsumerWidget {
   }
 }
 
+class _AccuracyBar extends StatelessWidget {
+  const _AccuracyBar({
+    required this.label,
+    required this.correct,
+    required this.total,
+    required this.allCorrect,
+    required this.tokens,
+  });
+
+  final String label;
+  final int correct;
+  final int total;
+  final bool allCorrect;
+  final dynamic tokens;
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = total > 0 ? (correct / total) : 0.0;
+    final color = allCorrect ? AppColors.success : AppColors.primary;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: tokens.muted,
+                    letterSpacing: 1,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            Text(
+              '$correct/$total · ${(pct * 100).round()}%',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: allCorrect ? AppColors.success : tokens.text,
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+          ],
+        ),
+        const SizedBox(height: Gap.sm),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: pct),
+            duration: const Duration(milliseconds: 600),
+            curve: Curves.easeOut,
+            builder: (_, v, __) => LinearProgressIndicator(
+              value: v,
+              minHeight: 10,
+              backgroundColor: tokens.cardAlt,
+              valueColor: AlwaysStoppedAnimation(color),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AchievementRow extends StatelessWidget {
+  const _AchievementRow({required this.achievement, required this.tokens, required this.locale});
+
+  final Achievement achievement;
+  final dynamic tokens;
+  final AppLocale locale;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(Gap.md),
+      decoration: BoxDecoration(
+        color: tokens.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.gold.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.gold.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: achievement.iconUrl != null
+                ? CachedNetworkImage(
+                    imageUrl: achievement.iconUrl!,
+                    fit: BoxFit.cover,
+                    errorWidget: (_, __, ___) => const Icon(
+                        Icons.emoji_events_rounded,
+                        color: AppColors.gold,
+                        size: 20),
+                  )
+                : const Icon(Icons.emoji_events_rounded,
+                    color: AppColors.gold, size: 20),
+          ),
+          const SizedBox(width: Gap.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(localizedContent(achievement.title, locale),
+                    style: Theme.of(context).textTheme.titleSmall),
+                if (localizedContent(achievement.description, locale).isNotEmpty || achievement.xp > 0)
+                  Text(
+                    achievement.xp > 0
+                        ? '${localizedContent(achievement.description, locale)} · +${achievement.xp} XP'
+                        : localizedContent(achievement.description, locale),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: tokens.muted),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RewardTile extends StatelessWidget {
   const _RewardTile({
     required this.icon,
     required this.color,
     required this.label,
-    required this.value,
+    required this.count,
+    this.delay = Duration.zero,
   });
 
   final IconData icon;
   final Color color;
   final String label;
-  final String value;
+  final int count;
+  final Duration delay;
 
   @override
   Widget build(BuildContext context) {
@@ -602,11 +986,15 @@ class _RewardTile extends StatelessWidget {
         children: [
           Icon(icon, color: color, size: 28),
           const SizedBox(height: Gap.sm),
-          Text(value,
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineSmall
-                  ?.copyWith(color: tokens.text)),
+          CountUpNumber(
+            value: count,
+            prefix: '+',
+            delay: delay,
+            style: Theme.of(context)
+                .textTheme
+                .headlineSmall
+                ?.copyWith(color: tokens.text),
+          ),
           Text(label, style: Theme.of(context).textTheme.labelSmall),
         ],
       ),

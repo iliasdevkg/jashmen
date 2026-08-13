@@ -58,9 +58,34 @@ final brightModeProvider = StateNotifierProvider<BrightModeController, bool>(
   (ref) => BrightModeController(ref.watch(prefsProvider)),
 );
 
+/// Task 9 — true once the first-launch onboarding carousel has been shown
+/// and dismissed (skip or "get started"), persisted so it's shown exactly
+/// once per install. Same persisted-bool shape as [BrightModeController].
+class OnboardedController extends StateNotifier<bool> {
+  OnboardedController(this._prefs) : super(_prefs.getBool(_key) ?? false);
+
+  static const _key = 'jashmen.onboarded';
+  final SharedPreferences _prefs;
+
+  void markDone() {
+    state = true;
+    _prefs.setBool(_key, true);
+  }
+}
+
+final onboardedProvider = StateNotifierProvider<OnboardedController, bool>(
+  (ref) => OnboardedController(ref.watch(prefsProvider)),
+);
+
 final stringsProvider = Provider<Strings>(
   (ref) => Strings(ref.watch(localeProvider)),
 );
+
+/// Which bottom-nav tab is showing (0=Learn, 1=League, 2=Shop, 3=Profile,
+/// 4=Settings) — a plain StateProvider so any screen can switch tabs (e.g.
+/// LessonPreviewSheet's "Go to shop" CTA when energy is gated) without
+/// threading a callback all the way down from _HomeShell.
+final homeTabIndexProvider = StateProvider<int>((ref) => 0);
 
 // ── Session ────────────────────────────────────────────────────────────────
 
@@ -142,8 +167,17 @@ class AuthController extends StateNotifier<SessionState> {
       id: current.user.id,
       name: current.user.name,
       email: current.user.email,
+      avatar: current.user.avatar,
       state: next,
     ));
+  }
+
+  /// Task 6 — replaces the whole cached user (name/avatar changed, not just
+  /// progress) after a profile write like PATCH /u/me/state{name:...} or
+  /// POST /u/me/avatar, both of which return the full user object.
+  void applyUser(AppUser next) {
+    if (state is! SessionSignedIn) return;
+    state = SessionSignedIn(next);
   }
 
   Future<void> refreshMe() async {
@@ -173,4 +207,11 @@ final contentProvider = FutureProvider<AppContent>(
 
 final leaderboardProvider = FutureProvider<List<LeaderboardEntry>>(
   (ref) => ref.watch(apiClientProvider).fetchLeaderboard(),
+);
+
+/// The signed-in user's coupon history. autoDispose so reopening the
+/// profile refetches — a coupon redeemed in the shop must show up here
+/// without a manual refresh.
+final redemptionsProvider = FutureProvider.autoDispose<List<Redemption>>(
+  (ref) => ref.watch(apiClientProvider).fetchMyRedemptions(),
 );

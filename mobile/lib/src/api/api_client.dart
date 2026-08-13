@@ -277,6 +277,10 @@ class ApiClient {
 
   /// POST /u/me/lesson. The server applies the reward and returns the
   /// updated state; the client never computes the authoritative numbers.
+  ///
+  /// Response shape is `{user: {...state}, reward: {...}}` (routes.js:
+  /// `res.json({ user: toPublicUser(user), reward })`) — state is nested
+  /// under `user`, NOT a top-level `state` key.
   Future<({UserState state, LessonReward reward})> completeLesson({
     required String lessonId,
     required int mistakes,
@@ -286,8 +290,10 @@ class ApiClient {
             data: {'lessonId': lessonId, 'mistakes': mistakes}),
         (res) {
           final data = _asMap(res);
+          final user = (data['user'] as Map?)?.cast<String, dynamic>() ?? const {};
           return (
-            state: UserState.fromJson((data['state'] as Map).cast<String, dynamic>()),
+            state: UserState.fromJson(
+                (user['state'] as Map?)?.cast<String, dynamic>() ?? const {}),
             reward: LessonReward.fromJson(
                 (data['reward'] as Map?)?.cast<String, dynamic>() ?? const {}),
           );
@@ -318,6 +324,56 @@ class ApiClient {
           final data = _asMap(res);
           final state = data['state'] ?? data;
           return UserState.fromJson((state as Map).cast<String, dynamic>());
+        },
+      );
+
+  /// Task 6 — rename, returning the FULL user (not just state) since the
+  /// cached AppUser.name needs to change too, not only progress. Response
+  /// is `toPublicUser(user)` — {id, name, email, avatar, state} flat at the
+  /// top level, exactly AppUser.fromJson's shape.
+  Future<AppUser> updateName(String name) => _run(
+        () => _dio.patch('/u/me/state', data: {'name': name}),
+        (res) => AppUser.fromJson(_asMap(res)),
+      );
+
+  /// Task 6 — avatar upload. POST /u/me/avatar (multipart), same response
+  /// shape as [updateName].
+  Future<AppUser> uploadAvatar(File file) => _run(
+        () async {
+          final multipart = await MultipartFile.fromFile(file.path,
+              filename: file.path.split('/').last);
+          return _dio.post('/u/me/avatar',
+              data: FormData.fromMap({'file': multipart}));
+        },
+        (res) => AppUser.fromJson(_asMap(res)),
+      );
+
+  /// POST /u/me/redeem — Task 11's partner→coupon flow. Response shape is
+  /// `{user: {...state}, code: "JASHMEN-XXXX"}` (routes.js:
+  /// `res.status(201).json({ user: toPublicUser(user), code })`).
+  Future<({UserState state, String code})> redeemPrize(String prizeId) => _run(
+        () => _dio.post('/u/me/redeem', data: {'prizeId': prizeId}),
+        (res) {
+          final data = _asMap(res);
+          final user = (data['user'] as Map?)?.cast<String, dynamic>() ?? const {};
+          return (
+            state: UserState.fromJson(
+                (user['state'] as Map?)?.cast<String, dynamic>() ?? const {}),
+            code: data['code']?.toString() ?? '',
+          );
+        },
+      );
+
+  /// GET /u/me/redemptions — the coupon history (proof of every claimed
+  /// code), newest first as the server already sorts by timestamp.
+  Future<List<Redemption>> fetchMyRedemptions() => _run(
+        () => _dio.get('/u/me/redemptions'),
+        (res) => switch (res.data) {
+          List list => list
+              .whereType<Map>()
+              .map((e) => Redemption.fromJson(e.cast<String, dynamic>()))
+              .toList(growable: false),
+          _ => const <Redemption>[],
         },
       );
 

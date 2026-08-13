@@ -34,6 +34,16 @@ class AppColors {
   static const textFaintLight = Color(0xFF94A3B8);
 }
 
+/// Apple's San Francisco system family. `CupertinoSystemText` is Flutter's
+/// alias that resolves to SF Pro natively on iOS/macOS; the dot-prefixed
+/// fallbacks cover older engines, and Android quietly keeps its default —
+/// SF can't be bundled off-platform under Apple's font license.
+class AppFonts {
+  const AppFonts._();
+  static const sanFrancisco = 'CupertinoSystemText';
+  static const sanFranciscoFallback = ['.SF Pro Text', '.SF UI Text'];
+}
+
 /// The 4px spacing scale the web app uses. Named so call sites read as
 /// intent rather than magic numbers.
 class Gap {

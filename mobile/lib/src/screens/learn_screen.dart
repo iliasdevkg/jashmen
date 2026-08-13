@@ -14,11 +14,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/i18n.dart';
 import '../core/logic.dart';
+import '../core/routes.dart';
 import '../core/theme.dart';
 import '../models/content.dart';
 import '../screens/lesson_screen.dart';
 import '../state/providers.dart';
 import '../widgets/app_header.dart';
+import '../widgets/lesson_preview_sheet.dart';
+import '../widgets/press_scale.dart';
 import '../widgets/states.dart';
 
 // LearnPage.jsx's path constants, unchanged. The canvas is a fixed width so
@@ -239,6 +242,7 @@ class _PathViewState extends ConsumerState<_PathView> {
   Widget build(BuildContext context) {
     final s = StringsScope.of(context);
     final tokens = context.tokens;
+    final locale = ref.watch(localeProvider);
     final userState = ref.watch(userStateProvider);
     final content = widget.content;
 
@@ -298,6 +302,7 @@ class _PathViewState extends ConsumerState<_PathView> {
                 completed: completed,
                 partner: content.partnerById(module.partnerId),
                 energyEmpty: energy.remaining <= 0,
+                locale: locale,
               ),
             ),
 
@@ -315,6 +320,7 @@ class _ModuleSection extends StatelessWidget {
     required this.completed,
     required this.partner,
     required this.energyEmpty,
+    required this.locale,
   });
 
   final Module module;
@@ -322,6 +328,7 @@ class _ModuleSection extends StatelessWidget {
   final Set<String> completed;
   final Partner? partner;
   final bool energyEmpty;
+  final AppLocale locale;
 
   @override
   Widget build(BuildContext context) {
@@ -373,7 +380,7 @@ class _ModuleSection extends StatelessWidget {
                 const SizedBox(width: Gap.md),
               ],
               Expanded(
-                child: Text(module.title,
+                child: Text(localizedContent(module.title, locale),
                     style: Theme.of(context).textTheme.headlineSmall),
               ),
             ],
@@ -437,6 +444,7 @@ class _ModuleSection extends StatelessWidget {
           status: status,
           color: color,
           energyEmpty: energyEmpty,
+          locale: locale,
         ),
       );
     }
@@ -451,17 +459,19 @@ class _ModuleSection extends StatelessWidget {
         color: color,
         partnerLogoUrl: partner?.logoUrl,
         energyEmpty: energyEmpty,
+        locale: locale,
       ),
     );
   }
 }
 
-class _LessonNode extends StatelessWidget {
+class _LessonNode extends ConsumerWidget {
   const _LessonNode({
     required this.lesson,
     required this.status,
     required this.color,
     required this.energyEmpty,
+    required this.locale,
     this.partnerLogoUrl,
   });
 
@@ -469,11 +479,13 @@ class _LessonNode extends StatelessWidget {
   final LessonStatus status;
   final Color color;
   final bool energyEmpty;
+  final AppLocale locale;
   final String? partnerLogoUrl;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final tokens = context.tokens;
+    final lessonTitle = localizedContent(lesson.title, locale);
     final locked = status == LessonStatus.locked;
     final done = status == LessonStatus.completed;
     final isNext = status == LessonStatus.available;
@@ -496,12 +508,14 @@ class _LessonNode extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Semantics(
-          label: lesson.title,
+          label: lessonTitle,
           button: !locked,
           enabled: !locked,
-          child: _PressScale(
+          child: PressScale(
             enabled: !locked,
-            onTap: locked ? null : () => _open(context),
+            scale: 0.9,
+            haptic: true,
+            onTap: locked ? null : () => _open(context, ref),
             child: Stack(
               clipBehavior: Clip.none,
               children: [
@@ -553,7 +567,7 @@ class _LessonNode extends StatelessWidget {
         SizedBox(
           width: _node + 36,
           child: Text(
-            lesson.title,
+            lessonTitle,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
@@ -567,61 +581,81 @@ class _LessonNode extends StatelessWidget {
     );
   }
 
-  void _open(BuildContext context) {
-    final s = StringsScope.of(context);
-    // Re-doing a finished lesson is always allowed; only a fresh completion
-    // costs energy, which mirrors the server's own rule.
-    if (energyEmpty && status != LessonStatus.completed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(s.t('lesson.noEnergy'))),
-      );
-      return;
-    }
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => LessonScreen(lessonId: lesson.id),
-    ));
+  // Task 3 — every tap opens the preview sheet first (what the lesson is,
+  // question count, potential reward) rather than silently relaunching the
+  // player; the sheet's own CTA does the actual navigation. Re-doing a
+  // finished lesson is always allowed; only a fresh completion costs
+  // energy, which mirrors the server's own rule.
+  void _open(BuildContext context, WidgetRef ref) {
+    final isGated = energyEmpty && status != LessonStatus.completed;
+    void push() => Navigator.of(context)
+        .push(riseTransitionRoute(LessonScreen(lessonId: lesson.id)));
+    showLessonPreviewSheet(
+      context,
+      locale: locale,
+      lesson: lesson,
+      status: status,
+      isCheckpoint: false,
+      isGated: isGated,
+      moduleColor: color,
+      onStart: push,
+      onReview: push,
+      onGoShop: () => ref.read(homeTabIndexProvider.notifier).state = 2,
+    );
   }
 }
 
-class _CheckpointNode extends StatelessWidget {
+class _CheckpointNode extends ConsumerWidget {
   const _CheckpointNode({
     required this.lesson,
     required this.status,
     required this.color,
     required this.energyEmpty,
+    required this.locale,
   });
 
   final Lesson lesson;
   final LessonStatus status;
   final Color color;
   final bool energyEmpty;
+  final AppLocale locale;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final s = StringsScope.of(context);
     final tokens = context.tokens;
+    final lessonTitle = localizedContent(lesson.title, locale);
     final locked = status == LessonStatus.locked;
     final done = status == LessonStatus.completed;
     final tint = done ? Color.lerp(color, const Color(0xFF64748B), 0.22)! : color;
 
     return Semantics(
-      label: lesson.title,
+      label: lessonTitle,
       button: !locked,
       enabled: !locked,
-      child: _PressScale(
+      child: PressScale(
         enabled: !locked,
+        scale: 0.97,
+        haptic: true,
         onTap: locked
             ? null
             : () {
-                if (energyEmpty && !done) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(s.t('lesson.noEnergy'))),
-                  );
-                  return;
-                }
-                Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => LessonScreen(lessonId: lesson.id),
-    ));
+                final isGated = energyEmpty && !done;
+                void push() => Navigator.of(context)
+                    .push(riseTransitionRoute(LessonScreen(lessonId: lesson.id)));
+                showLessonPreviewSheet(
+                  context,
+                  locale: locale,
+                  lesson: lesson,
+                  status: status,
+                  isCheckpoint: true,
+                  isGated: isGated,
+                  moduleColor: color,
+                  onStart: push,
+                  onReview: push,
+                  onGoShop: () =>
+                      ref.read(homeTabIndexProvider.notifier).state = 2,
+                );
               },
         child: Container(
           padding: const EdgeInsets.all(Gap.md),
@@ -677,7 +711,7 @@ class _CheckpointNode extends StatelessWidget {
                           ),
                     ),
                     Text(
-                      lesson.title,
+                      lessonTitle,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -692,41 +726,6 @@ class _CheckpointNode extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// Press feedback: scale to 0.9 on tap-down, spring back. Mirrors the web
-/// app's `whileTap={{ scale: 0.9 }}`. Honours the user's animations setting.
-class _PressScale extends ConsumerStatefulWidget {
-  const _PressScale({required this.child, this.onTap, this.enabled = true});
-
-  final Widget child;
-  final VoidCallback? onTap;
-  final bool enabled;
-
-  @override
-  ConsumerState<_PressScale> createState() => _PressScaleState();
-}
-
-class _PressScaleState extends ConsumerState<_PressScale> {
-  bool _down = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final animate = ref.watch(userStateProvider)?.settings.animations ?? true;
-
-    return GestureDetector(
-      onTapDown: widget.enabled ? (_) => setState(() => _down = true) : null,
-      onTapUp: widget.enabled ? (_) => setState(() => _down = false) : null,
-      onTapCancel: widget.enabled ? () => setState(() => _down = false) : null,
-      onTap: widget.onTap,
-      child: AnimatedScale(
-        scale: (_down && animate) ? 0.9 : 1,
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOut,
-        child: widget.child,
       ),
     );
   }

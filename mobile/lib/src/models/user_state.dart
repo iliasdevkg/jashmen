@@ -117,6 +117,7 @@ class AppUser {
     required this.name,
     required this.email,
     required this.state,
+    this.avatar,
   });
 
   final String id;
@@ -124,10 +125,18 @@ class AppUser {
   final String email;
   final UserState state;
 
+  /// Task 6 — an uploaded photo (or a Google profile picture) as an
+  /// absolute image URL, or null when the account still carries the
+  /// legacy '🦅' emoji default. resolveMediaUrl rejects anything that
+  /// isn't a real image reference, so null here reliably means "show the
+  /// name-initial avatar," same convention as LeaderboardEntry.avatar.
+  final String? avatar;
+
   factory AppUser.fromJson(Map<String, dynamic> json) => AppUser(
         id: json['id']?.toString() ?? '',
         name: json['name']?.toString() ?? '',
         email: json['email']?.toString() ?? '',
+        avatar: resolveMediaUrl(json['avatar']),
         state: json['state'] is Map
             ? UserState.fromJson((json['state'] as Map).cast<String, dynamic>())
             : const UserState(),
@@ -186,4 +195,52 @@ class LessonReward {
         perfect: _asBool(json['perfect']),
         isReview: _asBool(json['isReview']),
       );
+}
+
+/// One claimed coupon from GET /u/me/redemptions — the learner's
+/// proof-of-claim trail. The server joins prize/partner details at read
+/// time, so [prizeTitle]/[partnerName] are null when the admin has since
+/// deleted that prize; the code and date still stand on their own.
+class Redemption {
+  const Redemption({
+    required this.id,
+    required this.code,
+    required this.date,
+    this.ts,
+    this.prizeTitle,
+    this.prizePhotoUrl,
+    this.priceCoins,
+    this.partnerName,
+    this.partnerLogoUrl,
+  });
+
+  final String id;
+  final String code;
+
+  /// YYYY-MM-DD (UTC) — the same string the daily cap is keyed on.
+  final String date;
+  final int? ts;
+
+  /// {ky, ru, en} map or legacy bare string — render via localizedContent.
+  final dynamic prizeTitle;
+  final String? prizePhotoUrl;
+  final int? priceCoins;
+  final dynamic partnerName;
+  final String? partnerLogoUrl;
+
+  factory Redemption.fromJson(Map<String, dynamic> json) {
+    final prize = (json['prize'] as Map?)?.cast<String, dynamic>();
+    final partner = (json['partner'] as Map?)?.cast<String, dynamic>();
+    return Redemption(
+      id: json['id']?.toString() ?? '',
+      code: json['code']?.toString() ?? '',
+      date: json['date']?.toString() ?? '',
+      ts: json['ts'] is num ? (json['ts'] as num).toInt() : null,
+      prizeTitle: prize?['title'],
+      prizePhotoUrl: resolveMediaUrl(prize?['photoUrl']),
+      priceCoins: prize == null ? null : _asInt(prize['priceCoins']),
+      partnerName: partner?['name'],
+      partnerLogoUrl: resolveMediaUrl(partner?['logoUrl']),
+    );
+  }
 }
