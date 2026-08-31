@@ -7,6 +7,8 @@ import { useState } from 'react';
 import { Plus, Trash2, GripVertical, ChevronUp, ChevronDown, BookOpen, Check } from 'lucide-react';
 import * as api from '../api.js';
 import { Card, Field, TextInput, Select, Button, EmptyState, ErrorNote, TrilingualInput, ImageUpload, previewText } from '../components/ui.jsx';
+import IconPicker from '../components/IconPicker.jsx';
+import { lessonIconFor } from '../../shared/lessonIconComponents.jsx';
 
 const COLORS = ['#58CC02', '#1CB0F6', '#FF9600', '#CE82FF', '#FF4B4B', '#2B70C9', '#EAB308', '#EC4899'];
 
@@ -182,9 +184,21 @@ function CardEditorRow({ card, index, total, onChange, onRemove, onMove, token }
   );
 }
 
+// The lesson list mirrors what the app will actually draw: a set icon wins
+// over an uploaded image, and neither means the default book glyph.
+function LessonRowGlyph({ lesson }) {
+  const Glyph = lessonIconFor(lesson.icon);
+  if (Glyph) return <Glyph size={15} color="#1CB0F6" strokeWidth={2.2} />;
+  if (lesson.iconUrl) return <img src={lesson.iconUrl} alt="" className="w-full h-full object-contain" />;
+  return <BookOpen size={14} color="#475569" />;
+}
+
 function LessonEditor({ token, moduleId, lesson, onDone, onCancel }) {
   const [title, setTitle] = useState(lesson?.title || { ky: '', ru: '', en: '' });
   const [iconUrl, setIconUrl] = useState(lesson?.iconUrl || null);
+  // Built-in glyph slug (shared/lessonIcons.js). Mutually exclusive with
+  // iconUrl — LessonIconPicker clears one when the other is set.
+  const [icon, setIcon] = useState(lesson?.icon || null);
   const [cards, setCards] = useState(lesson?.cards?.length ? lesson.cards : lesson?.questions?.map(q => ({ type: 'quiz', ...q })) || []);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -210,8 +224,8 @@ function LessonEditor({ token, moduleId, lesson, onDone, onCancel }) {
     }
     setSaving(true);
     try {
-      if (lesson) await api.updateLesson(token, lesson.id, { title, cards, iconUrl });
-      else await api.createLesson(token, moduleId, { title, cards, iconUrl });
+      if (lesson) await api.updateLesson(token, lesson.id, { title, cards, iconUrl, icon });
+      else await api.createLesson(token, moduleId, { title, cards, iconUrl, icon });
       onDone();
     } catch (err) {
       setError(err.message);
@@ -224,9 +238,13 @@ function LessonEditor({ token, moduleId, lesson, onDone, onCancel }) {
     <Card className="flex flex-col gap-4">
       <TrilingualInput label="Сабактын аталышы" value={title} onChange={setTitle} kyRequired />
 
-      <Field label="Сабактын иконкасы (милдеттүү эмес)">
-        <ImageUpload token={token} url={iconUrl} onChange={setIconUrl} variant="block" />
-      </Field>
+      <IconPicker
+        label="Сабактын иконкасы (милдеттүү эмес)"
+        token={token}
+        icon={icon}
+        iconUrl={iconUrl}
+        onChange={next => { setIcon(next.icon); setIconUrl(next.iconUrl); }}
+      />
 
       <div className="flex flex-col gap-3">
         {cards.map((card, i) => (
@@ -264,6 +282,9 @@ function ModuleForm({ token, partners, mod, onDone, onCancel }) {
   const [color, setColor] = useState(mod?.color || COLORS[0]);
   const [partnerId, setPartnerId] = useState(mod?.partnerId || '');
   const [iconUrl, setIconUrl] = useState(mod?.iconUrl || '');
+  // The small title badge. Independent of the artwork above — a module can
+  // legitimately have both, or neither.
+  const [icon, setIcon] = useState(mod?.icon || null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -272,7 +293,7 @@ function ModuleForm({ token, partners, mod, onDone, onCancel }) {
     setSaving(true);
     setError('');
     try {
-      const body = { title, color, partnerId: partnerId || null, iconUrl: iconUrl || null };
+      const body = { title, color, partnerId: partnerId || null, iconUrl: iconUrl || null, icon };
       if (mod) await api.updateModule(token, mod.id, body);
       else await api.createModule(token, body);
       onDone();
@@ -308,6 +329,16 @@ function ModuleForm({ token, partners, mod, onDone, onCancel }) {
       <Field label="Модулдун сүрөтү (сабак жолунда чоң көрүнөт)">
         <ImageUpload token={token} url={iconUrl} onChange={setIconUrl} variant="block" />
       </Field>
+      {/* Separate from the artwork above, not an alternative to it: this is
+          the small badge next to the module title, which the app draws when
+          there is no large artwork to show instead. */}
+      <IconPicker
+        label="Модулдун белгиси (аталыштын жанындагы кичине иконка)"
+        icon={icon}
+        iconUrl={iconUrl}
+        onChange={next => setIcon(next.icon)}
+        allowUpload={false}
+      />
       <ErrorNote>{error}</ErrorNote>
       <div className="flex gap-2">
         <Button onClick={handleSave} loading={saving}>Сактоо</Button>
@@ -405,9 +436,7 @@ export default function LessonsModule({ token, content, reload }) {
                         className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center overflow-hidden"
                         style={{ background: '#0b1220', border: '1px solid #1e293b' }}
                       >
-                        {lesson.iconUrl
-                          ? <img src={lesson.iconUrl} alt="" className="w-full h-full object-contain" />
-                          : <BookOpen size={14} color="#475569" />}
+                        <LessonRowGlyph lesson={lesson} />
                       </div>
                       <span className="flex-1 min-w-0 text-sm font-semibold text-white truncate">{previewText(lesson.title)}</span>
                       <span className="text-[10px] text-slate-500 shrink-0">{(lesson.cards?.length ?? lesson.questions.length)} карта</span>

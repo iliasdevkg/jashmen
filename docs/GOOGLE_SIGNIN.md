@@ -74,7 +74,12 @@ curl https://jashmenstudio.com/admin/api/public/config
 
 ---
 
-## Мобилдик колдонмо (кийинчерээк)
+## Мобилдик колдонмо
+
+Мобилдик баскыч да `GET /public/config`тен окуйт — башкача айтканда
+серверде `GOOGLE_CLIENT_ID` коюлганда, **колдонмону кайра курбастан**,
+кийинки ачылышында эле баскыч пайда болот. `--dart-define` дагы иштейт,
+бирок ал эми милдеттүү эмес (сервер жооп бербей турган учур үчүн гана).
 
 iOS менен Android web client ID'ди колдоно албайт — Google ар бирине
 өзүнчө талап кылат.
@@ -84,19 +89,13 @@ iOS менен Android web client ID'ди колдоно албайт — Google
 1. Credentials → **CREATE CREDENTIALS → OAuth client ID → iOS**
 2. Bundle ID: `com.jashmenstudio.jashmen`
 3. Чыккан **iOS client ID** жана **Reversed client ID** алынат
-4. `mobile/ios/Runner/Info.plist`ке URL scheme кошуу:
-   ```xml
-   <key>CFBundleURLTypes</key>
-   <array>
-     <dict>
-       <key>CFBundleURLSchemes</key>
-       <array>
-         <string>com.googleusercontent.apps.XXXXXXXX</string>
-       </array>
-     </dict>
-   </array>
-   ```
-5. Серверге: `GOOGLE_CLIENT_ID_IOS=<iOS client ID>`
+4. `mobile/ios/Runner/Info.plist` ичиндеги даяр `CFBundleURLTypes` блогун
+   комментарийден чыгарып, ага **reversed client ID**'ди коюңуз
+   (`com.googleusercontent.apps.…`). Бул бирден-бир build-time жөндөө:
+   iOS URL scheme'ди колдонмо ачылганда окуйт, аны серверден берүү мүмкүн
+   эмес.
+5. Серверге: `GOOGLE_CLIENT_ID_IOS=<iOS client ID>` — колдонмо аны
+   `/public/config`тен өзү алат
 
 ### Android
 
@@ -107,15 +106,23 @@ iOS менен Android web client ID'ди колдоно албайт — Google
 2. Credentials → **OAuth client ID → Android**
 3. Package name: `com.jashmenstudio.jashmen`, SHA-1: жогоркусу
 4. Android өзүнчө audience талап кылбайт — id_token'ди **web** client
-   ID'ге сурайт, ошондуктан backend'де кошумча эч нерсе керек эмес
+   ID'ге сурайт, ошондуктан колдонмодо да, backend'де да кошумча эч нерсе
+   керек эмес
 
 ### Куруу
 
-Мобилдик баскыч `GOOGLE_SERVER_CLIENT_ID` берилмейинче көрүнбөйт:
+Эч кандай кошумча флагсыз:
+
+```bash
+flutter build appbundle --release
+```
+
+Эгер сервер `/public/config`ти азырынча бербей турса, эски жол дагы бар:
 
 ```bash
 flutter build appbundle --release \
-  --dart-define=GOOGLE_SERVER_CLIENT_ID=<WEB client ID>
+  --dart-define=GOOGLE_SERVER_CLIENT_ID=<WEB client ID> \
+  --dart-define=GOOGLE_IOS_CLIENT_ID=<iOS client ID>
 ```
 
 > `GOOGLE_SERVER_CLIENT_ID` — бул **web** client ID (iOS/Android эмес).

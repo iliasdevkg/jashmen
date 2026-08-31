@@ -1,29 +1,63 @@
-// Client mirror of admin-api/energy.js#computeLiveEnergy — same formula,
-// kept in lockstep. Replaces the old mistake-based hearts system: users get
-// `dailyFreeLessons` (admin-configurable, see content.limits) genuine
-// lesson completions per calendar day (UTC), resetting at midnight.
-export function computeLiveEnergy(state, dailyFreeLessons = 3) {
+// Client mirror of admin-api/energy.js — same formula, kept in lockstep.
+// Users get `dailyFreeLessons` genuine lesson completions per refill
+// period, and the period length itself is admin-editable
+// (content.limits.energyRefillHours). Periods are absolute slices of epoch
+// time, so at the default 24 h a boundary is exactly UTC midnight — the
+// behaviour the old calendar-day version had.
+export const DEFAULT_REFILL_HOURS = 24;
+
+export function normalizeRefillHours(hours) {
+  const n = Number(hours);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_REFILL_HOURS;
+  return Math.min(168, Math.max(1, Math.round(n)));
+}
+
+// The two numbers every energy call site needs, read from the global
+// content payload in one place so no screen can drift onto a stale default.
+export function energySettings(content) {
+  return {
+    dailyFreeLessons: content?.limits?.dailyFreeLessons ?? 3,
+    energyRefillHours: normalizeRefillHours(content?.limits?.energyRefillHours),
+  };
+}
+
+export function computeLiveEnergy(state, dailyFreeLessons = 3, energyRefillHours = DEFAULT_REFILL_HOURS) {
   if (!state) return { remaining: dailyFreeLessons, resetMs: null };
-  const today = new Date().toISOString().slice(0, 10);
-  const sameDay = state.energyDate === today;
-  const lessonsToday = sameDay ? (state.lessonsToday || 0) : 0;
-  const bonusToday   = sameDay ? (state.bonusEnergyToday || 0) : 0;
-  const cap = dailyFreeLessons + bonusToday;
-  const remaining = Math.max(0, cap - lessonsToday);
-  let resetMs = null;
-  if (remaining <= 0) {
-    const now = new Date();
-    const nextMidnightUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
-    resetMs = nextMidnightUTC - Date.now();
-  }
+  const periodMs = normalizeRefillHours(energyRefillHours) * 3_600_000;
+  const period = Math.floor(Date.now() / periodMs);
+  // States written before the interval model carry only `energyDate`; for
+  // those, "still today" is the best available reading of "still in the
+  // current period" — and at 24 h it is the exact same thing.
+  const samePeriod = state.energyPeriod != null
+    ? state.energyPeriod === period
+    : state.energyDate === new Date().toISOString().slice(0, 10);
+
+  const lessonsToday = samePeriod ? (state.lessonsToday || 0) : 0;
+  const bonusToday   = samePeriod ? (state.bonusEnergyToday || 0) : 0;
+  // Energy handed over by university-league viewers stacks on the free
+  // allowance; energy this user gifted away is spent from it.
+  const supportToday = samePeriod ? (state.supportEnergyToday || 0) : 0;
+  const givenToday   = samePeriod ? (state.energyGivenToday || 0) : 0;
+
+  const cap = dailyFreeLessons + bonusToday + supportToday;
+  const remaining = Math.max(0, cap - lessonsToday - givenToday);
+  const resetMs = remaining <= 0 ? (period + 1) * periodMs - Date.now() : null;
   return { remaining, resetMs };
 }
 
+// "m:ss", or "h:mm:ss" once the countdown crosses an hour. Every call site
+// feeds this the time until the next UTC midnight (up to ~24h), so a bare
+// "m:ss" used to print nonsense like "548:47" instead of a readable
+// "9:08:47" — see mobile/lib/src/core/logic.dart's copy, kept in lockstep.
 export function formatCountdown(ms) {
   if (!ms || ms <= 0) return '0:00';
-  const m = Math.floor(ms / 60000);
-  const s = Math.floor((ms % 60000) / 1000);
-  return `${m}:${String(s).padStart(2, '0')}`;
+  const totalSeconds = Math.floor(ms / 1000);
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`;
 }
 
 export function getCurrentLeague(xp, leagues) {
@@ -96,7 +130,9 @@ export function checkNewAchievements(userState, reward, allAchievements, totalLe
   if (!userState || !allAchievements?.length) return [];
   const earned = new Set(userState.achievements || []);
   const ctx = {
-    xp: userState.xp || 0,
+    // Lifetime total — mirrors the server's rule engine in
+    // admin-api/contentStore.js#checkNewAchievements.
+    xp: userState.lifetimeXp || 0,
     streak: userState.streak || 0,
     completedCount: (userState.completedLessons || []).length,
     totalLessons,

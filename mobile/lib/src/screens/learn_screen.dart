@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/i18n.dart';
+import '../core/lesson_icons.dart';
 import '../core/logic.dart';
 import '../core/routes.dart';
 import '../core/theme.dart';
@@ -152,17 +153,23 @@ BoxDecoration _sphere(Color color, bool locked,
   );
 }
 
-/// LearnPage.jsx#LessonGlyph — an admin-uploaded icon wins; a broken one
-/// falls back silently rather than leaving a torn-image box on the node.
+/// LearnPage.jsx#LessonGlyph — an icon picked from the built-in set wins,
+/// then an admin-uploaded image; a broken upload falls back silently rather
+/// than leaving a torn-image box on the node.
 class _LessonGlyph extends StatelessWidget {
-  const _LessonGlyph({this.iconUrl, this.size = 26, this.fallback = Icons.fitness_center_rounded});
+  const _LessonGlyph({this.icon, this.iconUrl, this.size = 26, this.fallback = Icons.fitness_center_rounded});
 
+  final String? icon;
   final String? iconUrl;
   final double size;
   final IconData fallback;
 
   @override
   Widget build(BuildContext context) {
+    final picked = lessonIconFor(icon);
+    if (picked != null) {
+      return Icon(picked, size: size, color: Colors.white);
+    }
     if (iconUrl == null) {
       return Icon(fallback, size: size, color: Colors.white);
     }
@@ -251,6 +258,7 @@ class _PathViewState extends ConsumerState<_PathView> {
     final energy = computeLiveEnergy(
       userState,
       dailyFreeLessons: content.limits.dailyFreeLessons,
+      energyRefillHours: content.limits.energyRefillHours,
     );
 
     return RefreshIndicator(
@@ -332,6 +340,7 @@ class _ModuleSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = StringsScope.of(context);
     final color = _parseHex(module.color);
     final tokens = context.tokens;
     final positions = _nodePositions(module.lessons.length);
@@ -361,28 +370,77 @@ class _ModuleSection extends StatelessWidget {
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: color.withValues(alpha: 0.3)),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // The small badge is redundant once the tile is showing the
-              // same artwork, so it only appears when there is no tile.
-              if (module.iconUrl == null) ...[
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(14),
+              Row(
+                children: [
+                  // The small badge is redundant once the tile is showing
+                  // the same artwork, so it only appears when there is no
+                  // tile.
+                  if (module.iconUrl == null) ...[
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                          lessonIconFor(module.icon) ?? Icons.school_rounded,
+                          color: Colors.white,
+                          size: 22),
+                    ),
+                    const SizedBox(width: Gap.md),
+                  ],
+                  Expanded(
+                    child: Text(localizedContent(module.title, locale),
+                        style: Theme.of(context).textTheme.headlineSmall),
                   ),
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.school_rounded,
-                      color: Colors.white, size: 22),
-                ),
-                const SizedBox(width: Gap.md),
-              ],
-              Expanded(
-                child: Text(localizedContent(module.title, locale),
-                    style: Theme.of(context).textTheme.headlineSmall),
+                ],
               ),
+              // "Курс от Mbank" — ported from LearnPage.jsx's ModuleSection:
+              // a sponsored module names its partner right under the title,
+              // same small circular logo + label the lesson nodes below
+              // already carry individually.
+              if (partner != null) ...[
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    if (partner!.logoUrl != null) ...[
+                      ClipOval(
+                        child: CachedNetworkImage(
+                          imageUrl: partner!.logoUrl!,
+                          width: 16,
+                          height: 16,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    Flexible(
+                      child: Text(
+                        s.t('learn.courseFrom',
+                            params: {'partner': localizedContent(partner!.name, locale)}),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          // The card behind this is only a 8% tint of the
+                          // module colour in bright mode — near-white — so a
+                          // white label vanishes into it. Dark mode keeps the
+                          // white it was designed with.
+                          color: tokens.bright
+                              ? AppColors.textMutedLight
+                              : Colors.white.withValues(alpha: 0.85),
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -501,7 +559,7 @@ class _LessonNode extends ConsumerWidget {
           ? Icon(Icons.lock_rounded,
               size: 26,
               color: tokens.bright ? const Color(0xFF94A3B8) : const Color(0xFF64748B))
-          : _LessonGlyph(iconUrl: lesson.iconUrl),
+          : _LessonGlyph(icon: lesson.icon, iconUrl: lesson.iconUrl),
     );
 
     return Column(
@@ -692,6 +750,7 @@ class _CheckpointNode extends ConsumerWidget {
                         size: 20,
                         color: tokens.bright ? const Color(0xFF94A3B8) : const Color(0xFF64748B))
                     : _LessonGlyph(
+                        icon: lesson.icon,
                         iconUrl: lesson.iconUrl,
                         size: 22,
                         fallback: Icons.school_rounded,

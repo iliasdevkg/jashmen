@@ -9,12 +9,15 @@
 // Everything past /login requires a valid admin token (requireAdmin).
 
 import { Router } from 'express';
+import { randomUUID } from 'node:crypto';
 import { adminLoginLimiter } from './rateLimit.js';
 import {
   verifyAdminPassword, signAdminAccessToken, requireAdmin,
   issueAdminRefreshToken, refreshAdminAccessToken, revokeAdminRefreshToken,
   REFRESH_TOKEN_TTL_MS, REFRESH_COOKIE_NAME,
 } from './adminAuth.js';
+import { hashPassword } from './auth.js';
+import { normalizeRefillHours } from './energy.js';
 import { setRefreshCookie, clearRefreshCookie } from './cookies.js';
 import { upload, saveUploadedFile } from './uploads.js';
 import * as content from './contentStore.js';
@@ -23,6 +26,32 @@ import * as db from './db.js';
 import { sendStreakReminders, sendRetentionReminders, pushEnabled } from './push.js';
 
 const router = Router();
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Same shape as routes.js#defaultState — a user the admin creates directly
+// (not via /u/signup) still needs every field the rest of the app reads.
+function defaultUserState() {
+  return {
+    xp: 0,
+    uniXp: 0,
+    lifetimeXp: 0,
+    coins: 50,
+    streak: 0,
+    lessonsToday: 0,
+    energyDate: null,
+    bonusEnergyToday: 0,
+    completedLessons: [],
+    achievements: [],
+    ownedShop: [],
+    settings: { sound: true, animations: true },
+    lastActiveDate: null,
+    hasStreakShield: false,
+    hasXpBoost: false,
+    vipBadge: false,
+    pushSubscriptions: [],
+  };
+}
 
 function todayUTC() {
   return new Date().toISOString().slice(0, 10);
@@ -90,9 +119,9 @@ router.get('/content', (req, res) => res.json(content.getContent()));
 
 router.post('/modules', async (req, res, next) => {
   try {
-    const { title, color } = req.body || {};
+    const { title, color, iconUrl, icon } = req.body || {};
     if (!content.kyOf(title)) return res.status(400).json({ error: 'Модулдун аталышы керек' });
-    res.status(201).json(await content.addModule({ title, color }));
+    res.status(201).json(await content.addModule({ title, color, iconUrl, icon }));
   } catch (err) { next(err); }
 });
 
@@ -109,12 +138,12 @@ router.delete('/modules/:id', async (req, res, next) => {
 
 router.post('/modules/:id/lessons', async (req, res, next) => {
   try {
-    const { title, cards, iconUrl } = req.body || {};
+    const { title, cards, iconUrl, icon } = req.body || {};
     if (!content.kyOf(title)) return res.status(400).json({ error: 'Сабактын аталышы керек' });
     if (!Array.isArray(cards) || cards.length === 0) {
       return res.status(400).json({ error: 'Жок дегенде бир карта керек' });
     }
-    res.status(201).json(await content.addLesson(req.params.id, { title, cards, iconUrl }));
+    res.status(201).json(await content.addLesson(req.params.id, { title, cards, iconUrl, icon }));
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
@@ -176,8 +205,8 @@ router.delete('/prizes/:id', async (req, res, next) => {
 
 router.post('/shop-items', async (req, res, next) => {
   try {
-    const { title, desc, price, effect, iconUrl } = req.body || {};
-    res.status(201).json(await content.addShopItem({ title, desc, price, effect, iconUrl }));
+    const { title, desc, price, effect, iconUrl, icon } = req.body || {};
+    res.status(201).json(await content.addShopItem({ title, desc, price, effect, iconUrl, icon }));
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
@@ -203,6 +232,7 @@ const LIMIT_FIELDS = [
   'dailyFreeLessons', 'dailyPrizeCap', 'maxBonusEnergyPerDay',
   'xpPerQuestion', 'xpMistakePenalty', 'xpMinFloorPct', 'xpPerfectBonusPct',
   'xpBoostMultiplierPct', 'coinsPerfectLesson', 'coinsNormalLesson',
+  'energyRefillHours', 'supportEnergyAmount',
 ];
 
 router.get('/limits', (req, res) => {
@@ -222,6 +252,16 @@ router.put('/limits', async (req, res, next) => {
     // floor of 1 and changing that is more likely a typo than an intent.
     if (patch.dailyFreeLessons != null) patch.dailyFreeLessons = Math.max(1, patch.dailyFreeLessons);
     if (patch.dailyPrizeCap != null) patch.dailyPrizeCap = Math.max(1, patch.dailyPrizeCap);
+    // The refill period is a divisor of real time, so 0 would mean "refill
+    // infinitely often" — clamped to energy.js's own guard rails instead.
+    if (patch.energyRefillHours != null) {
+      patch.energyRefillHours = normalizeRefillHours(patch.energyRefillHours);
+    }
+    // A gift of 0 energy is a button that does nothing; a gift bigger than a
+    // full allowance would let one viewer hand out a whole day at once.
+    if (patch.supportEnergyAmount != null) {
+      patch.supportEnergyAmount = Math.min(50, Math.max(1, patch.supportEnergyAmount));
+    }
     res.json(await content.setLimits(patch));
   } catch (err) { next(err); }
 });
@@ -230,9 +270,9 @@ router.put('/limits', async (req, res, next) => {
 
 router.post('/leagues', async (req, res, next) => {
   try {
-    const { name, iconUrl, color, minXp } = req.body || {};
+    const { name, iconUrl, icon, color, minXp } = req.body || {};
     if (!content.kyOf(name)) return res.status(400).json({ error: 'Лиганын аты керек' });
-    res.status(201).json(await content.addLeague({ name, iconUrl, color, minXp }));
+    res.status(201).json(await content.addLeague({ name, iconUrl, icon, color, minXp }));
   } catch (err) { next(err); }
 });
 
@@ -246,13 +286,50 @@ router.delete('/leagues/:id', async (req, res, next) => {
   catch (err) { next(err); }
 });
 
+// ── Module Г: universities & contests ───────────────────────────────────
+//
+// A validation failure here is the admin mistyping a date or leaving the
+// Kyrgyz name blank, not a server fault — contentStore throws with the
+// message the form should show, so those come back as 400 rather than
+// falling through to the 500 handler.
+
+router.post('/universities', async (req, res) => {
+  try { res.status(201).json(await content.addUniversity(req.body || {})); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+router.put('/universities/:id', async (req, res) => {
+  try { res.json(await content.updateUniversity(req.params.id, req.body || {})); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+router.delete('/universities/:id', async (req, res, next) => {
+  try { await content.deleteUniversity(req.params.id); res.status(204).end(); }
+  catch (err) { next(err); }
+});
+
+// ── Landing page — the public marketing site ────────────────────────────
+//
+// PUT merges section by section (contentStore#sanitizeLanding), so the
+// editor can save just the section being edited without having to send —
+// and risk clobbering — the ones it isn't touching.
+
+router.get('/landing', (req, res) => {
+  res.json(content.getLanding());
+});
+
+router.put('/landing', async (req, res, next) => {
+  try { res.json(await content.setLanding(req.body || {})); }
+  catch (err) { next(err); }
+});
+
 // ── Achievements — unlimited, rule-driven ───────────────────────────────
 
 router.post('/achievements', async (req, res, next) => {
   try {
-    const { iconUrl, title, desc, xp, rule } = req.body || {};
+    const { iconUrl, icon, title, desc, xp, rule } = req.body || {};
     if (!content.kyOf(title)) return res.status(400).json({ error: 'Жетишкендиктин аты керек' });
-    res.status(201).json(await content.addAchievement({ iconUrl, title, desc, xp, rule }));
+    res.status(201).json(await content.addAchievement({ iconUrl, icon, title, desc, xp, rule }));
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
@@ -290,6 +367,113 @@ router.delete('/retention-rules/:id', async (req, res, next) => {
 
 router.get('/analytics/funnel', (req, res) => res.json(events.funnel()));
 router.get('/analytics/heatmap', (req, res) => res.json(events.questionHeatmap()));
+router.get('/analytics/overview', (req, res) => res.json(db.overview()));
+
+// ── Users (Analytics → Колдонуучулар) ───────────────────────────────────
+//
+// A safe projection of each user record for the admin's monitoring/cleanup
+// list — passwordHash and googleSub never leave this endpoint.
+router.get('/users', (req, res) => {
+  const list = db.listUsers().map(u => ({
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    avatar: u.avatar,
+    createdAt: u.createdAt || null,
+    xp: u.state?.xp || 0,
+    coins: u.state?.coins || 0,
+    streak: u.state?.streak || 0,
+    completedLessons: (u.state?.completedLessons || []).length,
+    achievements: (u.state?.achievements || []).length,
+    lastActiveDate: u.state?.lastActiveDate || null,
+  }));
+  res.json(list);
+});
+
+// Admin-created account — same shape /u/signup produces, minus the
+// refresh-token issuance (the admin isn't logging in as this user).
+router.post('/users', async (req, res) => {
+  const { name, email, password, avatar } = req.body || {};
+  if (!name?.trim() || !email?.trim() || !password) {
+    return res.status(400).json({ error: 'Бардык талааларды толтуруңуз' });
+  }
+  if (!EMAIL_RE.test(email.trim())) {
+    return res.status(400).json({ error: 'Email туура эмес' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Сырсөз жок дегенде 6 белгиден турушу керек' });
+  }
+  if (db.findUserByEmail(email)) {
+    return res.status(409).json({ error: 'Бул email мурунтан катталган' });
+  }
+
+  const user = {
+    id: randomUUID(),
+    name: name.trim().slice(0, 60),
+    email: email.trim().toLowerCase(),
+    avatar: avatar || '🦅',
+    passwordHash: await hashPassword(password),
+    state: defaultUserState(),
+  };
+  await db.insertUser(user);
+  res.status(201).json({ id: user.id });
+});
+
+// Edits name/email/avatar and the handful of state numbers the "Колдонуучулар"
+// card shows (xp, coins, streak) — anything else on the user stays untouched.
+// `password`, if present, resets it the same way signup hashes one; omitted
+// (the common case) leaves the existing hash alone.
+router.patch('/users/:id', async (req, res) => {
+  const user = db.findUserById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Колдонуучу табылган жок' });
+
+  const { name, email, avatar, password, xp, coins, streak } = req.body || {};
+
+  if (email !== undefined) {
+    const trimmed = email.trim().toLowerCase();
+    if (!EMAIL_RE.test(trimmed)) return res.status(400).json({ error: 'Email туура эмес' });
+    const existing = db.findUserByEmail(trimmed);
+    if (existing && existing.id !== user.id) {
+      return res.status(409).json({ error: 'Бул email мурунтан катталган' });
+    }
+    user.email = trimmed;
+  }
+  if (name !== undefined) {
+    if (!name.trim()) return res.status(400).json({ error: 'Аты бош болбошу керек' });
+    user.name = name.trim().slice(0, 60);
+  }
+  if (avatar !== undefined) user.avatar = avatar || '🦅';
+  if (password) {
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Сырсөз жок дегенде 6 белгиден турушу керек' });
+    }
+    user.passwordHash = await hashPassword(password);
+  }
+  if (xp !== undefined) {
+    // The edit box is the GENERAL league's score. Move the lifetime total by
+    // the same delta so an admin grant still counts toward xp_total
+    // achievements, and a correction downward doesn't leave it inflated.
+    const next = Math.max(0, Number(xp) || 0);
+    const delta = next - (user.state.xp || 0);
+    user.state.xp = next;
+    user.state.lifetimeXp = Math.max(0, (user.state.lifetimeXp || 0) + delta);
+  }
+  if (coins !== undefined) user.state.coins = Math.max(0, Number(coins) || 0);
+  if (streak !== undefined) user.state.streak = Math.max(0, Number(streak) || 0);
+
+  await db.saveUser(user);
+  res.status(204).end();
+});
+
+// Irreversible — used to remove accounts that signed up by mistake/abuse.
+// Their past redemptions are deliberately left in place (see db.js#deleteUser):
+// a redemption code already handed to a partner should stay as a record even
+// after the account behind it is gone.
+router.delete('/users/:id', async (req, res) => {
+  const ok = await db.deleteUser(req.params.id);
+  if (!ok) return res.status(404).json({ error: 'Колдонуучу табылган жок' });
+  res.status(204).end();
+});
 
 // ── Push (manual triggers — same campaigns the CRON_SECRET-protected
 //    /admin/api/cron/* routes run on a schedule; these let you fire them

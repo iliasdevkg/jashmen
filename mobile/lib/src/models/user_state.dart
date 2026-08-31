@@ -39,22 +39,43 @@ class UserSettings {
 class UserState {
   const UserState({
     this.xp = 0,
+    this.uniXp = 0,
+    this.lifetimeXp = 0,
     this.coins = 0,
     this.streak = 0,
     this.lessonsToday = 0,
     this.energyDate,
+    this.energyPeriod,
     this.bonusEnergyToday = 0,
+    this.energyGivenToday = 0,
+    this.supportEnergyToday = 0,
+    this.uniId,
+    this.uniRole,
     this.completedLessons = const [],
     this.achievements = const [],
     this.ownedShop = const [],
     this.settings = const UserSettings(),
     this.lastActiveDate,
+    this.activeDays = const [],
     this.hasStreakShield = false,
     this.hasXpBoost = false,
     this.vipBadge = false,
   });
 
+  /// The general league's score. Frozen while the learner is competing as
+  /// a university student — see [uniXp].
   final int xp;
+
+  /// The current university league's score, reset to 0 by the server on
+  /// every enrolment (join, re-join, campus or role change). XP never
+  /// crosses between the two boards: whichever league you are competing in
+  /// is the one that grows (admin-api/routes.js#awardXp).
+  final int uniXp;
+
+  /// Every point ever earned, in either league, never reset. This is the
+  /// figure the app's own "XP" counters show, so none of them can look
+  /// stuck while the other board is the one filling up.
+  final int lifetimeXp;
   final int coins;
   final int streak;
   final int lessonsToday;
@@ -62,12 +83,31 @@ class UserState {
   /// UTC date string ("YYYY-MM-DD") the daily counters belong to. Null until
   /// the first lesson. Compared against UTC today — see logic.dart.
   final String? energyDate;
+
+  /// Absolute index of the refill period the counters belong to
+  /// (floor(nowMs / periodMs) — see logic.dart). Null on states written
+  /// before the interval model, where energyDate is the only marker.
+  final int? energyPeriod;
   final int bonusEnergyToday;
+
+  /// University league: energy this user gifted away, and energy viewers
+  /// gifted them. Both roll over with the refill period.
+  final int energyGivenToday;
+  final int supportEnergyToday;
+
+  /// University-league enrolment, server-owned so a viewer's gift and a
+  /// student's supporter list can be resolved across two accounts.
+  final String? uniId;
+  final String? uniRole;
   final List<String> completedLessons;
   final List<String> achievements;
   final List<String> ownedShop;
   final UserSettings settings;
   final String? lastActiveDate;
+
+  /// Trailing window of UTC dates the learner showed up, newest last — what
+  /// the streak screen's Su–Sa strip is drawn from.
+  final List<String> activeDays;
   final bool hasStreakShield;
   final bool hasXpBoost;
   final bool vipBadge;
@@ -76,11 +116,18 @@ class UserState {
 
   factory UserState.fromJson(Map<String, dynamic> json) => UserState(
         xp: _asInt(json['xp']),
+        uniXp: _asInt(json['uniXp']),
+        lifetimeXp: _asInt(json['lifetimeXp']),
         coins: _asInt(json['coins']),
         streak: _asInt(json['streak']),
         lessonsToday: _asInt(json['lessonsToday']),
         energyDate: json['energyDate']?.toString(),
+        energyPeriod: json['energyPeriod'] is num ? (json['energyPeriod'] as num).toInt() : null,
         bonusEnergyToday: _asInt(json['bonusEnergyToday']),
+        energyGivenToday: _asInt(json['energyGivenToday']),
+        supportEnergyToday: _asInt(json['supportEnergyToday']),
+        uniId: json['uniId']?.toString(),
+        uniRole: json['uniRole']?.toString(),
         completedLessons: _asStringList(json['completedLessons']),
         achievements: _asStringList(json['achievements']),
         ownedShop: _asStringList(json['ownedShop']),
@@ -88,6 +135,7 @@ class UserState {
             ? UserSettings.fromJson((json['settings'] as Map).cast<String, dynamic>())
             : const UserSettings(),
         lastActiveDate: json['lastActiveDate']?.toString(),
+        activeDays: _asStringList(json['activeDays']),
         hasStreakShield: _asBool(json['hasStreakShield']),
         hasXpBoost: _asBool(json['hasXpBoost']),
         vipBadge: _asBool(json['vipBadge']),
@@ -95,16 +143,24 @@ class UserState {
 
   UserState copyWith({UserSettings? settings}) => UserState(
         xp: xp,
+        uniXp: uniXp,
+        lifetimeXp: lifetimeXp,
         coins: coins,
         streak: streak,
         lessonsToday: lessonsToday,
         energyDate: energyDate,
+        energyPeriod: energyPeriod,
         bonusEnergyToday: bonusEnergyToday,
+        energyGivenToday: energyGivenToday,
+        supportEnergyToday: supportEnergyToday,
+        uniId: uniId,
+        uniRole: uniRole,
         completedLessons: completedLessons,
         achievements: achievements,
         ownedShop: ownedShop,
         settings: settings ?? this.settings,
         lastActiveDate: lastActiveDate,
+        activeDays: activeDays,
         hasStreakShield: hasStreakShield,
         hasXpBoost: hasXpBoost,
         vipBadge: vipBadge,
@@ -118,12 +174,18 @@ class AppUser {
     required this.email,
     required this.state,
     this.avatar,
+    this.hasPassword = true,
   });
 
   final String id;
   final String name;
   final String email;
   final UserState state;
+
+  /// Whether the account has a password at all. False for a Google-only
+  /// account, which is what makes Settings offer "set a password" instead
+  /// of asking for a current one it never had.
+  final bool hasPassword;
 
   /// Task 6 — an uploaded photo (or a Google profile picture) as an
   /// absolute image URL, or null when the account still carries the
@@ -137,6 +199,7 @@ class AppUser {
         name: json['name']?.toString() ?? '',
         email: json['email']?.toString() ?? '',
         avatar: resolveMediaUrl(json['avatar']),
+        hasPassword: json['hasPassword'] != false,
         state: json['state'] is Map
             ? UserState.fromJson((json['state'] as Map).cast<String, dynamic>())
             : const UserState(),
@@ -243,4 +306,36 @@ class Redemption {
       partnerLogoUrl: resolveMediaUrl(partner?['logoUrl']),
     );
   }
+}
+
+/// The response of POST /u/me/daily. `claimed` is true only on the one call
+/// per day that actually rolled the streak forward — the daily claim fires
+/// on every session start, so it is what keeps the streak celebration to
+/// once a day instead of once a launch.
+class DailyClaim {
+  const DailyClaim({
+    required this.user,
+    this.claimed = false,
+    this.streak = 0,
+    this.streakIncreased = false,
+    this.activeDays = const [],
+  });
+
+  final AppUser user;
+  final bool claimed;
+  final int streak;
+  final bool streakIncreased;
+
+  /// Trailing window of UTC dates the learner showed up — the streak
+  /// screen's Su–Sa strip is drawn from this.
+  final List<String> activeDays;
+
+  factory DailyClaim.fromJson(Map<String, dynamic> json) => DailyClaim(
+        user: AppUser.fromJson(
+            (json['user'] as Map?)?.cast<String, dynamic>() ?? const {}),
+        claimed: json['claimed'] == true,
+        streak: _asInt(json['streak']),
+        streakIncreased: json['streakIncreased'] == true,
+        activeDays: _asStringList(json['activeDays']),
+      );
 }

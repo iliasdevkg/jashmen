@@ -19,6 +19,7 @@ import 'screens/league_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/streak_screen.dart';
 import 'screens/shop_screen.dart';
 import 'state/providers.dart';
 
@@ -50,24 +51,66 @@ class JashMenApp extends ConsumerWidget {
         // Task 9 — onboarding only ever gets in front of a signed-OUT
         // session; a live one (restored from the stored refresh token)
         // skips straight to the app, same as before onboarding existed.
-        home: switch (session) {
-          SessionLoading() => const _Splash(),
-          SessionSignedOut() when !onboarded => const OnboardingScreen(),
-          SessionSignedOut() => const AuthScreen(),
-          SessionSignedIn() => const _HomeShell(),
-        },
+        //
+        // Wrapped in AnimatedSwitcher so a session flip (splash → onboarding
+        // → auth → home) crossfades instead of hard-cutting — the four
+        // screens read as one continuous flow rather than a stack of
+        // independent pages.
+        home: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 320),
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          child: switch (session) {
+            SessionLoading() => const _Splash(key: ValueKey('splash')),
+            SessionSignedOut() when !onboarded =>
+              const OnboardingScreen(key: ValueKey('onboarding')),
+            SessionSignedOut() => const AuthScreen(key: ValueKey('auth')),
+            SessionSignedIn() => const _HomeShellWithStreak(key: ValueKey('home')),
+          },
+        ),
       ),
     );
   }
 }
 
+/// Shown only while [SessionLoading] — restoring a stored refresh token from
+/// the keychain/keystore, typically well under a second. The bar is
+/// indeterminate on purpose: it communicates "working" without promising a
+/// duration this screen has no way to know, so it never has to fake or pad
+/// out a delay to look "complete".
 class _Splash extends StatelessWidget {
-  const _Splash();
+  const _Splash({super.key});
 
   @override
   Widget build(BuildContext context) => Scaffold(
+        backgroundColor: AppColors.authBg,
         body: Center(
-          child: Image.asset('assets/images/logo.png', width: 88, height: 88),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.85, end: 1),
+                duration: const Duration(milliseconds: 480),
+                curve: Curves.easeOutBack,
+                builder: (_, v, child) => Transform.scale(scale: v, child: child),
+                child: Image.asset('assets/images/logo.png', width: 96, height: 96),
+              ),
+              const SizedBox(height: 44),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: SizedBox(
+                  width: 160,
+                  height: 6,
+                  child: LinearProgressIndicator(
+                    backgroundColor: const Color(0xFF8B8B8B),
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 44),
+              Image.asset('assets/images/wordmark_white.png', height: 28),
+            ],
+          ),
         ),
       );
 }
@@ -76,7 +119,30 @@ class _Splash extends StatelessWidget {
 /// from Learn doesn't blow away Shop's scroll position, and the tab bar
 /// stays put while a lesson is open only if it was pushed inside the tab —
 /// lessons push on the root navigator instead, deliberately full-screen.
+/// The signed-in app with the streak screen laid over it. A full overlay
+/// rather than a route, so it can appear the moment the daily claim lands,
+/// whatever tab the player happens to be on.
+class _HomeShellWithStreak extends ConsumerWidget {
+  const _HomeShellWithStreak({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final streak = ref.watch(streakEventProvider);
+    return Stack(
+      children: [
+        const _HomeShell(),
+        if (streak != null)
+          StreakScreen(
+            event: streak,
+            onDismiss: () => ref.read(streakEventProvider.notifier).state = null,
+          ),
+      ],
+    );
+  }
+}
+
 class _HomeShell extends ConsumerStatefulWidget {
+  // No key: the AnimatedSwitcher's ValueKey now lives on the wrapper above.
   const _HomeShell();
 
   @override

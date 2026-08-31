@@ -2,7 +2,15 @@
 /// media references into something the image loader can actually fetch.
 library;
 
-const String kApiBaseUrl = 'https://jashmenstudio.com/admin/api';
+/// Production by default. A local run points it at the dev server with
+/// `--dart-define=API_BASE_URL=http://localhost:3030/admin/api` (an iOS
+/// simulator reaches the host Mac on localhost; an Android emulator uses
+/// 10.0.2.2). Compile-time, so a release build with no define is byte-for-
+/// byte the production one.
+const String kApiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'https://jashmenstudio.com/admin/api',
+);
 
 /// Origin of [kApiBaseUrl] — "https://jashmenstudio.com".
 final String kApiOrigin = Uri.parse(kApiBaseUrl).origin;

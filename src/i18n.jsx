@@ -77,3 +77,95 @@ export function localizedText(value, locale) {
   if (typeof value === 'string') return value;
   return value[locale] || value.ky || value.ru || value.en || '';
 }
+
+// ── Locale-aware formatting ────────────────────────────────────────────────
+//
+// The web twin of mobile/lib/src/core/i18n.dart's helpers. Hand-rolled for
+// the same reason: the university league needs exactly three shapes
+// (grouped integers, a som amount, a long date) in exactly three locales,
+// and `toLocaleString` has no Kyrgyz data to work from — it would silently
+// render Russian month names under a Kyrgyz interface.
+
+// Kyrgyz vowels grouped by the harmony class that decides a suffix's vowel.
+// `ё/ю/я` appear in Russian loanwords and abbreviations, so they map onto
+// their nearest native class.
+const KY_VOWEL_CLASS = {
+  а: 'ы', ы: 'ы', я: 'ы',
+  о: 'у', у: 'у', ю: 'у', ё: 'у',
+  э: 'и', е: 'и', и: 'и',
+  ө: 'ү', ү: 'ү',
+};
+
+const KY_VOICELESS = new Set(['к', 'п', 'с', 'т', 'ф', 'х', 'ц', 'ч', 'ш', 'щ']);
+
+// Kyrgyz genitive: "КГТУ" → "КГТУНУН", "АУЦА" → "АУЦАНЫН",
+// "САЛЫМБЕКОВ" → "САЛЫМБЕКОВДУН".
+//
+// Headings like "КГТУНУН ТОП 10 СТУДЕНТИ" are built from a university name
+// that varies, so one fixed suffix would be wrong for most of them. Vowel
+// harmony picks the suffix vowel; the final letter picks the consonant
+// (-н- after a vowel, -т- after a voiceless consonant, -д- otherwise).
+export function kyGenitive(word) {
+  const trimmed = String(word ?? '').trim();
+  if (!trimmed) return trimmed;
+
+  const lower = trimmed.toLowerCase();
+  const isUpper = trimmed === trimmed.toUpperCase();
+
+  let vowel = 'ы';
+  for (let i = lower.length - 1; i >= 0; i--) {
+    const v = KY_VOWEL_CLASS[lower[i]];
+    if (v) { vowel = v; break; }
+  }
+
+  const last = lower[lower.length - 1];
+  const lead = KY_VOWEL_CLASS[last] ? 'н' : (KY_VOICELESS.has(last) ? 'т' : 'д');
+
+  const suffix = `${lead}${vowel}н`;
+  return trimmed + (isUpper ? suffix.toUpperCase() : suffix);
+}
+
+// 1248560 → "1 248 560". The separator is a non-breaking space so an XP
+// figure never wraps across two lines mid-number.
+export function formatGrouped(value) {
+  const n = Math.trunc(Number(value) || 0);
+  const digits = String(Math.abs(n));
+  let out = '';
+  for (let i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 === 0) out += ' ';
+    out += digits[i];
+  }
+  return (n < 0 ? '-' : '') + out;
+}
+
+// "120 000 сом" / "120 000 KGS" — the currency is written out in Kyrgyz and
+// Russian, and given as the ISO code in English where "som" would not read.
+// Non-breaking throughout: an amount that wraps between its digits and its
+// currency reads as two separate facts.
+export function formatSom(amount, locale) {
+  return `${formatGrouped(amount)} ${locale === 'en' ? 'KGS' : 'сом'}`;
+}
+
+const MONTHS_KY = ['ЯНВАРЬ', 'ФЕВРАЛЬ', 'МАРТ', 'АПРЕЛЬ', 'МАЙ', 'ИЮНЬ',
+  'ИЮЛЬ', 'АВГУСТ', 'СЕНТЯБРЬ', 'ОКТЯБРЬ', 'НОЯБРЬ', 'ДЕКАБРЬ'];
+
+// Russian dates take the genitive month ("18 сентября"), a different word
+// from the nominative Kyrgyz uses.
+const MONTHS_RU = ['ЯНВАРЯ', 'ФЕВРАЛЯ', 'МАРТА', 'АПРЕЛЯ', 'МАЯ', 'ИЮНЯ',
+  'ИЮЛЯ', 'АВГУСТА', 'СЕНТЯБРЯ', 'ОКТЯБРЯ', 'НОЯБРЯ', 'ДЕКАБРЯ'];
+
+const MONTHS_EN = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
+  'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
+
+// "18 СЕНТЯБРЬ 2025" / "18 СЕНТЯБРЯ 2025" / "SEPTEMBER 18, 2025".
+// Upper-case because every date in the design sits in a label slot.
+// Accepts a "YYYY-MM-DD" string and parses it as a plain calendar date —
+// `new Date('2025-09-18')` is UTC midnight, which is the 17th in any
+// negative-offset timezone.
+export function formatLongDate(value, locale) {
+  const [y, m, d] = String(value).split('-').map(Number);
+  if (!y || !m || !d) return '';
+  if (locale === 'ru') return `${d} ${MONTHS_RU[m - 1]} ${y}`;
+  if (locale === 'en') return `${MONTHS_EN[m - 1]} ${d}, ${y}`;
+  return `${d} ${MONTHS_KY[m - 1]} ${y}`;
+}

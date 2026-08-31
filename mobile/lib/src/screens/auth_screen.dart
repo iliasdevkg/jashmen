@@ -1,10 +1,12 @@
-/// Sign in / sign up — a direct port of the web app's mobile layout
-/// (src/pages/AuthPage.jsx), down to the segmented login/signup control,
-/// the 112px squircle logo above the wordmark, and the tagline.
+/// Sign in / sign up, matching the brand-blue mockups in jashmen01/: the
+/// same vivid cobalt as the onboarding carousel, a light pill for the
+/// active login/signup tab, and the white stadium CTA shared with
+/// onboarding's "next"/"get started" button.
 ///
-/// Deliberately NOT the app's shared theme: the web auth page is dark on
+/// Deliberately NOT the app's shared theme: this screen is dark-on-blue on
 /// every device (it renders before any user preference exists), so the
-/// colours here are its literal values rather than bright-mode tokens.
+/// colours here are AppColors.auth* — literal brand values, not
+/// bright-mode tokens.
 library;
 
 import 'package:flutter/material.dart';
@@ -14,15 +16,14 @@ import '../api/api_client.dart';
 import '../core/i18n.dart';
 import '../core/theme.dart';
 import '../state/providers.dart';
+import '../widgets/brand_pill_button.dart';
 import '../widgets/google_sign_in_button.dart';
 
-// AuthPage.jsx's own palette.
-const _bg = Color(0xFF0F172A);
-const _field = Color(0xFF1E293B);
-const _fieldBorder = Color(0xFF334155);
-const _placeholder = Color(0xFF64748B);
-const _inactiveTab = Color(0xFF64748B);
-const _tagline = Color(0xFF94A3B8);
+const _bg = AppColors.authBg;
+const _field = AppColors.authField;
+const _placeholder = AppColors.authMuted;
+const _inactiveTab = AppColors.authMuted;
+const _tagline = AppColors.authMuted;
 
 enum _Mode { login, signup }
 
@@ -88,9 +89,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
         suffixIcon: suffix,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        border: _border(_fieldBorder),
-        enabledBorder: _border(_fieldBorder),
-        focusedBorder: _border(AppColors.primary, width: 2),
+        border: _border(Colors.transparent),
+        enabledBorder: _border(Colors.transparent),
+        focusedBorder: _border(Colors.white, width: 2),
         errorBorder: _border(AppColors.danger),
         focusedErrorBorder: _border(AppColors.danger, width: 2),
         errorStyle: const TextStyle(fontSize: 11, color: Color(0xFFF87171)),
@@ -245,7 +246,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                         ],
 
                         const SizedBox(height: 16),
-                        _PrimaryButton(
+                        BrandPillButton(
                           label: _busy
                               ? s.t('common.loading')
                               : isSignup
@@ -274,7 +275,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   }
 }
 
-/// The web's pill toggle: a #1e293b track with the active half filled blue.
+/// The mockup's pill toggle: a dark navy track with the active tab filled
+/// as a light lavender pill and blue-on-light text — the inverse of a
+/// typical "active = brand colour" tab, which is exactly what makes it read
+/// as a control sitting *inside* the darker brand-blue page.
 class _Segmented extends StatelessWidget {
   const _Segmented({
     required this.mode,
@@ -301,7 +305,7 @@ class _Segmented extends StatelessWidget {
             curve: Curves.easeOut,
             padding: const EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(
-              color: active ? AppColors.primary : Colors.transparent,
+              color: active ? AppColors.authChipActive : Colors.transparent,
               borderRadius: BorderRadius.circular(12),
             ),
             alignment: Alignment.center,
@@ -310,7 +314,7 @@ class _Segmented extends StatelessWidget {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: active ? Colors.white : _inactiveTab,
+                color: active ? AppColors.authBg : _inactiveTab,
               ),
             ),
           ),
@@ -321,7 +325,7 @@ class _Segmented extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: _field,
+        color: AppColors.authTrack,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -329,70 +333,6 @@ class _Segmented extends StatelessWidget {
           tab(_Mode.login, s.t('auth.login')),
           tab(_Mode.signup, s.t('auth.signup')),
         ],
-      ),
-    );
-  }
-}
-
-/// Full-width blue submit, scaling to 0.97 on press like the web's
-/// `whileTap`.
-class _PrimaryButton extends ConsumerStatefulWidget {
-  const _PrimaryButton({
-    required this.label,
-    required this.onPressed,
-    this.busy = false,
-  });
-
-  final String label;
-  final VoidCallback? onPressed;
-  final bool busy;
-
-  @override
-  ConsumerState<_PrimaryButton> createState() => _PrimaryButtonState();
-}
-
-class _PrimaryButtonState extends ConsumerState<_PrimaryButton> {
-  bool _down = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = widget.onPressed != null;
-
-    return GestureDetector(
-      onTapDown: enabled ? (_) => setState(() => _down = true) : null,
-      onTapUp: enabled ? (_) => setState(() => _down = false) : null,
-      onTapCancel: enabled ? () => setState(() => _down = false) : null,
-      onTap: widget.onPressed,
-      child: AnimatedScale(
-        scale: _down ? 0.97 : 1,
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOut,
-        child: Opacity(
-          opacity: enabled ? 1 : 0.6,
-          child: Container(
-            height: 52,
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            alignment: Alignment.center,
-            child: widget.busy
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2.5, color: Colors.white),
-                  )
-                : Text(
-                    widget.label,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-          ),
-        ),
       ),
     );
   }

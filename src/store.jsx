@@ -28,6 +28,9 @@ export function StoreProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [content, setContent] = useState(null);
   const [bright, setBrightRaw] = useState(() => localStorage.getItem(BRIGHT_KEY) === '1');
+  // Set by the one daily claim per day that actually moved the streak —
+  // App.jsx turns this into the celebration screen, then clears it.
+  const [streakEvent, setStreakEvent] = useState(null);
   const refreshTimer = useRef(null);
   // Bumped on every explicit logout. A refresh request already in flight
   // when logout() runs can't be cancelled (clearInterval only stops
@@ -83,6 +86,26 @@ export function StoreProvider({ children }) {
   // Silent session restore on load — the ONLY place a fresh token can come
   // from besides an explicit login/signup, since nothing is persisted
   // client-side anymore.
+  // The daily claim fires on every session start, so `claimed` — true only
+  // on the call that actually rolled the streak forward — is what keeps the
+  // celebration to once a day instead of once a reload.
+  const claimDaily = useCallback((t) => {
+    const epoch = sessionEpoch.current;
+    api.claimDaily(t)
+      .then((res) => {
+        if (sessionEpoch.current !== epoch) return;
+        setUser(res.user);
+        if (res.claimed && (res.streak || 0) > 0) {
+          setStreakEvent({
+            streak: res.streak,
+            activeDays: res.activeDays || [],
+            increased: !!res.streakIncreased,
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     const epoch = sessionEpoch.current;
     api.apiRefresh()
@@ -92,28 +115,28 @@ export function StoreProvider({ children }) {
         setUser(u);
         setLoading(false);
         startRefreshTimer();
-        api.claimDaily(t).then(({ user: u2 }) => setUser(u2)).catch(() => {});
+        claimDaily(t);
       })
       .catch(() => { if (sessionEpoch.current === epoch) setLoading(false); });
-  }, [startRefreshTimer]);
+  }, [startRefreshTimer, claimDaily]);
 
   const login = useCallback(async (email, password) => {
     const { token: t, user: u } = await api.apiLogin(email, password);
     setToken(t);
     setUser(u);
     startRefreshTimer();
-    api.claimDaily(t).then(({ user: u2 }) => setUser(u2)).catch(() => {});
+    claimDaily(t);
     return u;
-  }, [startRefreshTimer]);
+  }, [startRefreshTimer, claimDaily]);
 
   const signup = useCallback(async (name, email, password, avatar) => {
     const { token: t, user: u } = await api.apiSignup(name, email, password, avatar);
     setToken(t);
     setUser(u);
     startRefreshTimer();
-    api.claimDaily(t).then(({ user: u2 }) => setUser(u2)).catch(() => {});
+    claimDaily(t);
     return u;
-  }, [startRefreshTimer]);
+  }, [startRefreshTimer, claimDaily]);
 
   // Google sign-in lands here with an id_token; the server turns it into the
   // same session login/signup produce, so from this point on there is no
@@ -123,24 +146,40 @@ export function StoreProvider({ children }) {
     setToken(t);
     setUser(u);
     startRefreshTimer();
-    api.claimDaily(t).then(({ user: u2 }) => setUser(u2)).catch(() => {});
+    claimDaily(t);
     return u;
-  }, [startRefreshTimer]);
+  }, [startRefreshTimer, claimDaily]);
 
   const logout = useCallback(() => {
     sessionEpoch.current += 1; // invalidate any refresh response still in flight
     clearInterval(refreshTimer.current);
     setToken(null);
     setUser(null);
+    setStreakEvent(null);
     setLoading(false);
     api.apiLogout().catch(() => {}); // best-effort — local state is already cleared either way
   }, []);
 
   const updateUser = useCallback((u) => setUser(u), []);
 
+  // A password change revokes every session server-side and hands this
+  // device a brand-new pair, so the in-memory access token has to be
+  // swapped for the returned one or the very next request 401s.
+  const adoptSession = useCallback((t, u) => {
+    setToken(t);
+    if (u) setUser(u);
+    startRefreshTimer();
+  }, [startRefreshTimer]);
+
+  const dismissStreakEvent = useCallback(() => setStreakEvent(null), []);
+
   return (
     <BrightCtx.Provider value={{ bright, setBright }}>
-      <AuthCtx.Provider value={{ token, user, loading, state: user?.state || null, login, signup, loginWithGoogle, logout, updateUser }}>
+      <AuthCtx.Provider value={{
+        token, user, loading, state: user?.state || null,
+        login, signup, loginWithGoogle, logout, updateUser, adoptSession,
+        streakEvent, dismissStreakEvent,
+      }}>
         <ContentCtx.Provider value={content}>
           {children}
         </ContentCtx.Provider>

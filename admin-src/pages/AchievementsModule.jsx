@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { Plus, Trash2, Award } from 'lucide-react';
 import * as api from '../api.js';
 import { Card, Field, TextInput, Select, Button, EmptyState, ErrorNote, TrilingualInput, ImageUpload, previewText } from '../components/ui.jsx';
+import IconPicker from '../components/IconPicker.jsx';
 
 const RULE_TYPES = [
   { value: 'lessons_completed',     label: 'Аяктаган сабак саны', needsValue: true,  unit: 'сабак' },
@@ -32,6 +33,8 @@ function ruleLabel(rule) {
 
 function AchievementForm({ token, achievement, onDone, onCancel }) {
   const [iconUrl, setIconUrl] = useState(achievement?.iconUrl || '');
+  // Built-in glyph slug — the alternative to an uploaded badge, never both.
+  const [icon, setIcon] = useState(achievement?.icon || null);
   const [title, setTitle] = useState(achievement?.title || { ky: '', ru: '', en: '' });
   const [desc, setDesc] = useState(achievement?.desc || { ky: '', ru: '', en: '' });
   const [xp, setXp] = useState(achievement?.xp ?? 20);
@@ -48,7 +51,7 @@ function AchievementForm({ token, achievement, onDone, onCancel }) {
     setError('');
     try {
       const rule = ruleDef.needsValue ? { type: ruleType, value: ruleValue } : { type: ruleType };
-      const body = { iconUrl: iconUrl || null, title, desc, xp, rule };
+      const body = { iconUrl: iconUrl || null, icon, title, desc, xp, rule };
       if (achievement) await api.updateAchievement(token, achievement.id, body);
       else await api.createAchievement(token, body);
       onDone();
@@ -63,9 +66,15 @@ function AchievementForm({ token, achievement, onDone, onCancel }) {
     <Card className="flex flex-col gap-3">
       <TrilingualInput label="Аталышы" value={title} onChange={setTitle} kyRequired />
       <TrilingualInput label="Сүрөттөмө" value={desc} onChange={setDesc} multiline />
-      <Field label="Значка (милдеттүү эмес)">
-        <ImageUpload token={token} url={iconUrl} onChange={setIconUrl} variant="inline" emptyIcon={Award} />
-      </Field>
+      <IconPicker
+        label="Значка (милдеттүү эмес)"
+        token={token}
+        icon={icon}
+        iconUrl={iconUrl}
+        onChange={next => { setIcon(next.icon); setIconUrl(next.iconUrl); }}
+        uploadVariant="inline"
+        emptyIcon={Award}
+      />
       <div className="grid grid-cols-2 gap-3">
         <Field label="Шарт (эреже)">
           <Select value={ruleType} onChange={e => setRuleType(e.target.value)}>

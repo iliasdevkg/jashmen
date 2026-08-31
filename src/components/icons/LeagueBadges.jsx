@@ -11,6 +11,7 @@
 // id → glyph map consumed by LeaguePage.
 
 import { useId } from 'react';
+import { lessonIconFor } from '../../../shared/lessonIconComponents.jsx';
 
 // Rounded regular hexagon (circumradius 46, corner rounding 12) in a
 // 0–100 viewBox — the shared silhouette every league badge is cut from.
@@ -174,7 +175,7 @@ const LEGEND_BLACK = { top: '#4a4a4a', mid: '#161616', bottom: '#000000' };
 // built-in leagues keep their bespoke art either way unless overridden).
 // When present, the image is clipped into the SAME hexagon silhouette so
 // it reads as part of the gem rather than a sticker slapped on top.
-export default function LeagueBadge({ id, color, locked = false, size = 72, iconUrl }) {
+export default function LeagueBadge({ id, color, locked = false, size = 72, iconUrl, icon }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const fillId = `lb-fill-${uid}`;
   const glossId = `lb-gloss-${uid}`;
@@ -183,7 +184,12 @@ export default function LeagueBadge({ id, color, locked = false, size = 72, icon
   const isLegend = id === 'legend' && !locked;
   const accent = isLegend ? '#FFD24C' : color;
   const Icon = LEAGUE_ICONS[id];
-  const showCustomIcon = !locked && !!iconUrl;
+  // An icon picked from the built-in set (shared/lessonIcons.js) outranks an
+  // upload — same order the server stores them in. Drawn as a nested lucide
+  // svg rather than clipped into the hexagon: it's a line glyph, so it sits
+  // ON the gem like the hand-drawn ones, not inside a photo window.
+  const PickedIcon = locked ? null : lessonIconFor(icon);
+  const showCustomIcon = !locked && !PickedIcon && !!iconUrl;
 
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" style={{ overflow: 'visible', display: 'block' }}>
@@ -269,6 +275,8 @@ export default function LeagueBadge({ id, color, locked = false, size = 72, icon
       {/* glyph — an uploaded icon wins when set, else the hand-drawn glyph */}
       {locked
         ? <LockGlyph />
+        : PickedIcon
+        ? <g transform="translate(28 28)"><PickedIcon size={44} color="white" strokeWidth={2.4} /></g>
         : showCustomIcon
         ? <image href={iconUrl} x="18" y="18" width="64" height="64" clipPath={`url(#${clipId})`} preserveAspectRatio="xMidYMid slice" />
         : Icon ? <Icon /> : null}

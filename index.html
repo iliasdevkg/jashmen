@@ -4,10 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 
-    <!-- The whole app sits behind a login wall (src/App.jsx: `if (!user) return
-         <AuthPage />`), so a crawler only ever sees the sign-in screen. That
-         makes this <head> the ONLY thing search engines can read about
-         JashMen — hence the deliberately complete metadata below. -->
+    <!-- `/` is the landing page (src/pages/LandingPage.jsx) — real, crawlable
+         copy about what JashMen is, served to every logged-out visitor. It
+         replaced the sign-in wall that used to make this <head> the only
+         thing a search engine could read, so the metadata below is now the
+         summary of a page rather than a substitute for one. Keep the two in
+         agreement: the landing copy itself is admin-editable, this is not. -->
     <!-- Google Search Console ownership proof for the https://jashmenstudio.com
          URL-prefix property. Must stay in the served HTML — removing it
          un-verifies the property and cuts off indexing requests/coverage
@@ -17,6 +19,22 @@
     <title>JashMen Studio — каржы сабаттуулугун оюн аркылуу үйрөн</title>
     <meta name="description" content="JashMen — акча, каржы жана инвестиция боюнча кыргызча окуу колдонмосу. Кыска сабактар, оюн түрүндөгү тапшырмалар, күнүмдүк серия жана лига менен каржы сабаттуулугуңузду өстүрүңүз." />
     <link rel="canonical" href="https://jashmenstudio.com/" />
+
+    <!-- Landing-page typography (src/components/landing/*). Onest sets the
+         headings, Inter the prose. Both families carry cyrillic-ext, which is
+         what ө / ү / ң need — the default `cyrillic` subset does not include
+         them, and the browser would fall back mid-word. Onest was drawn with
+         Cyrillic as a first-class script rather than an afterthought, which
+         is why the Kyrgyz headlines no longer need uppercasing to look
+         deliberate. `display=swap` keeps the page readable in the system
+         stack while these load; preconnect shaves the extra DNS+TLS round
+         trip Google Fonts otherwise costs. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Onest:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap"
+    />
 
     <link rel="icon" href="/logo.png" type="image/png" />
     <link rel="apple-touch-icon" href="/logo.png" />

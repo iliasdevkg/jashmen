@@ -1,12 +1,20 @@
 import { useEffect, useMemo, useRef, useState, forwardRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Target, Flame, Trophy, ChevronLeft, ChevronRight, Crown } from 'lucide-react';
+import { Users, Target, Flame, Trophy, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
 import { useI18n, formatDays, localizedText } from '../i18n.jsx';
+import MedalWreath from '../components/icons/MedalWreath.jsx';
 import { getCurrentLeague } from '../utils.js';
 import * as api from '../api.js';
 import LeagueBadge from '../components/icons/LeagueBadges.jsx';
 import Avatar from '../components/Avatar.jsx';
+import {
+  LeagueTabs,
+  RoleDialog,
+  UniLeagueView,
+  UniversityPickerDialog,
+  useUniEnrolment,
+} from '../components/UniLeague.jsx';
 
 // The active tab runs ~27–29% larger than the rest (spec: "25–30% larger")
 // and a league whose minXp the player hasn't reached yet renders as a dark
@@ -35,7 +43,7 @@ function LeagueCard({ league, isActive, locked, onClick, bright, locale }) {
       }}
     >
       <div style={{ marginBottom: 6 }}>
-        <LeagueBadge id={league.id} color={league.color} locked={locked} size={isActive ? 92 : 68} iconUrl={league.iconUrl} />
+        <LeagueBadge id={league.id} color={league.color} locked={locked} size={isActive ? 92 : 68} iconUrl={league.iconUrl} icon={league.icon} />
       </div>
       <p className="font-extrabold text-[11px] uppercase tracking-wide text-center px-1" style={{ color: isActive && !locked ? textPri : textMut }}>
         {localizedText(league.name, locale)}
@@ -75,15 +83,16 @@ function Podium({ top3, heroTextPri }) {
             className="flex flex-col items-center gap-1"
             style={{ width: 92 }}
           >
-            {rank === 1 && (
-              <motion.span
-                className="mb-0.5"
-                animate={{ rotate: [-6, 6, -6] }}
-                transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
-              >
-                <Crown size={26} color="#FFD700" fill="#FFD700" />
-              </motion.span>
-            )}
+            {/* Every place gets its medal, not just the winner: second and
+                third are podium finishes too, and a bare avatar beside a
+                crowned one reads as "also-ran" rather than "runner-up". */}
+            <motion.span
+              className="mb-0.5"
+              animate={rank === 1 ? { rotate: [-5, 5, -5] } : undefined}
+              transition={rank === 1 ? { duration: 2.6, repeat: Infinity, ease: 'easeInOut' } : undefined}
+            >
+              <MedalWreath rank={rank} size={rank === 1 ? 52 : 40} />
+            </motion.span>
             <div style={{ boxShadow: `0 0 0 3px ${podColor}, 0 4px 16px ${podColor}70` }} className="rounded-full">
               <Avatar name={u.name} photoUrl={u.avatar} size={rank === 1 ? 62 : 50} />
             </div>
@@ -178,6 +187,61 @@ export default function LeaguePage() {
   const [scrollState, setScrollState] = useState({ left: false, right: false });
   const scrollRef = useRef(null);
 
+  // ── University league ──
+  //
+  // `tab` is the chrome: it can say 'uni' while the general league is still
+  // the thing on screen — that is the state the design shows behind the role
+  // and university dialogs.
+  const [tab, setTab]   = useState('general');
+  const [flow, setFlow] = useState(null); // { step: 'role' | 'picker', role, mode }
+  const { enrolment, university, commit } = useUniEnrolment();
+  // Enrolment is a server write now, so it can be in flight and it can fail
+  // — both states have to be visible rather than silently dropping the user
+  // back on the general league.
+  const [enrolling, setEnrolling] = useState(false);
+  const [enrolError, setEnrolError] = useState('');
+
+  const showUni = tab === 'uni' && !!university && !!enrolment.role;
+
+  const selectTab = (next) => {
+    if (next === tab) return;
+    setTab(next);
+    // Entering the tab asks the two questions it needs, in order. `university`
+    // is the resolved record, not the stored id: one saved here can vanish
+    // from the list upstream, and that has to re-ask.
+    if (next === 'uni' && !(university && enrolment.role)) {
+      setFlow({ step: enrolment.role ? 'picker' : 'role', role: enrolment.role, mode: 'enrol' });
+    }
+  };
+
+  // "Өзгөртүү / Изменить / Change" — reopens both questions with the current
+  // answers preselected.
+  const startChange  = () => setFlow({ step: 'role', role: enrolment.role, mode: 'change' });
+  const onRolePicked = (role) => setFlow(f => ({ ...f, step: 'picker', role }));
+
+  // Nothing is written until both answers come back, so backing out of
+  // either dialog leaves the page exactly as it was.
+  const onUniversityPicked = async (id) => {
+    const role = flow.role;
+    setFlow(null);
+    setEnrolError('');
+    setEnrolling(true);
+    try {
+      await commit(role, id);
+    } catch (e) {
+      setEnrolError(e.message || t('common.error'));
+      setTab('general');
+    } finally {
+      setEnrolling(false);
+    }
+  };
+
+  const dismissFlow = () => {
+    // Landing on an empty university tab would be a dead end.
+    if (flow?.mode === 'enrol' && !(university && enrolment.role)) setTab('general');
+    setFlow(null);
+  };
+
   const leagues  = content?.leagues || [];
   const xp       = state?.xp || 0;
   const myLeague = getCurrentLeague(xp, leagues);
@@ -243,125 +307,170 @@ export default function LeaguePage() {
 
   return (
     <div className="pb-4">
-      {/* ── Hero: league cards, podium ── */}
-      <div className="relative overflow-hidden pt-4 pb-10" style={{ background: heroBg }}>
-        <div className="relative">
-          <div
-            ref={scrollRef}
-            onScroll={updateScrollState}
-            className="flex gap-3 overflow-x-auto px-4 pt-2 pb-1 snap-x snap-mandatory"
-            style={{ scrollbarWidth: 'none' }}
-          >
-            {leagues.map(l => (
-              <LeagueCard
-                key={l.id}
-                league={l}
-                isActive={activeLeague?.id === l.id}
-                locked={xp < l.minXp}
-                onClick={() => setActiveLeague(l)}
-                bright={bright}
-                locale={locale}
-              />
-            ))}
-          </div>
+      <LeagueTabs tab={tab} onSelect={selectTab} bright={bright} />
 
-          {scrollState.left && (
-            <button
-              onClick={() => scrollByCard(-1)}
-              aria-label={t('league.prevLeagues')}
-              className="absolute left-1 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center"
-              style={{
-                background: bright ? 'rgba(255,255,255,0.9)' : 'rgba(15,23,42,0.75)',
-                border: `1.5px solid ${bright ? '#e2e8f0' : 'rgba(255,255,255,0.15)'}`,
-                backdropFilter: 'blur(6px)',
-              }}
-            >
-              <ChevronLeft size={18} color={heroTextPri} />
-            </button>
-          )}
-          {scrollState.right && (
-            <button
-              onClick={() => scrollByCard(1)}
-              aria-label={t('league.nextLeagues')}
-              className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center"
-              style={{
-                background: bright ? 'rgba(255,255,255,0.9)' : 'rgba(15,23,42,0.75)',
-                border: `1.5px solid ${bright ? '#e2e8f0' : 'rgba(255,255,255,0.15)'}`,
-                backdropFilter: 'blur(6px)',
-              }}
-            >
-              <ChevronRight size={18} color={heroTextPri} />
-            </button>
-          )}
-        </div>
+      {/* The design keeps this line under the general league only — the
+          university tab replaces it with the "change my campus" row. */}
+      {!showUni && (
+        <p className="px-5 pb-1 text-center text-[13px] font-semibold" style={{ color: heroTextMut }}>
+          {t('league.generalSubtitle')}
+        </p>
+      )}
 
-        <div className="flex justify-center gap-1.5 mt-3 mb-1">
-          {leagues.map(l => (
-            <button
-              key={l.id}
-              onClick={() => setActiveLeague(l)}
-              aria-label={l.name}
-              className="rounded-full transition-all duration-300"
-              style={{
-                width: activeLeague?.id === l.id ? '18px' : '6px',
-                height: '6px',
-                background: activeLeague?.id === l.id ? l.color : (bright ? '#e2e8f0' : '#1e293b'),
-              }}
-            />
-          ))}
-        </div>
+      {enrolError && (
+        <p className="px-5 pb-1 text-center text-[12px] font-semibold" style={{ color: '#FF4B4B' }}>
+          {enrolError}
+        </p>
+      )}
 
-        {loading ? (
-          <div className="flex justify-center py-14">
-            <Trophy size={30} color={heroTextMut} className="animate-pulse" />
-          </div>
-        ) : top3.length > 0 ? (
-          <Podium top3={top3} heroTextPri={heroTextPri} />
-        ) : (
-          <div className="relative flex flex-col items-center gap-1 py-10 px-6 text-center">
-            <Users size={30} color={heroTextMut} className="mb-1" />
-            <p className="font-bold text-sm" style={{ color: heroTextPri }}>{t('league.emptyTitle')}</p>
-            <p className="text-xs" style={{ color: heroTextMut }}>{t('league.emptyDesc')}</p>
-          </div>
-        )}
-      </div>
-
-      {/* ── Sheet: stats + ranked list, rising over the hero ── */}
-      <div
-        className="relative -mt-6 rounded-t-[28px] pt-1"
-        style={{ background: sheetBg, boxShadow: bright ? '0 -6px 20px rgba(15,23,42,0.06)' : '0 -6px 20px rgba(0,0,0,0.3)' }}
-      >
-        <div className="mx-4 -mt-5 mb-3 rounded-2xl flex overflow-hidden" style={{ background: bright ? '#ffffff' : '#151f30', boxShadow: bright ? '0 6px 20px rgba(15,23,42,0.1)' : '0 6px 20px rgba(0,0,0,0.35)' }}>
-          <StatCell icon={Users}   value={viewLeaderboard.length}                     label={t('league.participants')} color="#1CB0F6" textPri={textPri} textMut={textMut} />
-          <StatCell icon={Trophy}  value={(top3[0]?.xp ?? 0).toLocaleString()}        label={t('league.leaderXp')}     color="#FFD700" textPri={textPri} textMut={textMut} />
-          <StatCell icon={Target}  value={iAmRanked ? `#${myRankInView + 1}` : '—'}    label={t('league.myRank')}       color="#58CC02" textPri={textPri} textMut={textMut} last />
-        </div>
-
-        {!loading && (
-          <>
-            <div className="px-3 flex flex-col gap-1.5 mb-2">
-              <AnimatePresence mode="popLayout">
-                {rest.map((u, i) => (
-                  <UserRow key={u.id} user={u} rank={i + 4} isMe={u.id === userId} bright={bright} />
+      {tab === 'uni' && enrolling ? (
+        <p className="py-16 text-center text-sm" style={{ color: textMut }}>{t('common.loading')}</p>
+      ) : showUni ? (
+        <UniLeagueView university={university} bright={bright} onChange={startChange} />
+      ) : (
+        <>
+          {/* ── Hero: league cards, podium ── */}
+          <div className="relative overflow-hidden pt-4 pb-10" style={{ background: heroBg }}>
+            <div className="relative">
+              <div
+                ref={scrollRef}
+                onScroll={updateScrollState}
+                className="flex gap-3 overflow-x-auto px-4 pt-2 pb-1 snap-x snap-mandatory"
+                style={{ scrollbarWidth: 'none' }}
+              >
+                {leagues.map(l => (
+                  <LeagueCard
+                    key={l.id}
+                    league={l}
+                    isActive={activeLeague?.id === l.id}
+                    locked={xp < l.minXp}
+                    onClick={() => setActiveLeague(l)}
+                    bright={bright}
+                    locale={locale}
+                  />
                 ))}
-              </AnimatePresence>
+              </div>
+
+              {scrollState.left && (
+                <button
+                  onClick={() => scrollByCard(-1)}
+                  aria-label={t('league.prevLeagues')}
+                  className="absolute left-1 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center"
+                  style={{
+                    background: bright ? 'rgba(255,255,255,0.9)' : 'rgba(15,23,42,0.75)',
+                    border: `1.5px solid ${bright ? '#e2e8f0' : 'rgba(255,255,255,0.15)'}`,
+                    backdropFilter: 'blur(6px)',
+                  }}
+                >
+                  <ChevronLeft size={18} color={heroTextPri} />
+                </button>
+              )}
+              {scrollState.right && (
+                <button
+                  onClick={() => scrollByCard(1)}
+                  aria-label={t('league.nextLeagues')}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center"
+                  style={{
+                    background: bright ? 'rgba(255,255,255,0.9)' : 'rgba(15,23,42,0.75)',
+                    border: `1.5px solid ${bright ? '#e2e8f0' : 'rgba(255,255,255,0.15)'}`,
+                    backdropFilter: 'blur(6px)',
+                  }}
+                >
+                  <ChevronRight size={18} color={heroTextPri} />
+                </button>
+              )}
             </div>
 
-            {userId && !viewLeaderboard.find(u => u.id === userId) && state && activeLeague?.id === myLeague?.id && (
-              <div className="mx-3 mt-1">
-                <UserRow
-                  user={{ id: userId, name: user.name, xp: state.xp || 0, streak: state.streak || 0 }}
-                  rank={leaderboard.length + 1}
-                  isMe
-                  bright={bright}
+            <div className="flex justify-center gap-1.5 mt-3 mb-1">
+              {leagues.map(l => (
+                <button
+                  key={l.id}
+                  onClick={() => setActiveLeague(l)}
+                  aria-label={l.name}
+                  className="rounded-full transition-all duration-300"
+                  style={{
+                    width: activeLeague?.id === l.id ? '18px' : '6px',
+                    height: '6px',
+                    background: activeLeague?.id === l.id ? l.color : (bright ? '#e2e8f0' : '#1e293b'),
+                  }}
                 />
+              ))}
+            </div>
+
+            {loading ? (
+              <div className="flex justify-center py-14">
+                <Trophy size={30} color={heroTextMut} className="animate-pulse" />
+              </div>
+            ) : top3.length > 0 ? (
+              <Podium top3={top3} heroTextPri={heroTextPri} />
+            ) : (
+              <div className="relative flex flex-col items-center gap-1 py-10 px-6 text-center">
+                <Users size={30} color={heroTextMut} className="mb-1" />
+                <p className="font-bold text-sm" style={{ color: heroTextPri }}>{t('league.emptyTitle')}</p>
+                <p className="text-xs" style={{ color: heroTextMut }}>{t('league.emptyDesc')}</p>
               </div>
             )}
-          </>
-        )}
+          </div>
 
-        <div className="h-3" />
-      </div>
+          {/* ── Sheet: stats + ranked list, rising over the hero ── */}
+          <div
+            className="relative -mt-6 rounded-t-[28px] pt-1"
+            style={{ background: sheetBg, boxShadow: bright ? '0 -6px 20px rgba(15,23,42,0.06)' : '0 -6px 20px rgba(0,0,0,0.3)' }}
+          >
+            <div className="mx-4 -mt-5 mb-3 rounded-2xl flex overflow-hidden" style={{ background: bright ? '#ffffff' : '#151f30', boxShadow: bright ? '0 6px 20px rgba(15,23,42,0.1)' : '0 6px 20px rgba(0,0,0,0.35)' }}>
+              <StatCell icon={Users}   value={viewLeaderboard.length}                     label={t('league.participants')} color="#1CB0F6" textPri={textPri} textMut={textMut} />
+              <StatCell icon={Trophy}  value={(top3[0]?.xp ?? 0).toLocaleString()}        label={t('league.leaderXp')}     color="#FFD700" textPri={textPri} textMut={textMut} />
+              <StatCell icon={Target}  value={iAmRanked ? `#${myRankInView + 1}` : '—'}    label={t('league.myRank')}       color="#58CC02" textPri={textPri} textMut={textMut} last />
+            </div>
+
+            {!loading && (
+              <>
+                <div className="px-3 flex flex-col gap-1.5 mb-2">
+                  <AnimatePresence mode="popLayout">
+                    {rest.map((u, i) => (
+                      <UserRow key={u.id} user={u} rank={i + 4} isMe={u.id === userId} bright={bright} />
+                    ))}
+                  </AnimatePresence>
+                </div>
+
+                {userId && !viewLeaderboard.find(u => u.id === userId) && state && activeLeague?.id === myLeague?.id && (
+                  <div className="mx-3 mt-1">
+                    <UserRow
+                      user={{ id: userId, name: user.name, xp: state.xp || 0, streak: state.streak || 0 }}
+                      rank={leaderboard.length + 1}
+                      isMe
+                      bright={bright}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className="h-3" />
+          </div>
+        </>
+      )}
+
+      <AnimatePresence>
+        {flow && (flow.step === 'role' ? (
+          <RoleDialog
+            key="role"
+            current={flow.role}
+            bright={bright}
+            onPick={onRolePicked}
+            onDismiss={dismissFlow}
+          />
+        ) : (
+          <UniversityPickerDialog
+            key="picker"
+            role={flow.role}
+            current={flow.role === enrolment.role ? enrolment.universityId : null}
+            bright={bright}
+            onPick={onUniversityPicked}
+            onDismiss={dismissFlow}
+          />
+        ))}
+      </AnimatePresence>
     </div>
   );
 }

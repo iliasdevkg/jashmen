@@ -4,12 +4,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Zap, Check, Dumbbell, GraduationCap } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
 import { useI18n, localizedText } from '../i18n.jsx';
-import { getLessonOrder, getLessonStatus, computeLiveEnergy, formatCountdown, quizCountOf } from '../utils.js';
+import { getLessonOrder, getLessonStatus, energySettings, computeLiveEnergy, formatCountdown, quizCountOf } from '../utils.js';
 import LessonPreviewSheet from '../components/LessonPreviewSheet.jsx';
+import { lessonIconFor } from '../../shared/lessonIconComponents.jsx';
 
-// Path-node glyph. An admin-uploaded per-lesson icon (contentStore.js#
-// addLesson) wins when it loads; otherwise `fallback` — a plain lucide icon
-// standing in for the custom glossy GameStar token
+// Path-node glyph, in precedence order: the icon the admin picked from the
+// built-in set (shared/lessonIcons.js — a real vector, so it inherits the
+// node's white stroke at any size), then an uploaded image, then `fallback`
+// — a plain lucide icon standing in for the custom glossy GameStar token
 // (src/components/icons/GameStar.jsx) while the node-type art direction is
 // still being decided. Swap the fallback back to <GameStar/> once that's
 // settled; nothing else about the node components below needs to change.
@@ -17,9 +19,12 @@ import LessonPreviewSheet from '../components/LessonPreviewSheet.jsx';
 // A broken/404 upload silently falls back rather than leaving a torn-image
 // box on the node — same treatment the module header gives its own iconUrl.
 // Keyed off iconUrl so swapping to a different image re-arms the fallback.
-function LessonGlyph({ size = 26, iconUrl, fallback: Fallback = Dumbbell }) {
+function LessonGlyph({ size = 26, icon, iconUrl, fallback: Fallback = Dumbbell }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => { setFailed(false); }, [iconUrl]);
+
+  const Picked = lessonIconFor(icon);
+  if (Picked) return <Picked size={size} color="white" strokeWidth={2.5} />;
 
   if (iconUrl && !failed) {
     return (
@@ -151,7 +156,7 @@ function LessonNode({ lesson, status, moduleColor, x, y, bright, partnerLogoUrl,
         >
         {isLocked
           ? <Lock size={26} color="#64748b" strokeWidth={2.5} />
-          : <LessonGlyph iconUrl={lesson.iconUrl} />}
+          : <LessonGlyph icon={lesson.icon} iconUrl={lesson.iconUrl} />}
 
         {isCompleted && (
           <span
@@ -233,7 +238,7 @@ function NextLessonNode({ lesson, moduleColor, x, y, energyEmpty, bright, partne
             style={sphereStyle(moduleColor, false)}
             aria-label={lessonTitle}
           >
-            <LessonGlyph size={32} iconUrl={lesson.iconUrl} />
+            <LessonGlyph size={32} icon={lesson.icon} iconUrl={lesson.iconUrl} />
             {/* Diagonal glass sheen. */}
             <span
               className="absolute inset-0 rounded-[18px] pointer-events-none"
@@ -307,7 +312,7 @@ function CheckpointNode({ lesson, status, moduleColor, x, y, bright, onOpenLesso
         >
           {isLocked
             ? <Lock size={20} color="#64748b" strokeWidth={2.5} />
-            : <LessonGlyph size={22} iconUrl={lesson.iconUrl} fallback={GraduationCap} />}
+            : <LessonGlyph size={22} icon={lesson.icon} iconUrl={lesson.iconUrl} fallback={GraduationCap} />}
 
           {isCompleted && (
             <span
@@ -530,8 +535,8 @@ export default function LearnPage() {
     return () => clearInterval(timer);
   }, []);
 
-  const dailyFreeLessons = content?.limits?.dailyFreeLessons ?? 3;
-  const { remaining: energy, resetMs } = computeLiveEnergy(state, dailyFreeLessons);
+  const { dailyFreeLessons, energyRefillHours } = energySettings(content);
+  const { remaining: energy, resetMs } = computeLiveEnergy(state, dailyFreeLessons, energyRefillHours);
   const energyEmpty = energy === 0;
 
   if (!content) {

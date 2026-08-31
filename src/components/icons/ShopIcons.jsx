@@ -10,6 +10,7 @@
 
 import { useId } from 'react';
 import { Gift } from 'lucide-react';
+import { lessonIconFor } from '../../../shared/lessonIconComponents.jsx';
 
 function Sparkle({ x, y, s = 4, delay = 0, dur = 2.6 }) {
   const d =
@@ -90,7 +91,9 @@ export default function ShopItemIcon({ item, size = 44 }) {
   const mapped = SHOP_ICONS[item?.effect];
   const color = mapped?.color || '#64748B';
   const Glyph = mapped?.Glyph;
-  const iconUrl = item?.iconUrl;
+  // Built-in set first, then an upload, then the effect's hand-drawn glyph.
+  const PickedIcon = lessonIconFor(item?.icon);
+  const iconUrl = PickedIcon ? null : item?.iconUrl;
 
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" style={{ overflow: 'visible', display: 'block' }}>
@@ -127,7 +130,9 @@ export default function ShopItemIcon({ item, size = 44 }) {
       <path d={SQUIRCLE} fill={`url(#${glossId})`} />
       <path d="M22,34 L34,22 L46,34 L34,46 Z" fill="white" opacity="0.13" transform="rotate(6 50 50)" />
 
-      {iconUrl
+      {PickedIcon
+        ? <g transform="translate(30 30)"><PickedIcon size={40} color="white" strokeWidth={2.3} /></g>
+        : iconUrl
         ? <image href={iconUrl} x="20" y="20" width="60" height="60" clipPath={`url(#${clipId})`} preserveAspectRatio="xMidYMid slice" />
         : Glyph ? <Glyph /> : (
           <g transform="translate(34 34)">

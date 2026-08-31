@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Volume2, Sparkles, LogOut, Shield, Sun, Pencil, Check, X, Globe, Bell } from 'lucide-react';
+import { AnimatePresence } from 'framer-motion';
+import { Volume2, Sparkles, LogOut, Shield, Sun, Pencil, Check, X, Globe, Bell, Lock, ChevronRight } from 'lucide-react';
 import { useAuth, useBrightMode } from '../store.jsx';
 import { useI18n, LANGUAGES } from '../i18n.jsx';
 import { subscribeToPush, unsubscribeFromPush, isPushSupported } from '../push.js';
 import * as api from '../api.js';
 import Avatar from '../components/Avatar.jsx';
+import PasswordDialog from '../components/PasswordDialog.jsx';
 
 function Toggle({ checked, onChange }) {
   return (
@@ -98,6 +100,8 @@ export default function SettingsPage() {
     }
   };
 
+  const [passwordOpen, setPasswordOpen] = useState(false);
+
   const startEditName = () => {
     setNameDraft(user?.name || '');
     setEditingName(true);
@@ -160,6 +164,29 @@ export default function SettingsPage() {
             )}
             <p className="text-xs truncate" style={{ color: textMuted }}>{user.email}</p>
           </div>
+        </div>
+      )}
+
+      {/* Аккаунт — сырсөз ушул жерден өзгөрөт. A Google-only account has no
+          password yet, so the row offers to create one instead. */}
+      {user && (
+        <div className="rounded-2xl overflow-hidden mb-4" style={{ background: cardBg, border: `1.5px solid ${cardBorder}` }}>
+          <button
+            type="button"
+            onClick={() => setPasswordOpen(true)}
+            className="w-full text-left"
+          >
+            <Row
+              icon={Lock}
+              label={user.hasPassword === false ? t('settings.setPassword') : t('settings.changePassword')}
+              desc={user.hasPassword === false ? t('settings.setPasswordDesc') : t('settings.changePasswordDesc')}
+              iconColor="#1CB0F6"
+              iconBg={bright ? '#e0f2fe' : iconBg}
+              textPrimary={textPrimary}
+              textMuted={textMuted}
+              right={<ChevronRight size={16} color={textMuted} />}
+            />
+          </button>
         </div>
       )}
 
@@ -279,6 +306,12 @@ export default function SettingsPage() {
       </motion.button>
 
       <div className="h-4" />
+
+      <AnimatePresence>
+        {passwordOpen && (
+          <PasswordDialog bright={bright} onDismiss={() => setPasswordOpen(false)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

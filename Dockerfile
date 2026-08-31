@@ -23,6 +23,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY admin-api ./admin-api
+# admin-api/contentStore.js imports shared/lessonIcons.js — without this the
+# runtime stage starts with a missing-module crash on the very first boot.
+COPY shared ./shared
 COPY --from=builder /app/dist ./dist
 
 # admin-api/data/{db.json,uploads/} persists app state on a mounted volume

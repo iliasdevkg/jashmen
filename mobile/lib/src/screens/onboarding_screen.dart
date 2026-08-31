@@ -1,6 +1,10 @@
 /// Task 9 — first-launch intro carousel, shown before AuthScreen exactly
-/// once per install (see providers.dart#onboardedProvider). Port of
-/// src/pages/OnboardingPage.jsx — same four slides, same copy.
+/// once per install (see providers.dart#onboardedProvider).
+///
+/// Redesigned to the brand-blue mockups in jashmen01/: three illustrated
+/// slides (not four generic icon tiles), a language switcher built into the
+/// carousel itself, and the same white-pill CTA the sign-in screen uses —
+/// one continuous flow instead of a handoff between two looks.
 library;
 
 import 'package:flutter/material.dart';
@@ -10,19 +14,22 @@ import '../core/haptics.dart';
 import '../core/i18n.dart';
 import '../core/theme.dart';
 import '../state/providers.dart';
+import '../widgets/brand_pill_button.dart';
 
 class _Slide {
-  const _Slide(this.icon, this.color, this.key);
-  final IconData icon;
-  final Color color;
-  final String key;
+  const _Slide(this.asset, this.aspectRatio, this.titleKey);
+  final String asset;
+  final double aspectRatio;
+  final String titleKey;
 }
 
+// Aspect ratios come from the trimmed source art itself (see
+// mobile/assets/images/onboarding_*.webp) so each illustration lays out at
+// its native proportions rather than stretching.
 const _slides = [
-  _Slide(Icons.savings_rounded, AppColors.success, 'onboarding.slide1'),
-  _Slide(Icons.menu_book_rounded, AppColors.primary, 'onboarding.slide2'),
-  _Slide(Icons.emoji_events_rounded, AppColors.gold, 'onboarding.slide3'),
-  _Slide(Icons.card_giftcard_rounded, AppColors.purple, 'onboarding.slide4'),
+  _Slide('assets/images/onboarding_compete.webp', 1488 / 981, 'onboarding.slide1.title'),
+  _Slide('assets/images/onboarding_confidence.webp', 1506 / 1024, 'onboarding.slide2.title'),
+  _Slide('assets/images/onboarding_relax.webp', 1512 / 968, 'onboarding.slide3.title'),
 ];
 
 class OnboardingScreen extends ConsumerStatefulWidget {
@@ -65,35 +72,44 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final locale = ref.watch(localeProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: AppColors.authBg,
       body: SafeArea(
         child: Column(
           children: [
-            // Language picker (left) + skip (right) — matching the web
-            // onboarding page, so a first-launch visitor can read the intro
-            // in their own language before ever touching a settings screen.
+            // Language picker (left) + skip (right) — first-launch visitor
+            // reads the intro in their own language before ever touching a
+            // settings screen.
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 12, 0),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
               child: Row(
                 children: [
                   for (final l in AppLocale.values) ...[
                     _LanguageChip(
                       locale: l,
                       active: l == locale,
-                      onTap: () => ref.read(localeProvider.notifier).set(l),
+                      onTap: () {
+                        Haptics.tap();
+                        ref.read(localeProvider.notifier).set(l);
+                      },
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 10),
                   ],
                   const Spacer(),
-                  if (!_isLast)
-                    TextButton(
-                      onPressed: _done,
-                      child: Text(
-                        s.t('onboarding.skip'),
-                        style: const TextStyle(
-                            color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+                  AnimatedOpacity(
+                    opacity: _isLast ? 0 : 1,
+                    duration: const Duration(milliseconds: 200),
+                    child: IgnorePointer(
+                      ignoring: _isLast,
+                      child: TextButton(
+                        onPressed: _done,
+                        style: TextButton.styleFrom(foregroundColor: AppColors.authMuted),
+                        child: Text(
+                          s.t('onboarding.skip'),
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
                       ),
                     ),
+                  ),
                 ],
               ),
             ),
@@ -125,12 +141,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                           },
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 250),
+                            curve: Curves.easeOut,
                             width: i == _index ? 22 : 6,
                             height: 6,
                             decoration: BoxDecoration(
-                              color: i == _index
-                                  ? AppColors.primary
-                                  : const Color(0xFF334155),
+                              color: i == _index ? Colors.white : Colors.white.withValues(alpha: 0.3),
                               borderRadius: BorderRadius.circular(3),
                             ),
                           ),
@@ -139,16 +154,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     ],
                   ),
                   const SizedBox(height: Gap.xl),
-                  FilledButton(
+                  BrandPillButton(
+                    label: _isLast ? s.t('onboarding.getStarted') : s.t('onboarding.next'),
                     onPressed: _next,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 52),
-                      backgroundColor: AppColors.success,
-                    ),
-                    child: Text(
-                      _isLast ? s.t('onboarding.getStarted') : s.t('onboarding.next'),
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
                   ),
                 ],
               ),
@@ -166,25 +174,30 @@ class _LanguageChip extends StatelessWidget {
   final bool active;
   final VoidCallback onTap;
 
-  static const _flags = {AppLocale.ky: '🇰🇬', AppLocale.ru: '🇷🇺', AppLocale.en: '🇺🇸'};
+  static const _codes = {AppLocale.ky: 'KG', AppLocale.ru: 'RU', AppLocale.en: 'EN'};
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        width: 36,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+        width: 52,
         height: 36,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: active ? AppColors.primary.withValues(alpha: 0.15) : const Color(0xFF1E293B),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: active ? AppColors.primary : Colors.transparent,
-            width: 1.5,
+          color: active ? Colors.white : AppColors.authTrack,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          _codes[locale] ?? '',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+            color: active ? AppColors.authBg : AppColors.authMuted,
           ),
         ),
-        child: Text(_flags[locale] ?? '', style: const TextStyle(fontSize: 16)),
       ),
     );
   }
@@ -198,49 +211,34 @@ class _SlideView extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = StringsScope.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
+      padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           TweenAnimationBuilder<double>(
-            key: ValueKey(slide.key),
+            key: ValueKey(slide.titleKey),
             tween: Tween(begin: 0, end: 1),
             duration: const Duration(milliseconds: 420),
-            curve: Curves.elasticOut,
-            builder: (_, v, child) => Transform.scale(scale: v, child: child),
-            child: Container(
-              width: 128,
-              height: 128,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: slide.color.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(32),
-                border: Border.all(color: slide.color.withValues(alpha: 0.25), width: 1.5),
-                boxShadow: [
-                  BoxShadow(color: slide.color.withValues(alpha: 0.5), blurRadius: 60, spreadRadius: -8),
-                ],
-              ),
-              child: Icon(slide.icon, size: 56, color: slide.color),
+            curve: Curves.easeOutCubic,
+            builder: (_, v, child) => Opacity(
+              opacity: v,
+              child: Transform.scale(scale: 0.92 + 0.08 * v, child: child),
+            ),
+            child: AspectRatio(
+              aspectRatio: slide.aspectRatio,
+              child: Image.asset(slide.asset, fit: BoxFit.contain),
             ),
           ),
-          const SizedBox(height: Gap.xl),
+          const SizedBox(height: Gap.xxl),
           Text(
-            s.t('${slide.key}.title'),
+            s.t(slide.titleKey),
             textAlign: TextAlign.center,
             style: const TextStyle(
-              fontSize: 22,
+              fontSize: 26,
+              height: 1.25,
               fontWeight: FontWeight.w800,
               color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: Gap.md),
-          Text(
-            s.t('${slide.key}.desc'),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 14,
-              height: 1.5,
-              color: Color(0xFF94A3B8),
+              letterSpacing: -0.3,
             ),
           ),
         ],

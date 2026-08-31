@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { Plus, Trash2, ShoppingBag, Zap, Shield, TrendingUp, Crown } from 'lucide-react';
 import * as api from '../api.js';
 import { Card, Field, TextInput, Select, Button, EmptyState, ErrorNote, TrilingualInput, ImageUpload, previewText } from '../components/ui.jsx';
+import IconPicker from '../components/IconPicker.jsx';
 
 const EFFECTS = [
   { value: 'energy_refill', label: 'Энергия толтуруу (кайра сатып алса болот)', icon: Zap },
@@ -31,6 +32,8 @@ function ItemForm({ token, item, onDone, onCancel }) {
   const [price, setPrice] = useState(item?.price ?? 50);
   const [effect, setEffect] = useState(item?.effect || EFFECTS[0].value);
   const [iconUrl, setIconUrl] = useState(item?.iconUrl || '');
+  // Built-in glyph slug — the alternative to an uploaded icon, never both.
+  const [icon, setIcon] = useState(item?.icon || null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -39,7 +42,7 @@ function ItemForm({ token, item, onDone, onCancel }) {
     setSaving(true);
     setError('');
     try {
-      const body = { title, desc, price, effect, iconUrl: iconUrl || null };
+      const body = { title, desc, price, effect, iconUrl: iconUrl || null, icon };
       if (item) await api.updateShopItem(token, item.id, body);
       else await api.createShopItem(token, body);
       onDone();
@@ -54,9 +57,15 @@ function ItemForm({ token, item, onDone, onCancel }) {
     <Card className="flex flex-col gap-3">
       <TrilingualInput label="Аталышы" value={title} onChange={setTitle} kyRequired />
       <TrilingualInput label="Сүрөттөмө" value={desc} onChange={setDesc} multiline />
-      <Field label="Иконка (милдеттүү эмес)">
-        <ImageUpload token={token} url={iconUrl} onChange={setIconUrl} variant="inline" emptyIcon={ShoppingBag} />
-      </Field>
+      <IconPicker
+        label="Иконка (милдеттүү эмес)"
+        token={token}
+        icon={icon}
+        iconUrl={iconUrl}
+        onChange={next => { setIcon(next.icon); setIconUrl(next.iconUrl); }}
+        uploadVariant="inline"
+        emptyIcon={ShoppingBag}
+      />
       <div className="grid grid-cols-2 gap-3">
         <Field label="Эффект">
           <Select value={effect} onChange={e => setEffect(e.target.value)}>

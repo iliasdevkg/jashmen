@@ -32,6 +32,19 @@ class AppColors {
   static const textLight = Color(0xFF0F172A);
   static const textMutedLight = Color(0xFF64748B);
   static const textFaintLight = Color(0xFF94A3B8);
+
+  // Brand-blue surface — splash → onboarding → sign-in. Not theme-aware
+  // (same as the old auth screen's own palette): those three screens render
+  // before any bright/dark preference exists, and now share one continuous
+  // look instead of each hardcoding its own hex. Sampled directly from the
+  // brand mark (assets/images/logo.png's own background), so the mark
+  // blends into the screen with no visible edge.
+  static const authBg = Color(0xFF0145F1);
+  static const authField = Color(0xFF123583);
+  static const authTrack = Color(0xFF001C64);
+  static const authChipActive = Color(0xFFD0DEFF);
+  static const authGoogleBtn = Color(0xFF011644);
+  static const authMuted = Color(0xFFB6C2E8);
 }
 
 /// Apple's San Francisco system family. `CupertinoSystemText` is Flutter's

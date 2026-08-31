@@ -11,42 +11,77 @@ class EnergyState {
   const EnergyState({required this.remaining, this.resetMs});
   final int remaining;
 
-  /// Milliseconds until the next UTC midnight, or null while energy remains.
+  /// Milliseconds until the current refill period ends, or null while
+  /// energy remains.
   final int? resetMs;
 }
 
+const int kDefaultRefillHours = 24;
+
+/// Clamps the admin-editable refill period to the same guard rails
+/// admin-api/energy.js uses, so a junk value can never divide by zero here.
+int normalizeRefillHours(int hours) {
+  if (hours <= 0) return kDefaultRefillHours;
+  return hours.clamp(1, 168);
+}
+
 /// Mirrors utils.js#computeLiveEnergy, which itself mirrors
-/// admin-api/energy.js. Users get `dailyFreeLessons` completions per UTC
-/// calendar day; the counter resets at UTC midnight, NOT device midnight —
-/// using local time here would let a user in +06:00 reset six hours early
-/// and then get rejected by the server.
-EnergyState computeLiveEnergy(UserState? state, {int dailyFreeLessons = 3}) {
+/// admin-api/energy.js. Users get `dailyFreeLessons` completions per refill
+/// period, and the period length is admin-editable
+/// (content.limits.energyRefillHours). Periods are absolute slices of epoch
+/// time — floor(nowMs / periodMs) — so at the default 24 h a boundary is
+/// exactly UTC midnight, NOT device midnight: using local time here would
+/// let a user in +06:00 reset six hours early and then get 403'd.
+EnergyState computeLiveEnergy(
+  UserState? state, {
+  int dailyFreeLessons = 3,
+  int energyRefillHours = kDefaultRefillHours,
+}) {
   if (state == null) return EnergyState(remaining: dailyFreeLessons);
 
-  final today = DateTime.now().toUtc().toIso8601String().substring(0, 10);
-  final sameDay = state.energyDate == today;
-  final lessonsToday = sameDay ? state.lessonsToday : 0;
-  final bonusToday = sameDay ? state.bonusEnergyToday : 0;
+  final periodMs = normalizeRefillHours(energyRefillHours) * 3600 * 1000;
+  final nowMs = DateTime.now().toUtc().millisecondsSinceEpoch;
+  final period = nowMs ~/ periodMs;
 
-  final cap = dailyFreeLessons + bonusToday;
-  final remaining = (cap - lessonsToday).clamp(0, cap);
+  // States written before the interval model carry only energyDate; for
+  // those "still today" is the best reading of "still in this period" —
+  // and at 24 h it is the same thing.
+  final today = DateTime.now().toUtc().toIso8601String().substring(0, 10);
+  final samePeriod = state.energyPeriod != null
+      ? state.energyPeriod == period
+      : state.energyDate == today;
+
+  final lessonsToday = samePeriod ? state.lessonsToday : 0;
+  final bonusToday = samePeriod ? state.bonusEnergyToday : 0;
+  // Energy gifted by university-league viewers stacks on the allowance;
+  // energy this user gifted away is spent from it.
+  final supportToday = samePeriod ? state.supportEnergyToday : 0;
+  final givenToday = samePeriod ? state.energyGivenToday : 0;
+
+  final cap = dailyFreeLessons + bonusToday + supportToday;
+  final remaining = (cap - lessonsToday - givenToday).clamp(0, cap);
 
   if (remaining > 0) return EnergyState(remaining: remaining);
 
-  final now = DateTime.now().toUtc();
-  final nextMidnight = DateTime.utc(now.year, now.month, now.day + 1);
   return EnergyState(
     remaining: 0,
-    resetMs: nextMidnight.difference(now).inMilliseconds,
+    resetMs: (period + 1) * periodMs - nowMs,
   );
 }
 
-/// utils.js#formatCountdown — "m:ss".
+/// utils.js#formatCountdown — "m:ss", or "h:mm:ss" once the countdown
+/// crosses an hour. Every call site feeds this the time until the refill
+/// period ends (up to ~168h), so a bare "m:ss" used to print nonsense like
+/// "548:47" instead of a readable "9:08:47".
 String formatCountdown(int? ms) {
   if (ms == null || ms <= 0) return '0:00';
-  final m = ms ~/ 60000;
-  final s = (ms % 60000) ~/ 1000;
-  return '$m:${s.toString().padLeft(2, '0')}';
+  final totalSeconds = ms ~/ 1000;
+  final h = totalSeconds ~/ 3600;
+  final m = (totalSeconds % 3600) ~/ 60;
+  final s = totalSeconds % 60;
+  return h > 0
+      ? '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}'
+      : '$m:${s.toString().padLeft(2, '0')}';
 }
 
 /// utils.js#getCurrentLeague — highest league whose minXp the user has met.
@@ -150,7 +185,9 @@ List<String> checkNewAchievements({
 
   final earned = state.achievements.toSet();
   final ctx = AchievementContext(
-    xp: state.xp,
+    // Lifetime total, mirroring the server's rule engine — an xp_total
+    // achievement must not stall because the learner joined a campus board.
+    xp: state.lifetimeXp,
     streak: state.streak,
     completedCount: state.completedLessons.length,
     totalLessons: totalLessons,

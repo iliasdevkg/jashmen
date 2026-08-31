@@ -15,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/api_client.dart';
 import '../core/haptics.dart';
 import '../core/i18n.dart';
+import '../core/lesson_icons.dart';
 import '../core/theme.dart';
 import '../models/content.dart';
 import '../state/providers.dart';
@@ -375,7 +376,9 @@ class _ShopCard extends ConsumerWidget {
               borderRadius: BorderRadius.circular(16),
             ),
             clipBehavior: Clip.antiAlias,
-            child: item.iconUrl == null
+            child: lessonIconFor(item.icon) != null
+                ? Icon(lessonIconFor(item.icon), color: AppColors.primary)
+                : item.iconUrl == null
                 ? Icon(Icons.card_giftcard_rounded, color: tokens.faint)
                 : CachedNetworkImage(
                     imageUrl: item.iconUrl!,

@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { Plus, Trash2, Trophy } from 'lucide-react';
 import * as api from '../api.js';
 import { Card, Field, TextInput, Button, EmptyState, ErrorNote, TrilingualInput, ImageUpload, previewText } from '../components/ui.jsx';
+import IconPicker from '../components/IconPicker.jsx';
 
 function kyOf(v) {
   return (typeof v === 'string' ? v : v?.ky || '').trim();
@@ -18,6 +19,8 @@ function kyOf(v) {
 function LeagueForm({ token, league, onDone, onCancel }) {
   const [name, setName] = useState(league?.name || { ky: '', ru: '', en: '' });
   const [iconUrl, setIconUrl] = useState(league?.iconUrl || '');
+  // Built-in glyph slug — the alternative to an uploaded badge, never both.
+  const [icon, setIcon] = useState(league?.icon || null);
   const [color, setColor] = useState(league?.color || '#1CB0F6');
   const [minXp, setMinXp] = useState(league?.minXp ?? 0);
   const [saving, setSaving] = useState(false);
@@ -28,7 +31,7 @@ function LeagueForm({ token, league, onDone, onCancel }) {
     setSaving(true);
     setError('');
     try {
-      const body = { name, iconUrl: iconUrl || null, color, minXp };
+      const body = { name, iconUrl: iconUrl || null, icon, color, minXp };
       if (league) await api.updateLeague(token, league.id, body);
       else await api.createLeague(token, body);
       onDone();
@@ -42,9 +45,14 @@ function LeagueForm({ token, league, onDone, onCancel }) {
   return (
     <Card className="flex flex-col gap-3">
       <TrilingualInput label="Лиганын аты" value={name} onChange={setName} kyRequired />
-      <Field label="Өзгөчө иконка (милдеттүү эмес — коюлбаса даяр гем-белги колдонулат)">
-        <ImageUpload token={token} url={iconUrl} onChange={setIconUrl} variant="block" emptyIcon={Trophy} />
-      </Field>
+      <IconPicker
+        label="Өзгөчө иконка (милдеттүү эмес — коюлбаса даяр гем-белги колдонулат)"
+        token={token}
+        icon={icon}
+        iconUrl={iconUrl}
+        onChange={next => { setIcon(next.icon); setIconUrl(next.iconUrl); }}
+        emptyIcon={Trophy}
+      />
       <div className="grid grid-cols-2 gap-3">
         <Field label="Керектүү XP (минимум)">
           <TextInput type="number" min={0} value={minXp} onChange={e => setMinXp(e.target.value)} />

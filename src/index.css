@@ -26,6 +26,14 @@ body {
     max-width: 480px;
     margin: 0 auto;
   }
+
+  /* ...except the landing page, which is a marketing site, not the app.
+     Capping it at 480px would leave a tablet showing a phone-width column
+     floating in the middle of the screen. LandingPage adds/removes this
+     class on mount so nothing else on the site is affected. */
+  #root.landing {
+    max-width: none;
+  }
 }
 
 input, button, select {

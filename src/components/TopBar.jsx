@@ -1,15 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Flame, Zap, Crown, Coins } from 'lucide-react';
+import { Flame, Zap, Coins } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
-import { useI18n } from '../i18n.jsx';
-import { computeLiveEnergy, formatCountdown } from '../utils.js';
+import { energySettings, computeLiveEnergy, formatCountdown } from '../utils.js';
 
 export default function TopBar() {
   const { state } = useAuth();
   const content = useContent();
   const { bright } = useBrightMode();
-  const { t } = useI18n();
 
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -17,8 +14,8 @@ export default function TopBar() {
     return () => clearInterval(t);
   }, []);
 
-  const dailyFreeLessons = content?.limits?.dailyFreeLessons ?? 3;
-  const { remaining: energy, resetMs } = computeLiveEnergy(state, dailyFreeLessons);
+  const { dailyFreeLessons, energyRefillHours } = energySettings(content);
+  const { remaining: energy, resetMs } = computeLiveEnergy(state, dailyFreeLessons, energyRefillHours);
   const streak = state?.streak || 0;
   const coins  = state?.coins  || 0;
 
@@ -31,48 +28,36 @@ export default function TopBar() {
       className="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] z-50 px-4 h-14 flex items-center justify-between"
       style={{ background: headerBg, backdropFilter: 'blur(14px)', borderBottom: headerBorder }}
     >
-      <div className="flex items-center gap-2">
-        <img src="/logo.png" alt="" className="w-8 h-8 rounded-full object-cover" />
-        <img
-          src={bright ? '/jashmen_wordmark_blue.png' : '/jashmen_text_white.png'}
-          alt="JashMen"
-          className="h-4 w-auto object-contain"
-        />
-      </div>
+      {/* Mark only — the "Jashmen" wordmark and the achievements medal used
+          to sit here, but four-digit coin/streak counts pushed the three
+          stat pills off the edge of a narrow phone. Achievements are still
+          one tap away on the profile. */}
+      <img src="/logo.png" alt="JashMen" className="w-8 h-8 rounded-full object-cover shrink-0" />
 
-      <div className="flex items-center gap-2">
-        <Link
-          to="/profile#achievements"
-          aria-label={t('nav.achievements')}
-          className="w-8 h-8 flex items-center justify-center rounded-full shrink-0"
-          style={{ background: 'rgba(255,215,0,0.15)', border: '1px solid rgba(255,215,0,0.35)' }}
-        >
-          <Crown size={15} color="#FFD700" fill="#FFD700" />
-        </Link>
-
+      <div className="flex items-center gap-2 min-w-0">
         <div
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0"
           style={{ background: 'rgba(251,146,60,0.15)', border: '1px solid rgba(251,146,60,0.3)' }}
         >
           <Flame size={15} color="#fb923c" fill="#fb923c" />
-          <span className="font-bold text-sm leading-none" style={{ color: badgeText }}>{streak}</span>
+          <span className="font-bold text-sm leading-none tabular-nums" style={{ color: badgeText }}>{streak}</span>
         </div>
 
         <div
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0"
           style={{ background: 'rgba(255,215,0,0.15)', border: '1px solid rgba(255,215,0,0.3)' }}
         >
           <Coins size={15} color="#FFD700" fill="#FFD700" />
-          <span className="font-bold text-sm leading-none" style={{ color: badgeText }}>{coins}</span>
+          <span className="font-bold text-sm leading-none tabular-nums" style={{ color: badgeText }}>{coins}</span>
         </div>
 
         <div
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0"
           style={{ background: 'rgba(28,176,246,0.15)', border: '1px solid rgba(28,176,246,0.3)' }}
         >
           <Zap size={15} color="#1CB0F6" fill="#1CB0F6" />
           <div className="flex flex-col leading-none">
-            <span className="font-bold text-sm" style={{ color: badgeText }}>{energy}</span>
+            <span className="font-bold text-sm tabular-nums" style={{ color: badgeText }}>{energy}</span>
             {resetMs != null && (
               <span className="text-[8px]" style={{ color: '#1CB0F6' }}>{formatCountdown(resetMs)}</span>
             )}

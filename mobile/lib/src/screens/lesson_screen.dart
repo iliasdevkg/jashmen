@@ -13,12 +13,15 @@ import '../api/api_client.dart';
 import '../core/haptics.dart';
 import '../core/i18n.dart';
 import '../core/logic.dart';
+import '../core/sounds.dart';
 import '../core/theme.dart';
 import '../models/content.dart';
 import '../models/user_state.dart';
 import '../state/providers.dart';
 import '../widgets/confetti.dart';
 import '../widgets/count_up.dart';
+import '../widgets/reward_burst.dart';
+import '../widgets/ticking_number.dart';
 import '../widgets/states.dart';
 
 class LessonScreen extends ConsumerStatefulWidget {
@@ -62,10 +65,50 @@ class _LessonScreenState extends ConsumerState<LessonScreen> {
   /// right as the result screen appears, for a genuine (non-review) win.
   final _confetti = ConfettiController();
 
+  // ── Reward burst ─────────────────────────────────────────────────────
+  // The HUD counters are optimistic: XP and coins are only actually awarded
+  // when the lesson completes, so these mirror the server's own formula
+  // (contentStore.js#limits) closely enough for a live readout and are then
+  // replaced by the real numbers on the result screen.
+  final _burst = RewardBurstController();
+  final _coinChipKey = GlobalKey();
+  final _xpChipKey = GlobalKey();
+  final _cardAreaKey = GlobalKey();
+  int _sessionXp = 0;
+  int _sessionCoins = 0;
+
   @override
   void dispose() {
     _confetti.dispose();
+    _burst.dispose();
     super.dispose();
+  }
+
+  /// Centre of a laid-out widget in global coordinates, or null if it isn't
+  /// on screen — a burst with no target is simply skipped.
+  Offset? _centreOf(GlobalKey key) {
+    final box = key.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return null;
+    return box.localToGlobal(box.size.center(Offset.zero));
+  }
+
+  /// Coins fly to the coin chip, XP badges to the XP chip, and the counters
+  /// tick up. A review earns nothing, so it gets the chime but no burst —
+  /// flying coins that credit nobody would be a lie.
+  void _fireRewardBurst(ContentLimits? limits) {
+    final coinGoal = _mistakes == 0
+        ? (limits?.coinsPerfectLesson ?? 10)
+        : (limits?.coinsNormalLesson ?? 5);
+    setState(() {
+      _sessionXp += limits?.xpPerQuestion ?? 10;
+      _sessionCoins = (_sessionCoins + 1).clamp(0, coinGoal);
+    });
+
+    final origin = _centreOf(_cardAreaKey);
+    final coin = _centreOf(_coinChipKey);
+    final xp = _centreOf(_xpChipKey);
+    if (origin == null || coin == null || xp == null) return;
+    _burst.play(origin: origin, coinTarget: coin, xpTarget: xp);
   }
 
   @override
@@ -121,6 +164,25 @@ class _LessonScreenState extends ConsumerState<LessonScreen> {
     final s = StringsScope.of(context);
     final locale = ref.watch(localeProvider);
     final tokens = context.tokens;
+    final st = ref.watch(userStateProvider);
+    final limits = ref.watch(contentProvider).valueOrNull?.limits;
+
+    // A finished lesson can only be replayed as a review, which earns
+    // nothing — the server enforces the same rule (routes.js#/u/me/lesson).
+    final alreadyDone = st?.completedSet.contains(lesson.id) ?? false;
+
+    // Optimistic during the lesson, replaced by the server's numbers the
+    // moment the result screen mounts.
+    final liveCoins = (st?.coins ?? 0) + _sessionCoins;
+    // The lifetime total, not either league's score: this chip has to
+    // climb whether the points land on the general board or a campus one
+    // (admin-api/routes.js#awardXp).
+    final liveXp = (st?.lifetimeXp ?? 0) + _sessionXp;
+    final liveEnergy = computeLiveEnergy(
+      st,
+      dailyFreeLessons: limits?.dailyFreeLessons ?? 3,
+      energyRefillHours: limits?.energyRefillHours ?? kDefaultRefillHours,
+    ).remaining;
 
     final deck = _deck ??= List.of(lesson.cards);
     final card = deck[_index];
@@ -167,10 +229,23 @@ class _LessonScreenState extends ConsumerState<LessonScreen> {
           ],
         ),
         body: SafeArea(
-          child: Column(
+          child: RewardBurstOverlay(
+            controller: _burst,
+            child: Column(
             children: [
+              // Live counters — the targets the reward burst flies into,
+              // which is why they live here rather than only in the app
+              // header (which the lesson player replaces).
+              _LessonHud(
+                coins: liveCoins,
+                energy: liveEnergy,
+                xp: liveXp,
+                coinKey: _coinChipKey,
+                xpKey: _xpChipKey,
+              ),
               Expanded(
                 child: SingleChildScrollView(
+                  key: _cardAreaKey,
                   padding: const EdgeInsets.all(Gap.xl),
                   child: switch (card.type) {
                     CardType.quiz => _QuizCard(
@@ -201,6 +276,11 @@ class _LessonScreenState extends ConsumerState<LessonScreen> {
                 onCheck: () {
                   final isCorrect = _selected == card.answerIndex;
                   isCorrect ? Haptics.success() : Haptics.error();
+                  final soundOn =
+                      ref.read(userStateProvider)?.settings.sound ?? true;
+                  if (soundOn) {
+                    isCorrect ? Sounds.correct() : Sounds.wrong();
+                  }
                   setState(() {
                     _checked = true;
                     if (!isCorrect) {
@@ -208,6 +288,18 @@ class _LessonScreenState extends ConsumerState<LessonScreen> {
                       _missed.add(lesson.cards.indexOf(card));
                     }
                   });
+                  if (isCorrect && !alreadyDone) {
+                    if (soundOn) {
+                      // Layered over the "correct" chime rather than
+                      // replacing it — the short delay is what lets both
+                      // be heard.
+                      Future<void>.delayed(
+                        const Duration(milliseconds: 190),
+                        Sounds.coinXp,
+                      );
+                    }
+                    _fireRewardBurst(limits);
+                  }
                 },
                 onNext: () {
                   // Re-queue a missed question to the end of the deck, then
@@ -227,6 +319,7 @@ class _LessonScreenState extends ConsumerState<LessonScreen> {
                 },
               ),
             ],
+            ),
           ),
         ),
       ),
@@ -310,6 +403,9 @@ class _LessonScreenState extends ConsumerState<LessonScreen> {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
             Haptics.celebrate();
+            if (ref.read(userStateProvider)?.settings.sound ?? true) {
+              Sounds.lessonComplete();
+            }
             _confetti.play();
           });
         }
@@ -1001,3 +1097,81 @@ class _RewardTile extends StatelessWidget {
     );
   }
 }
+
+/// The lesson's own coin / energy / XP readout. The chips carry GlobalKeys
+/// so the reward burst can fly into their real positions, and each value
+/// pops when it changes so a landing coin is visibly what moved it.
+class _LessonHud extends StatelessWidget {
+  const _LessonHud({
+    required this.coins,
+    required this.energy,
+    required this.xp,
+    required this.coinKey,
+    required this.xpKey,
+  });
+
+  final int coins;
+  final int energy;
+  final int xp;
+  final GlobalKey coinKey;
+  final GlobalKey xpKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.tokens;
+
+    Widget number(int value) => TweenAnimationBuilder<double>(
+          key: ValueKey(value),
+          tween: Tween(begin: 1.22, end: 1),
+          duration: const Duration(milliseconds: 340),
+          curve: Curves.easeOut,
+          builder: (_, scale, child) =>
+              Transform.scale(scale: scale, child: child),
+          child: Text(
+            formatGrouped(value),
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+              height: 1,
+              color: tokens.text,
+            ),
+          ),
+        );
+
+    // Coins and XP are rewards: they wait for the burst to land, then climb a
+    // unit at a time. Energy only ever goes down, so it snaps (TickingNumber
+    // ignores a decrease) — hence no wrapper on that one.
+    Widget chip(Key? key, Widget icon, int value,
+            {bool tick = false, int tickStepMs = 95}) =>
+        Row(
+          key: key,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            icon,
+            const SizedBox(width: 6),
+            if (tick)
+              TickingNumber(
+                value: value,
+                step: Duration(milliseconds: tickStepMs),
+                builder: (_, shown) => number(shown),
+              )
+            else
+              number(value),
+          ],
+        );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Gap.xl, Gap.sm, Gap.xl, 0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          chip(coinKey, const CoinGlyph(size: 21), coins, tick: true),
+          chip(null, const Icon(Icons.bolt_rounded, size: 19, color: Color(0xFF38BDF8)), energy),
+          chip(xpKey, const XpGlyph(width: 23, height: 19), xp,
+              tick: true, tickStepMs: 52),
+        ],
+      ),
+    );
+  }
+}
+

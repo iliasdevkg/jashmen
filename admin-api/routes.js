@@ -17,9 +17,13 @@ import { authLimiter, signupLimiter, uploadLimiter } from './rateLimit.js';
 import * as db from './db.js';
 import {
   getContent, findLesson, findShopItem, findPrize, findPartner,
-  checkNewAchievements, totalLessons, getLimits,
+  checkNewAchievements, totalLessons, getLimits, getUniversities,
 } from './contentStore.js';
-import { computeLiveEnergy, spendEnergy, grantBonusEnergy } from './energy.js';
+import {
+  computeLiveEnergy, spendEnergy, grantBonusEnergy,
+  canGiveSupportEnergy, spendSupportEnergy, receiveSupportEnergy,
+  currentPeriod, periodEndsAt, normalizeRefillHours,
+} from './energy.js';
 import { logEvent } from './events.js';
 import { getPublicKey } from './push.js';
 import { upload, saveUploadedFile } from './uploads.js';
@@ -31,25 +35,78 @@ function todayUTC() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Every energy call site reads the admin-editable refill period through
+// this one helper so a stale hardcoded 24 can never creep back in.
+function refillHours() {
+  return normalizeRefillHours(getLimits().energyRefillHours);
+}
+
+const UNI_ID_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+const UNI_ROLES = ['student', 'viewer'];
+
 function daysBetween(isoA, isoB) {
   const a = Date.UTC(...isoA.split('-').map(Number));
   const b = Date.UTC(...isoB.split('-').map(Number));
   return Math.round((b - a) / 86_400_000);
 }
 
+// The two leagues are two separate scoreboards, and XP never crosses
+// between them: whichever league you are competing in right now is the one
+// that grows. Enrolled students compete on their campus board, so their XP
+// goes to `uniXp`; everybody else — unenrolled learners and viewers, who
+// are counted but never ranked on a campus board — earns into the general
+// league's `xp`. `lifetimeXp` is the untouchable running total behind both.
+//
+// Every place that hands out XP goes through here. Adding a new reward and
+// writing `state.xp += n` by hand is the one way this invariant breaks.
+function isUniCompetitor(state) {
+  return !!state?.uniId && state.uniRole === 'student';
+}
+
+function awardXp(state, amount) {
+  const gained = Math.max(0, Math.round(amount || 0));
+  if (!gained) return 0;
+  if (isUniCompetitor(state)) state.uniXp = (state.uniXp || 0) + gained;
+  else state.xp = (state.xp || 0) + gained;
+  state.lifetimeXp = (state.lifetimeXp || 0) + gained;
+  return gained;
+}
+
 function defaultState() {
   return {
+    // Three XP counters, deliberately: `xp` is the GENERAL league's score,
+    // `uniXp` the current university league's, and only one of them grows
+    // at a time (see awardXp). `lifetimeXp` is neither league's — it is the
+    // never-reset total, the only honest input for anything that must not
+    // fall when a counter resets (achievements' xp_total, /public/stats).
     xp: 0,
+    uniXp: 0,
+    lifetimeXp: 0,
     coins: 50, // starter balance — "Jashmen Coins"
     streak: 0,
     lessonsToday: 0,
     energyDate: null,
+    energyPeriod: null,
     bonusEnergyToday: 0,
+    // University-league support energy: what this user gave away and what
+    // viewers handed them, both reset with the refill period (energy.js).
+    energyGivenToday: 0,
+    supportEnergyToday: 0,
+    supportGivenPeriod: null,
+    // University-league enrolment — moved off localStorage so a viewer's
+    // gift and a student's supporter list can be resolved server-side.
+    uniId: null,
+    uniRole: null,
+    uniJoinedAt: null,
     completedLessons: [],
     achievements: [],
     ownedShop: [],
     settings: { sound: true, animations: true },
     lastActiveDate: null,
+    // Trailing window of days the learner showed up, newest last — the only
+    // thing the streak celebration's Su–Sa strip needs that `streak` alone
+    // can't answer ("which days of THIS week did I actually study?").
+    activeDays: [],
     hasStreakShield: false,
     hasXpBoost: false,
     vipBadge: false,
@@ -60,7 +117,10 @@ function defaultState() {
 // Never leak the password hash or internal bookkeeping fields to the client.
 function toPublicUser(user) {
   const { passwordHash, _lastReward, ...rest } = user;
-  return rest;
+  // Not the hash — only whether one exists, so Settings can offer a
+  // Google-only account "create a password" instead of asking it to prove
+  // a current one it never had (see POST /u/me/password).
+  return { ...rest, hasPassword: !!passwordHash };
 }
 
 // ── Public content & leaderboard ────────────────────────────────────────────
@@ -79,7 +139,36 @@ router.get('/public/content', (req, res) => {
 // Empty googleClientId → the client hides the Google button entirely, and
 // email/password sign-in carries on.
 router.get('/public/config', (req, res) => {
-  res.json({ googleClientId: process.env.GOOGLE_CLIENT_ID || null });
+  res.json({
+    // The WEB client id. Both the web client and the native ones send this
+    // as Google's `serverClientId`, which is what makes Google mint an
+    // id_token whose audience googleAuth.js recognises.
+    googleClientId: process.env.GOOGLE_CLIENT_ID || null,
+    // Platform client ids. iOS needs its own at sign-in time; Android
+    // resolves itself from the package name + signing certificate and so
+    // has nothing to send. Served here rather than baked into the app so
+    // an already-installed build starts showing the button the moment the
+    // server is configured — no store release to turn it on.
+    googleClientIdIos: process.env.GOOGLE_CLIENT_ID_IOS || null,
+    googleClientIdAndroid: process.env.GOOGLE_CLIENT_ID_ANDROID || null,
+  });
+});
+
+// Aggregate counters for the landing page's stats band. Deliberately the
+// only numbers that page shows: hand-written marketing stats are stale
+// within a week, and this costs one pass over the user list.
+//
+// Nothing here identifies anybody — four totals, no names, no ids, no
+// per-user rows — so it stays unauthenticated like the rest of /public/*.
+router.get('/public/stats', (req, res) => {
+  const users = db.listUsers();
+  res.json({
+    learners: users.length,
+    lessons: totalLessons(),
+    modules: getContent().modules.length,
+    universities: getUniversities().length,
+    xp: users.reduce((sum, u) => sum + (u.state?.lifetimeXp || 0), 0),
+  });
 });
 
 router.get('/public/push-key', (req, res) => {
@@ -240,6 +329,9 @@ router.post('/u/me/daily', requireAuth, async (req, res, next) => {
 
     const today = todayUTC();
     const { state } = user;
+    const previousStreak = state.streak || 0;
+    let claimed = false;
+
     if (state.lastActiveDate !== today) {
       if (!state.lastActiveDate) {
         state.streak = 1;
@@ -255,10 +347,26 @@ router.post('/u/me/daily', requireAuth, async (req, res, next) => {
       state.coins = (state.coins || 0) + 5; // small daily login bonus
       if (state.streak > 0 && state.streak % 7 === 0) state.coins += 10; // weekly milestone bonus
       state.lastActiveDate = today;
+      // Trailing 30 days is two full Su–Sa strips of headroom — enough for
+      // the celebration screen to render last week too, small enough that
+      // the field never grows without bound.
+      const days = Array.isArray(state.activeDays) ? state.activeDays : [];
+      state.activeDays = [...new Set([...days, today])].sort().slice(-30);
+      claimed = true;
       await db.saveUser(user);
     }
 
-    res.json({ user: toPublicUser(user) });
+    // `claimed` is what the client gates the streak celebration on: the
+    // daily claim fires on every session start (store.jsx), so without it
+    // the screen would pop on every reload instead of once a day.
+    res.json({
+      user: toPublicUser(user),
+      claimed,
+      streak: state.streak || 0,
+      previousStreak,
+      streakIncreased: claimed && (state.streak || 0) > previousStreak,
+      activeDays: state.activeDays || [],
+    });
   } catch (err) { next(err); }
 });
 
@@ -291,7 +399,7 @@ router.post('/u/me/lesson', requireAuth, async (req, res, next) => {
       // mistake. Re-verified server-side; the client only uses this to
       // decide whether to show the lesson's start button at all.
       const { dailyFreeLessons } = getLimits();
-      const { remaining } = computeLiveEnergy(state, dailyFreeLessons);
+      const { remaining } = computeLiveEnergy(state, dailyFreeLessons, refillHours());
       if (remaining <= 0) {
         return res.status(403).json({ error: 'Бүгүнкү акысыз сабактарың бүттү. Эртең кайра келиңиз же энергия сатып алыңыз.' });
       }
@@ -311,9 +419,9 @@ router.post('/u/me/lesson', requireAuth, async (req, res, next) => {
       reward = { xp, coins, perfect, isReview: false };
 
       state.completedLessons = [...(state.completedLessons || []), lessonId];
-      state.xp = (state.xp || 0) + xp;
+      awardXp(state, xp);
       state.coins = (state.coins || 0) + coins;
-      spendEnergy(state);
+      spendEnergy(state, refillHours());
       logEvent('lesson_complete', { lessonId, userId: user.id }).catch(() => {});
     }
 
@@ -359,8 +467,8 @@ router.post('/u/me/buy', requireAuth, async (req, res, next) => {
     }
 
     if (isEnergyRefill) {
-      if (!grantBonusEnergy(state, getLimits().maxBonusEnergyPerDay)) {
-        return res.status(400).json({ error: 'Бүгүн үчүн максимум энергия толтурулду' });
+      if (!grantBonusEnergy(state, getLimits().maxBonusEnergyPerDay, refillHours())) {
+        return res.status(400).json({ error: 'Бүгүн максимум энергия толтурулду' });
       }
       state.coins -= item.price;
     } else {
@@ -528,13 +636,253 @@ router.patch('/u/me/state', requireAuth, async (req, res, next) => {
       if (qualifying.length) {
         state.achievements = [...new Set([...(state.achievements || []), ...qualifying])];
         const bonus = qualifying.reduce((sum, id) => sum + (getContent().achievements.find(a => a.id === id)?.xp || 0), 0);
-        state.xp = (state.xp || 0) + bonus;
+        awardXp(state, bonus);
         changed = true;
       }
     }
 
     if (changed) await db.saveUser(user);
     res.json(toPublicUser(user));
+  } catch (err) { next(err); }
+});
+
+// ── Self-serve password change ──────────────────────────────────────────
+//
+// The only way a password could change before this was the admin panel
+// (adminRoutes.js PATCH /admin/users/:id). A Google-only account carries
+// passwordHash: null (googleAuth.js), so for those this route is "set a
+// password for the first time" and no current password is demanded —
+// otherwise there would be no way out of Google-only sign-in.
+
+router.post('/u/me/password', authLimiter, requireAuth, async (req, res, next) => {
+  try {
+    const user = db.findUserById(req.userId);
+    if (!user) return res.status(401).json({ error: 'Колдонуучу табылган жок' });
+
+    const { currentPassword, newPassword } = req.body || {};
+    if (typeof newPassword !== 'string' || newPassword.length < 6) {
+      return res.status(400).json({ error: 'Жаңы сырсөз жок дегенде 6 белгиден турушу керек' });
+    }
+    if (newPassword.length > 200) {
+      return res.status(400).json({ error: 'Сырсөз өтө узун' });
+    }
+
+    if (user.passwordHash) {
+      if (typeof currentPassword !== 'string' || !currentPassword) {
+        return res.status(400).json({ error: 'Азыркы сырсөздү жазыңыз' });
+      }
+      if (!(await verifyPassword(currentPassword, user.passwordHash))) {
+        return res.status(400).json({ error: 'Азыркы сырсөз туура эмес' });
+      }
+      if (await verifyPassword(newPassword, user.passwordHash)) {
+        return res.status(400).json({ error: 'Жаңы сырсөз эскисинен башка болушу керек' });
+      }
+    }
+
+    user.passwordHash = await hashPassword(newPassword);
+    await db.saveUser(user);
+
+    // A password change is exactly the moment a leaked refresh token should
+    // die, so every session is revoked — then this device is handed a fresh
+    // pair straight away so the person who just changed it stays signed in.
+    await db.revokeUserSessions(user.id);
+    const refreshToken = await issueRefreshToken(user.id);
+    setRefreshCookie(res, REFRESH_COOKIE_NAME, refreshToken, REFRESH_TOKEN_TTL_MS);
+
+    res.json({ token: signAccessToken(user.id), user: toPublicUser(user) });
+  } catch (err) { next(err); }
+});
+
+// ── University league: enrolment, board, viewer support ─────────────────
+//
+// The league's *content* (campus name, prize pool, dates, sponsor) stays
+// authored client-side in src/data/universities.js / universities.dart —
+// what moved here is everything that has to be true across two people:
+// who is enrolled as what, who is actually on the board, and the energy a
+// viewer hands a student. `universityId` is validated for shape only; the
+// catalogue of ids lives with the content that describes them.
+
+router.put('/u/me/university', requireAuth, async (req, res, next) => {
+  try {
+    const user = db.findUserById(req.userId);
+    if (!user) return res.status(401).json({ error: 'Колдонуучу табылган жок' });
+
+    const { universityId, role } = req.body || {};
+    const { state } = user;
+
+    // Both null → leave the league (the "change university" flow's escape
+    // hatch, and what a fresh account looks like).
+    if (universityId == null && role == null) {
+      state.uniId = null;
+      state.uniRole = null;
+      state.uniJoinedAt = null;
+      state.uniXp = 0;
+      await db.saveUser(user);
+      return res.json(toPublicUser(user));
+    }
+
+    const id = String(universityId || '').toLowerCase().trim();
+    if (!UNI_ID_RE.test(id)) return res.status(400).json({ error: 'Университет туура эмес' });
+    if (!UNI_ROLES.includes(role)) return res.status(400).json({ error: 'Роль туура эмес' });
+
+    // Every enrolment write starts the campus score at zero — a new
+    // university, a re-join of the same one, or a role switch. Nothing is
+    // carried in from the general league and nothing is kept from a
+    // previous campus: each entry is a clean run, by design.
+    state.uniId = id;
+    state.uniRole = role;
+    state.uniJoinedAt = Date.now();
+    state.uniXp = 0;
+    await db.saveUser(user);
+    res.json(toPublicUser(user));
+  } catch (err) { next(err); }
+});
+
+// The board a student competes on, ranked on `uniXp` — the score earned
+// since this enrolment began, not the account's general-league XP. Someone
+// arriving from the top of the general league starts here on 0 like
+// everyone else. Viewers are counted (the eye badge) but never ranked —
+// they earn into the general league, which is exactly what filtering on
+// uniRole === 'student' gives for free.
+router.get('/u/university/:uniId/board', requireAuth, (req, res, next) => {
+  try {
+    const uniId = String(req.params.uniId || '').toLowerCase();
+    if (!UNI_ID_RE.test(uniId)) return res.status(400).json({ error: 'Университет туура эмес' });
+
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10));
+    const members = db.listUsers().filter(u => u.state?.uniId === uniId);
+    const students = members.filter(u => u.state.uniRole === 'student');
+    const viewerCount = members.filter(u => u.state.uniRole === 'viewer').length;
+    const supporters = db.countSupportersByUniversity(uniId);
+
+    const ranked = students
+      .map(u => ({
+        id: u.id,
+        name: u.name,
+        avatar: u.avatar,
+        xp: u.state.uniXp || 0,
+        streak: u.state.streak || 0,
+        supporters: supporters.get(u.id)?.size || 0,
+      }))
+      .sort((a, b) => b.xp - a.xp || a.name.localeCompare(b.name));
+
+    const myIndex = ranked.findIndex(r => r.id === req.userId);
+    const me = db.findUserById(req.userId);
+
+    res.json({
+      universityId: uniId,
+      studentCount: ranked.length,
+      viewerCount,
+      totalXp: ranked.reduce((sum, r) => sum + r.xp, 0),
+      students: ranked.slice(0, limit).map((r, i) => ({ ...r, rank: i + 1 })),
+      me: {
+        role: me?.state?.uniRole || null,
+        rank: myIndex === -1 ? null : myIndex + 1,
+        xp: me?.state?.uniXp || 0,
+        supporters: supporters.get(req.userId)?.size || 0,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+// A viewer spends their own energy to back a student. One gift per refill
+// period per viewer — the cap lives on the giver's own state, so it costs
+// no scan and rolls over with everything else (energy.js).
+router.post('/u/university/support', requireAuth, async (req, res, next) => {
+  try {
+    const user = db.findUserById(req.userId);
+    if (!user) return res.status(401).json({ error: 'Колдонуучу табылган жок' });
+
+    const { state } = user;
+    if (state.uniRole !== 'viewer') {
+      return res.status(403).json({ error: 'Энергияны көрүүчүлөр гана бере алат' });
+    }
+    if (!state.uniId) {
+      return res.status(400).json({ error: 'Алгач университетти тандаңыз' });
+    }
+
+    const { toUserId } = req.body || {};
+    if (!toUserId || toUserId === user.id) {
+      return res.status(400).json({ error: 'Студентти тандаңыз' });
+    }
+    const target = db.findUserById(toUserId);
+    if (!target || target.state?.uniId !== state.uniId || target.state?.uniRole !== 'student') {
+      return res.status(404).json({ error: 'Студент табылган жок' });
+    }
+
+    const lim = getLimits();
+    const amount = Math.max(1, parseInt(lim.supportEnergyAmount, 10) || 5);
+    const hours = refillHours();
+    const verdict = canGiveSupportEnergy(state, amount, hours, lim.dailyFreeLessons ?? 3);
+    if (verdict === 'already') {
+      return res.status(429).json({
+        error: 'Бүгүн энергия бердиң — кийинки толтурууну күт',
+        resetInMs: periodEndsAt(hours) - Date.now(),
+      });
+    }
+    if (verdict === 'insufficient') {
+      return res.status(400).json({ error: 'Энергияң жетишсиз' });
+    }
+
+    spendSupportEnergy(state, amount, hours);
+    receiveSupportEnergy(target.state, amount, hours);
+    db.addEnergyGift({
+      id: randomUUID(),
+      fromUserId: user.id,
+      toUserId: target.id,
+      universityId: state.uniId,
+      amount,
+      date: todayUTC(),
+      period: currentPeriod(hours),
+      ts: Date.now(),
+    });
+    // saveUser persists the whole document, so the gift row above lands with
+    // both sides of the transfer in a single write.
+    await db.saveUser(user);
+    await db.saveUser(target);
+
+    res.status(201).json({
+      user: toPublicUser(user),
+      amount,
+      to: { id: target.id, name: target.name, avatar: target.avatar },
+      nextGiftInMs: periodEndsAt(hours) - Date.now(),
+    });
+  } catch (err) { next(err); }
+});
+
+// "СЕНИ КОЛДОГОНДОР" — every viewer who has backed this student, folded to
+// one row each with their running total.
+router.get('/u/me/supporters', requireAuth, (req, res, next) => {
+  try {
+    const byUser = new Map();
+    for (const gift of db.listEnergyGiftsTo(req.userId)) {
+      const agg = byUser.get(gift.fromUserId) || { amount: 0, gifts: 0, lastTs: 0 };
+      agg.amount += gift.amount || 0;
+      agg.gifts += 1;
+      agg.lastTs = Math.max(agg.lastTs, gift.ts || 0);
+      byUser.set(gift.fromUserId, agg);
+    }
+
+    const supporters = [...byUser.entries()]
+      .map(([id, agg]) => {
+        // Joined at read time, not snapshotted, so a renamed supporter shows
+        // their current name and a deleted one degrades to a placeholder.
+        const u = db.findUserById(id);
+        return {
+          id,
+          name: u?.name || 'Колдонуучу',
+          avatar: u?.avatar || null,
+          amount: agg.amount,
+          gifts: agg.gifts,
+          lastTs: agg.lastTs,
+        };
+      })
+      .sort((a, b) => b.amount - a.amount || b.lastTs - a.lastTs);
+
+    res.json({
+      supporters,
+      totalEnergy: supporters.reduce((sum, s) => sum + s.amount, 0),
+    });
   } catch (err) { next(err); }
 });
 

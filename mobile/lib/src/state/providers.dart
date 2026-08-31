@@ -1,12 +1,15 @@
 /// Riverpod wiring: API client, session, content, and user preferences.
 library;
 
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/api_client.dart';
 import '../core/i18n.dart';
 import '../models/content.dart';
+import '../models/university.dart';
 import '../models/user_state.dart';
 
 /// Overridden in main() with the instance created during startup, so no
@@ -77,6 +80,61 @@ final onboardedProvider = StateNotifierProvider<OnboardedController, bool>(
   (ref) => OnboardedController(ref.watch(prefsProvider)),
 );
 
+/// The player's enrolment in the university league: which side of it they
+/// are on, and which campus they picked. Both are needed before the tab can
+/// show anything — a viewer still has to say whose standings to open.
+class UniLeagueEnrolment {
+  const UniLeagueEnrolment({this.role, this.universityId});
+
+  final UniLeagueRole? role;
+  final String? universityId;
+
+  bool get isComplete => role != null && universityId != null;
+}
+
+/// Derived from the signed-in account, not from disk. Both answers moved to
+/// the server (state.uniId / state.uniRole) because a viewer's gift and a
+/// student's supporter list are facts about two people — a per-device answer
+/// could never resolve either. Writes go through
+/// AuthController.setUniversity.
+final uniLeagueProvider = Provider<UniLeagueEnrolment>((ref) {
+  final st = ref.watch(userStateProvider);
+  return UniLeagueEnrolment(
+    role: UniLeagueRole.fromCode(st?.uniRole),
+    universityId: st?.uniId,
+  );
+});
+
+/// The campus catalogue, straight off the content payload. Empty while the
+/// content is still loading, which the picker renders as its empty state
+/// rather than as an error.
+final universitiesProvider = Provider<List<University>>(
+  (ref) => ref.watch(contentProvider).valueOrNull?.universities ?? const [],
+);
+
+/// The live board for a campus. autoDispose so leaving the tab and coming
+/// back refetches — a gift sent from another device should show up without
+/// a manual refresh.
+final uniBoardProvider =
+    FutureProvider.autoDispose.family<UniBoard, String>((ref, universityId) {
+  return ref.watch(apiClientProvider).fetchUniBoard(universityId);
+});
+
+/// Everyone who has backed the signed-in student.
+final supportersProvider = FutureProvider.autoDispose<List<Supporter>>(
+  (ref) => ref.watch(apiClientProvider).fetchSupporters(),
+);
+
+/// Set by the one daily claim per day that actually moved the streak —
+/// app.dart turns this into the streak screen, then clears it.
+class StreakEvent {
+  const StreakEvent({required this.streak, this.activeDays = const []});
+  final int streak;
+  final List<String> activeDays;
+}
+
+final streakEventProvider = StateProvider<StreakEvent?>((ref) => null);
+
 final stringsProvider = Provider<Strings>(
   (ref) => Strings(ref.watch(localeProvider)),
 );
@@ -108,12 +166,19 @@ class SessionSignedIn extends SessionState {
 }
 
 class AuthController extends StateNotifier<SessionState> {
-  AuthController(this._api) : super(const SessionLoading()) {
+  AuthController(this._api, this._prefs, this._ref) : super(const SessionLoading()) {
     _api.onSessionExpired = signOutLocally;
     _restore();
   }
 
   final ApiClient _api;
+  final SharedPreferences _prefs;
+  final Ref _ref;
+
+  // Pre-server builds answered the two enrolment questions into these two
+  // keys. They survive only long enough to migrate an existing install once.
+  static const _legacyRoleKey = 'jashmen.uniRole';
+  static const _legacyUniKey = 'jashmen.uniId';
 
   /// A stored access token may be expired; the client's 401 interceptor
   /// refreshes it transparently, so one /u/me call is the whole probe.
@@ -123,7 +188,7 @@ class AuthController extends StateNotifier<SessionState> {
       return;
     }
     try {
-      state = SessionSignedIn(await _api.fetchMe());
+      _onSignedIn(await _api.fetchMe());
     } on ApiException catch (e) {
       // Offline at launch must NOT log the user out — only an actual
       // rejection from the server does.
@@ -133,29 +198,85 @@ class AuthController extends StateNotifier<SessionState> {
     }
   }
 
-  Future<void> login(String email, String password) async {
-    final user = await _api.login(email: email, password: password);
+  /// The one place a session starts. Everything that must happen exactly
+  /// once per sign-in — the daily streak claim, the one-shot enrolment
+  /// migration — hangs off here rather than being repeated at four call
+  /// sites (which is how the web version's claimDaily got missed on mobile
+  /// entirely: the endpoint existed and nothing ever called it).
+  void _onSignedIn(AppUser user) {
     state = SessionSignedIn(user);
+    unawaited(_claimDaily());
+    unawaited(_migrateLegacyEnrolment(user));
+  }
+
+  Future<void> _claimDaily() async {
+    try {
+      final res = await _api.claimDaily();
+      applyUser(res.user);
+      if (res.claimed && res.streak > 0) {
+        _ref.read(streakEventProvider.notifier).state =
+            StreakEvent(streak: res.streak, activeDays: res.activeDays);
+      }
+    } on ApiException {
+      // A missed daily claim is recoverable on the next launch — never let
+      // it block the app from opening.
+    }
+  }
+
+  Future<void> _migrateLegacyEnrolment(AppUser user) async {
+    final role = UniLeagueRole.fromCode(_prefs.getString(_legacyRoleKey));
+    final uni = _prefs.getString(_legacyUniKey);
+    if (role == null && uni == null) return;
+    await _prefs.remove(_legacyRoleKey);
+    await _prefs.remove(_legacyUniKey);
+    // Never overwrite a newer answer already made on another device.
+    if (user.state.uniId != null || user.state.uniRole != null) return;
+    if (role == null || uni == null) return;
+    try {
+      await setUniversity(role: role, universityId: uni);
+    } on ApiException {
+      // The player just re-answers the two questions — not worth a dialog.
+    }
+  }
+
+  Future<void> login(String email, String password) async {
+    _onSignedIn(await _api.login(email: email, password: password));
   }
 
   Future<void> signup(String name, String email, String password) async {
-    final user = await _api.signup(name: name, email: email, password: password);
-    state = SessionSignedIn(user);
+    _onSignedIn(await _api.signup(name: name, email: email, password: password));
   }
 
   /// Google sign-in: the server turns the id_token into the same session
   /// login/signup produce, so nothing downstream changes.
   Future<void> signInWithGoogle(String idToken) async {
-    state = SessionSignedIn(await _api.loginWithGoogle(idToken));
+    _onSignedIn(await _api.loginWithGoogle(idToken));
+  }
+
+  /// University-league enrolment. Pass both null to leave the league.
+  Future<void> setUniversity({UniLeagueRole? role, String? universityId}) async {
+    applyUser(await _api.setUniversity(
+      universityId: universityId,
+      role: role?.code,
+    ));
+  }
+
+  /// A password change revokes every session server-side and returns a
+  /// fresh access token — storing it is what keeps THIS device signed in.
+  Future<void> adoptSession(String token, AppUser user) async {
+    await _api.saveAccessToken(token);
+    applyUser(user);
   }
 
   Future<void> signOut() async {
     await _api.logout();
+    _ref.read(streakEventProvider.notifier).state = null;
     state = const SessionSignedOut();
   }
 
   void signOutLocally() {
     _api.clearToken();
+    _ref.read(streakEventProvider.notifier).state = null;
     state = const SessionSignedOut();
   }
 
@@ -168,6 +289,7 @@ class AuthController extends StateNotifier<SessionState> {
       name: current.user.name,
       email: current.user.email,
       avatar: current.user.avatar,
+      hasPassword: current.user.hasPassword,
       state: next,
     ));
   }
@@ -190,16 +312,35 @@ class AuthController extends StateNotifier<SessionState> {
 }
 
 final authProvider = StateNotifierProvider<AuthController, SessionState>(
-  (ref) => AuthController(ref.watch(apiClientProvider)),
+  (ref) => AuthController(ref.watch(apiClientProvider), ref.watch(prefsProvider), ref),
 );
 
-/// Convenience: the signed-in user's progress, or null.
-final userStateProvider = Provider<UserState?>((ref) {
+/// Convenience: the signed-in user, or null. A plain Provider on purpose —
+/// widgets that only need identity (the league board asking "which row is
+/// mine?") depend on this instead of on authProvider, which keeps them
+/// overridable in a widget test without standing up an ApiClient.
+final currentUserProvider = Provider<AppUser?>((ref) {
   final session = ref.watch(authProvider);
-  return session is SessionSignedIn ? session.user.state : null;
+  return session is SessionSignedIn ? session.user : null;
 });
 
+/// Convenience: the signed-in user's progress, or null.
+final userStateProvider = Provider<UserState?>(
+  (ref) => ref.watch(currentUserProvider)?.state,
+);
+
 // ── Content ────────────────────────────────────────────────────────────────
+
+/// Server-side client config (Google's client ids). Read once per launch —
+/// the sign-in button waits on it rather than on a compile-time constant,
+/// so enabling Google is a server change, not a new build.
+/// autoDispose so a launch that raced the network (or a server that was
+/// briefly down) refetches the next time the sign-in screen is shown,
+/// instead of caching the failure for the whole session and leaving the
+/// Google button permanently hidden.
+final publicConfigProvider = FutureProvider.autoDispose<PublicConfig>(
+  (ref) => ref.watch(apiClientProvider).fetchPublicConfig(),
+);
 
 final contentProvider = FutureProvider<AppContent>(
   (ref) => ref.watch(apiClientProvider).fetchContent(),

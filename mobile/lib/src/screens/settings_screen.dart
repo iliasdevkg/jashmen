@@ -16,6 +16,7 @@ import '../core/i18n.dart';
 import '../core/theme.dart';
 import '../state/providers.dart';
 import '../widgets/app_header.dart';
+import '../widgets/password_dialog.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -110,6 +111,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final locale = ref.watch(localeProvider);
     final bright = ref.watch(brightModeProvider);
     final settings = ref.watch(userStateProvider)?.settings;
+    final session = ref.watch(authProvider);
+    final user = session is SessionSignedIn ? session.user : null;
 
     return Scaffold(
       appBar: const AppHeader(),
@@ -190,6 +193,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
           ],
+
+          const SizedBox(height: Gap.xl),
+          _SectionLabel(s.t('settings.account')),
+          // A Google-only account has no password yet, so the row offers to
+          // create one rather than asking for a current one it never had.
+          _Tile(
+            icon: Icons.lock_outline_rounded,
+            title: user?.hasPassword == false
+                ? s.t('settings.setPassword')
+                : s.t('settings.changePassword'),
+            trailing: Icon(Icons.chevron_right_rounded, size: 20, color: tokens.faint),
+            onTap: user == null
+                ? null
+                : () => showPasswordDialog(context, hasPassword: user.hasPassword),
+          ),
 
           const SizedBox(height: Gap.xl),
           _SectionLabel(s.t('settings.about')),

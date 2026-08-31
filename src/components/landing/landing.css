@@ -1,0 +1,176 @@
+/* src/components/landing/landing.css
+ *
+ * The handful of things Tailwind can't express cleanly: the aurora the glass
+ * has to have something to frost, the frosted surfaces themselves, and the
+ * two infinite marquees.
+ *
+ * Every rule is scoped under `.lp` — the landing root's own class — so none
+ * of it can reach the product. The app and the marketing page share a
+ * bundle; they must not share a look by accident.
+ */
+
+.lp {
+  position: relative;
+  /* A stacking context of its own, so the aurora below can sit at z-index -1
+     without escaping behind the app shell's own background. */
+  isolation: isolate;
+  font-family: theme('fontFamily.body');
+  background: theme('colors.brand.ink');
+  color: #fff;
+  /* `clip` rather than `hidden`: hidden on a scroll container would make the
+     sticky navbar stop sticking. */
+  overflow-x: clip;
+}
+
+/* ── Aurora ───────────────────────────────────────────────────────────────
+ * Glass is only glass if there is something behind it worth blurring. A flat
+ * near-black ground frosts to flat grey, which is why the first pass at this
+ * page looked like grey plastic. Four soft brand-coloured pools — fixed, so
+ * they stay put while the page scrolls past them — give every card something
+ * different to pick up as it travels.
+ */
+.lp::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(58rem 44rem at 10% 4%,  rgba(1, 71, 238, 0.45), transparent 64%),
+    radial-gradient(48rem 36rem at 92% 30%, rgba(11, 42, 168, 0.42), transparent 62%),
+    radial-gradient(38rem 30rem at 74% 82%, rgba(255, 197, 61, 0.10), transparent 60%),
+    radial-gradient(36rem 28rem at 22% 92%, rgba(36, 230, 164, 0.10), transparent 60%);
+}
+
+.lp h1,
+.lp h2,
+.lp h3,
+.lp .lp-display {
+  font-family: theme('fontFamily.display');
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+/* ── Frosted surfaces ─────────────────────────────────────────────────────
+ * One card recipe, three grounds. The inset hairline along the top edge is
+ * what sells it as glass rather than as a translucent rectangle: real frosted
+ * panels catch light on their top bevel, and without it the cards read flat
+ * however much blur they carry.
+ */
+.lp-glass {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.035));
+  -webkit-backdrop-filter: blur(22px) saturate(155%);
+  backdrop-filter: blur(22px) saturate(155%);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 22px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+/* On the one light band, the same panel inverted — white glass over pale
+   blue. Frosting a white ground with a white panel would show nothing, so
+   this one leans on a real (if very soft) shadow instead. */
+.lp-glass-light {
+  background: rgba(255, 255, 255, 0.72);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(5, 11, 31, 0.07);
+  border-radius: 22px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 14px 40px -24px rgba(5, 11, 31, 0.4);
+}
+
+/* The eyebrow pill and the navbar's small controls. */
+.lp-glass-pill {
+  background: rgba(255, 255, 255, 0.09);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+/* Safari before 9 and Firefox with the feature switched off get no blur at
+   all, and a 3.5%-white panel over the aurora is then invisible. Trade the
+   frost for opacity rather than shipping cards nobody can see. */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .lp-glass { background: rgba(18, 26, 56, 0.86); }
+  .lp-glass-pill { background: rgba(18, 26, 56, 0.8); }
+  .lp-glass-light { background: rgba(255, 255, 255, 0.94); }
+}
+
+/* ── Hover lift ───────────────────────────────────────────────────────────
+ * Replaces the mint corner brackets the square version of this page used. A
+ * bracket is a drawn mark; on a rounded, blurred card the equivalent gesture
+ * is the card itself coming forward — the border brightens, the top bevel
+ * catches more light, and a blue pool appears underneath it.
+ */
+.lp-lift {
+  transition:
+    transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 280ms ease,
+    box-shadow 280ms ease;
+}
+
+.lp-lift:hover,
+.lp-lift:focus-within {
+  transform: translateY(-3px);
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 26px 60px -28px rgba(1, 71, 238, 0.9);
+}
+
+.lp-glass-light.lp-lift:hover,
+.lp-glass-light.lp-lift:focus-within {
+  border-color: rgba(5, 11, 31, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 26px 55px -26px rgba(5, 11, 31, 0.45);
+}
+
+/* ── Marquee ──────────────────────────────────────────────────────────────
+ * Two identical tracks side by side, the pair translated by exactly -50%:
+ * when the first track has fully left, the second sits precisely where the
+ * first began, so the loop has no seam. Duration scales with content length
+ * via the --lp-marquee-duration variable the component sets.
+ */
+.lp-marquee {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
+}
+
+.lp-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: lp-marquee var(--lp-marquee-duration, 26s) linear infinite;
+}
+
+.lp-marquee-reverse .lp-marquee-track {
+  animation-direction: reverse;
+}
+
+.lp-marquee:hover .lp-marquee-track {
+  animation-play-state: paused;
+}
+
+@keyframes lp-marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-50%, 0, 0); }
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────────────
+ * Someone who asks for no motion gets none: the ribbon stops dead rather
+ * than scrolling slowly, and cards change their border without travelling.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .lp-marquee-track {
+    animation: none;
+  }
+
+  .lp-marquee {
+    overflow-x: auto;
+  }
+
+  .lp-lift {
+    transition: border-color 200ms ease;
+  }
+
+  .lp-lift:hover,
+  .lp-lift:focus-within {
+    transform: none;
+  }
+}

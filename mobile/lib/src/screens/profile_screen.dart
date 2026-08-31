@@ -11,6 +11,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../api/api_client.dart';
 import '../core/i18n.dart';
+import '../core/lesson_icons.dart';
 import '../core/logic.dart';
 import '../core/theme.dart';
 import '../models/content.dart';
@@ -130,7 +131,9 @@ class ProfileScreen extends ConsumerWidget {
                   icon: Icons.star_rounded,
                   color: AppColors.primary,
                   label: s.t('profile.xp'),
-                  count: state.xp,
+                  // Lifetime, so the card keeps climbing while a campus
+                  // board — not the general league — is the one filling up.
+                  count: state.lifetimeXp,
                   delay: const Duration(milliseconds: 0),
                 ),
                 _StatCard(
@@ -509,7 +512,10 @@ class _AchievementRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(14),
               ),
               clipBehavior: Clip.antiAlias,
-              child: achievement.iconUrl == null
+              child: lessonIconFor(achievement.icon) != null
+                  ? Icon(lessonIconFor(achievement.icon),
+                      color: earned ? AppColors.gold : tokens.faint as Color)
+                  : achievement.iconUrl == null
                   ? Icon(Icons.military_tech_rounded, color: tokens.faint as Color)
                   : CachedNetworkImage(
                       imageUrl: achievement.iconUrl!,

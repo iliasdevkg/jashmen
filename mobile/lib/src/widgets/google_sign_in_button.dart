@@ -4,11 +4,20 @@
 /// POST /u/auth/google the web client calls — one server-side auth path, not
 /// two. The token is passed straight through and never stored on the device.
 ///
-/// Rendered only when the platform is actually configured (see
-/// docs/GOOGLE_SIGNIN.md): without an iOS URL scheme / Android SHA-1 the
-/// plugin throws at sign-in time, so a permanently broken button would be
-/// worse than none at all.
+/// The button is ALWAYS on screen — it is part of the sign-in design, not
+/// an optional extra that appears once a server variable happens to be set.
+/// (It used to hide itself when no client id was configured, which made
+/// "sign in with Google" look like a missing feature rather than a missing
+/// setting.) Tapping it before Google is configured says so plainly instead
+/// of throwing a plugin error; email/password sits right above and works
+/// either way.
+///
+/// The ids come from GET /public/config at runtime rather than from a
+/// --dart-define, so switching Google on is a server change and not a store
+/// release — an already-installed build picks it up on its next launch.
 library;
+
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,14 +28,17 @@ import '../core/i18n.dart';
 import '../core/theme.dart';
 import '../state/providers.dart';
 
-/// iOS reads its client ID from Info.plist; Android resolves it from the
-/// package name + signing certificate registered in Google Cloud Console.
-/// `serverClientId` is the WEB client ID — it is what makes Google mint an
-/// id_token whose audience the backend recognises.
+/// Build-time override, kept for a build that has to work against a server
+/// that doesn't serve the id yet. Normally empty: the value comes from
+/// GET /public/config instead.
 const String kGoogleServerClientId =
     String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
 
-bool get isGoogleSignInConfigured => kGoogleServerClientId.isNotEmpty;
+/// Same, for the iOS client id.
+const String kGoogleIosClientId =
+    String.fromEnvironment('GOOGLE_IOS_CLIENT_ID');
+
+String? _orNull(String v) => v.isEmpty ? null : v;
 
 class GoogleSignInButton extends ConsumerStatefulWidget {
   const GoogleSignInButton({super.key, this.onError, this.enabled = true});
@@ -41,14 +53,35 @@ class GoogleSignInButton extends ConsumerStatefulWidget {
 class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
   bool _busy = false;
 
+  /// The WEB client id — the audience the backend verifies, so every
+  /// platform sends it. A --dart-define wins over the server's answer.
+  String? get _serverClientId =>
+      _orNull(kGoogleServerClientId) ??
+      ref.read(publicConfigProvider).valueOrNull?.googleClientId;
+
+  /// iOS needs its own id at sign-in time; Android resolves itself from the
+  /// package name + signing certificate and passes none.
+  String? get _iosClientId => Platform.isIOS
+      ? (_orNull(kGoogleIosClientId) ??
+          ref.read(publicConfigProvider).valueOrNull?.googleClientIdIos)
+      : null;
+
   Future<void> _signIn() async {
     final s = StringsScope.of(context);
+    final serverClientId = _serverClientId;
+    if (serverClientId == null) {
+      // No client id yet: say why rather than letting the plugin throw a
+      // generic failure the user can do nothing about.
+      widget.onError?.call(s.t('auth.googleUnavailable'));
+      return;
+    }
     setState(() => _busy = true);
 
     try {
       final google = GoogleSignIn(
         scopes: const ['email', 'profile'],
-        serverClientId: kGoogleServerClientId,
+        clientId: _iosClientId,
+        serverClientId: serverClientId,
       );
 
       // Sign out first so the account chooser always appears; otherwise the
@@ -91,10 +124,11 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
 
   @override
   Widget build(BuildContext context) {
-    if (!isGoogleSignInConfigured) return const SizedBox.shrink();
+    // Watched so the button switches from "not configured" to the live
+    // flow the moment the config lands, with no rebuild of the screen.
+    ref.watch(publicConfigProvider);
 
     final s = StringsScope.of(context);
-    final tokens = context.tokens;
     final disabled = _busy || !widget.enabled;
 
     return Column(
@@ -102,59 +136,73 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
         const SizedBox(height: Gap.xl),
         Row(
           children: [
-            Expanded(child: Divider(color: tokens.border)),
+            Expanded(child: Divider(color: AppColors.authMuted.withValues(alpha: 0.25))),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: Gap.md),
-              child: Text(s.t('auth.or'),
-                  style: Theme.of(context).textTheme.labelSmall),
+              child: Text(
+                s.t('auth.or'),
+                style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.authMuted),
+              ),
             ),
-            Expanded(child: Divider(color: tokens.border)),
+            Expanded(child: Divider(color: AppColors.authMuted.withValues(alpha: 0.25))),
           ],
         ),
         const SizedBox(height: Gap.lg),
-        // Matches the web, which renders Google's own filled_black pill
-        // button: dark track, white circular "G" badge on the left, label
-        // centred. Google's brand guidelines require the mark to sit on
-        // white, hence the badge rather than a bare glyph.
+        // Matches the mockups' near-black pill: dark track, white circular
+        // "G" badge on the left, label centred. Google's brand guidelines
+        // require the mark to sit on white, hence the badge rather than a
+        // bare glyph.
         Opacity(
           opacity: disabled ? 0.6 : 1,
           child: GestureDetector(
             onTap: disabled ? null : _signIn,
             behavior: HitTestBehavior.opaque,
             child: Container(
-              height: 48,
+              height: 56,
               decoration: BoxDecoration(
-                color: const Color(0xFF202124),
-                borderRadius: BorderRadius.circular(999),
+                color: AppColors.authGoogleBtn,
+                borderRadius: BorderRadius.circular(28),
               ),
-              child: Stack(
-                alignment: Alignment.center,
+              // A Row, not a Stack with a centred label — "Google" reads much
+              // longer in Kyrgyz ("Google менен улантуу") than in Russian or
+              // English, and a stack-centred label collides with the badge
+              // at that length. The trailing spacer mirrors the badge's own
+              // footprint so the label still optically centres in the pill
+              // rather than in "whatever space is left of the badge".
+              child: Row(
                 children: [
-                  Text(
-                    s.t('auth.google'),
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFFE8EAED),
+                  const SizedBox(width: 6),
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
                     ),
+                    alignment: Alignment.center,
+                    child: _busy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const _GoogleGlyph(size: 22),
                   ),
-                  Positioned(
-                    left: 4,
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 50),
+                      child: Text(
+                        s.t('auth.google'),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
                       ),
-                      alignment: Alignment.center,
-                      child: _busy
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const _GoogleGlyph(size: 20),
                     ),
                   ),
                 ],

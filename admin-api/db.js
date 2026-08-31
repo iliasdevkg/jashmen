@@ -52,19 +52,28 @@ if (!BLOB_TOKEN) {
   );
 }
 
-const EMPTY_STATE = () => ({ users: [], redemptions: [], sessions: [] });
+const EMPTY_STATE = () => ({ users: [], redemptions: [], sessions: [], energyGifts: [] });
 
 // One-time migration for db.json files written before the coins/energy
 // rework: `gems` → `coins` (keeping the balance, not resetting it to 0),
 // and drop the now-unused hearts fields. Runs on every load; a no-op once
 // a file has already been migrated.
+//
+// Also backfills the two XP counters added with the split-league scoring
+// (routes.js#awardXp). `lifetimeXp` seeds from the existing `xp` — before
+// the split every point earned did land there, so that IS the lifetime
+// total. `uniXp` seeds at 0 on purpose, including for people already
+// enrolled: nobody's general-league score may leak onto a campus board.
 function migrate(state) {
   if (!Array.isArray(state.redemptions)) state.redemptions = [];
   if (!Array.isArray(state.sessions)) state.sessions = [];
+  if (!Array.isArray(state.energyGifts)) state.energyGifts = [];
   for (const user of state.users || []) {
     const s = user.state;
     if (!s) continue;
     if (s.gems !== undefined && s.coins === undefined) s.coins = s.gems;
+    if (s.lifetimeXp === undefined) s.lifetimeXp = s.xp || 0;
+    if (s.uniXp === undefined) s.uniXp = 0;
     delete s.gems;
     delete s.hearts;
     delete s.heartsRefilledAt;
@@ -162,9 +171,22 @@ export function findUserById(id) {
 }
 
 export async function insertUser(user) {
+  // Stamped here rather than by each caller (routes.js signup, googleAuth.js)
+  // so every new user gets it the same way — used by the admin's
+  // "Катталган" (registered) column. Users inserted before this existed have
+  // no createdAt; the admin UI shows those as "белгисиз" (unknown).
+  user.createdAt = Date.now();
   state.users.push(user);
   await persist();
   return user;
+}
+
+export async function deleteUser(id) {
+  const idx = state.users.findIndex(u => u.id === id);
+  if (idx === -1) return false;
+  state.users.splice(idx, 1);
+  await persist();
+  return true;
 }
 
 export async function saveUser(user) {
@@ -177,6 +199,23 @@ export async function saveUser(user) {
 
 export function listUsers() {
   return state.users;
+}
+
+// Headline numbers for the admin's "Жалпы статистика" (overall stats)
+// panel — same style as funnel()/questionHeatmap() in events.js: a thin
+// aggregation over data that's already in memory, no separate store.
+export function overview() {
+  const users = state.users;
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  let totalXp = 0, totalCoins = 0, totalLessonsCompleted = 0, activeLast7Days = 0;
+  for (const u of users) {
+    const s = u.state || {};
+    totalXp += s.lifetimeXp || 0; // lifetime, so a campus-board reset can't shrink it
+    totalCoins += s.coins || 0;
+    totalLessonsCompleted += (s.completedLessons || []).length;
+    if (s.lastActiveDate && s.lastActiveDate >= cutoff) activeLast7Days += 1;
+  }
+  return { totalUsers: users.length, totalXp, totalCoins, totalLessonsCompleted, activeLast7Days };
 }
 
 // ── Redemptions (Module В: Daily Cap Protection) ────────────────────────
@@ -204,6 +243,36 @@ export function countRedemptionsToday(dateStr) {
 
 export function listRedemptions() {
   return state.redemptions;
+}
+
+// ── University league: viewer → student energy gifts ────────────────────
+//
+// One row per gift, kept rather than folded into a counter because the
+// player's "СЕНИ КОЛДОГОНДОР" sheet has to name every supporter. Written
+// by routes.js#/u/university/support, which has already reserved the
+// giver's once-per-period slot on their own state, so no cap logic lives
+// here — this is pure append + query.
+
+export function addEnergyGift(gift) {
+  state.energyGifts.push(gift);
+  return gift;
+}
+
+// Newest first. Callers aggregate per supporter themselves.
+export function listEnergyGiftsTo(userId) {
+  return state.energyGifts.filter(g => g.toUserId === userId).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+}
+
+// How many distinct people have backed each student of a university —
+// rendered as the small count next to a name on the league board.
+export function countSupportersByUniversity(universityId) {
+  const byStudent = new Map();
+  for (const gift of state.energyGifts) {
+    if (gift.universityId !== universityId) continue;
+    if (!byStudent.has(gift.toUserId)) byStudent.set(gift.toUserId, new Set());
+    byStudent.get(gift.toUserId).add(gift.fromUserId);
+  }
+  return byStudent;
 }
 
 // ── Sessions (refresh tokens) — Task 2: JWT storage migration ──────────
@@ -281,6 +350,22 @@ export async function rotateSession(oldToken, ttlMs, expectedType) {
   });
   await persist();
   return { newToken, type: session.type, userId: session.userId };
+}
+
+// Kills every live session a user has — used after a self-serve password
+// change so a stolen refresh token stops working the moment the real owner
+// notices. The caller issues itself a fresh pair right after, so the device
+// that made the change stays signed in.
+export async function revokeUserSessions(userId) {
+  let revoked = 0;
+  for (const session of state.sessions) {
+    if (session.type !== 'user' || session.userId !== userId) continue;
+    if (session.revokedAt || session.expiresAt < Date.now()) continue;
+    session.revokedAt = Date.now();
+    revoked += 1;
+  }
+  if (revoked) await persist();
+  return revoked;
 }
 
 export async function revokeSession(token, expectedType) {

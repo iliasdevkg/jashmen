@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { Home, Trophy, ShoppingBag, User, Settings, Zap, LogOut, Flame, Coins } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
 import { useI18n } from '../i18n.jsx';
-import { computeLiveEnergy } from '../utils.js';
+import { energySettings, computeLiveEnergy } from '../utils.js';
 import Avatar from './Avatar.jsx';
 
 const links = [
@@ -25,8 +25,8 @@ export default function SideNav() {
     return () => clearInterval(t);
   }, []);
 
-  const dailyFreeLessons = content?.limits?.dailyFreeLessons ?? 3;
-  const { remaining: energy } = computeLiveEnergy(state, dailyFreeLessons);
+  const { dailyFreeLessons, energyRefillHours } = energySettings(content);
+  const { remaining: energy } = computeLiveEnergy(state, dailyFreeLessons, energyRefillHours);
   const streak      = state?.streak || 0;
   const coins       = state?.coins  || 0;
 
@@ -45,13 +45,19 @@ export default function SideNav() {
       className="fixed top-0 left-0 h-screen w-[240px] flex flex-col z-50"
       style={{ background: navBg, borderRight: navBorder }}
     >
-      {/* ── Logo ── */}
-      <div className="flex items-center gap-2.5 px-5 pt-6 pb-5">
-        <img src="/logo.png" alt="" className="w-9 h-9 rounded-xl object-cover" />
+      {/* ── Logo ──
+          Both wordmarks are the trimmed pair (610x116 white / 1051x200 blue,
+          the same 5.26:1 the app ships on mobile). The previous white file
+          was 729x342 — mostly transparent padding — so at a shared CSS
+          height the glyphs rendered about half the size of the blue one's,
+          and the two themes never matched. Trimmed, one height gives both
+          themes an identical mark. */}
+      <div className="flex items-center gap-3 px-5 pt-6 pb-5">
+        <img src="/logo.png" alt="" className="w-10 h-10 rounded-xl object-cover shrink-0" />
         <img
-          src={bright ? '/jashmen_wordmark_blue.png' : '/jashmen_text_white.png'}
+          src={bright ? '/jashmen_wordmark_blue.png' : '/jashmen_wordmark_white.png'}
           alt="JashMen"
-          className="h-[28px] w-auto object-contain"
+          className="h-[22px] w-auto object-contain"
         />
       </div>
 

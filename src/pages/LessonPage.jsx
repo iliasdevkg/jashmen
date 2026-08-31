@@ -3,8 +3,8 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Check, Star, ShoppingBag, PlayCircle, Share2, Award, Zap, Trophy, CheckCircle2, Coins, Wallet } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
-import { useI18n, localizedText } from '../i18n.jsx';
-import { computeLiveEnergy, formatCountdown, checkNewAchievements, cardsOf } from '../utils.js';
+import { useI18n, localizedText, formatGrouped } from '../i18n.jsx';
+import { energySettings, computeLiveEnergy, formatCountdown, checkNewAchievements, cardsOf } from '../utils.js';
 import { generateShareCardBlob, shareOrDownload } from '../shareCard.js';
 import * as api from '../api.js';
 
@@ -51,6 +51,190 @@ function playSound(type) {
       });
     }
   } catch (_) {}
+}
+
+// The coin/XP sound that plays over the reward burst, right behind the
+// "correct" chime above (which stays — the two are deliberately layered).
+// Unlike the three synthesised cues this is a real clip, so it gets one
+// lazily-created element reused for every play: constructing an Audio per
+// answer leaks decoders on a long lesson.
+let coinAudio = null;
+function playCoinSound() {
+  try {
+    if (!coinAudio) {
+      coinAudio = new Audio('/sounds/coin_xp.mp3');
+      coinAudio.preload = 'auto';
+      coinAudio.volume = 0.8;
+    }
+    coinAudio.currentTime = 0;
+    // Autoplay policies reject this until the page has been interacted
+    // with; by the time a question is answered it has been, but a rejected
+    // promise still has to be swallowed or it surfaces as an unhandled one.
+    coinAudio.play()?.catch?.(() => {});
+  } catch (_) {}
+}
+
+// ── Reward burst ───────────────────────────────────────────────────────────
+//
+// Coins fly to the coin counter and XP badges to the XP counter, the way
+// Zogo does it. Positions are read from the live chips at spawn time
+// (getBoundingClientRect) rather than guessed, so the arcs stay correct on
+// any viewport and in either orientation.
+
+const COIN_COUNT = 9;
+const XP_COUNT = 8;
+// Matches mobile's RewardBurstOverlay exactly (reward_burst.dart), so a coin
+// takes the same time to reach the counter on both clients.
+const BURST_MS = 950;
+
+function buildBurst(seq, originRect, coinRect, xpRect) {
+  if (!originRect) return [];
+  const ox = originRect.left + originRect.width / 2;
+  const oy = originRect.top + originRect.height / 2;
+  const particles = [];
+
+  const push = (kind, i, count, targetRect) => {
+    if (!targetRect) return;
+    // Deterministic spread rather than Math.random: the fan reads as
+    // designed motion instead of noise, and it never re-renders differently.
+    const spread = (i / Math.max(1, count - 1) - 0.5) * 2; // -1 … 1
+    const delay = i * 0.045;
+    particles.push({
+      id: `${kind}-${seq}-${i}`,
+      kind,
+      seq,
+      // Later particles start later and travel proportionally faster, so the
+      // whole fan converges on the counter at the same moment.
+      travel: BURST_MS / 1000 - delay,
+      from: { x: ox + spread * 46, y: oy + Math.abs(spread) * 26 },
+      to: { x: targetRect.left + targetRect.width / 2, y: targetRect.top + targetRect.height / 2 },
+      delay,
+    });
+  };
+
+  for (let i = 0; i < COIN_COUNT; i++) push('coin', i, COIN_COUNT, coinRect);
+  for (let i = 0; i < XP_COUNT; i++) push('xp', i, XP_COUNT, xpRect);
+  return particles;
+}
+
+function BurstLayer({ particles }) {
+  return (
+    <div className="fixed inset-0 z-40 pointer-events-none" aria-hidden="true">
+      {particles.map(p => (
+        <motion.div
+          key={p.id}
+          initial={{ x: p.from.x, y: p.from.y, scale: 0.4, opacity: 0 }}
+          animate={{
+            x: p.to.x,
+            // A slightly different curve on y than on x is what bends the
+            // straight line into an arc — no path maths needed.
+            y: p.to.y,
+            scale: [0.4, 1.1, 1, 0.55],
+            opacity: [0, 1, 1, 0],
+          }}
+          // Every property is pinned to an explicit tween. Framer defaults
+          // transforms to a SPRING, which ignored `duration` and flung the
+          // coins to the counter in ~320ms while the fade still ran the full
+          // 900 — that mismatch is what made the web burst look hurried next
+          // to the mobile one. Each particle's travel is also shortened by
+          // its own stagger so the whole fan lands together on BURST_MS,
+          // exactly as reward_burst.dart does it.
+          transition={{
+            x: { type: 'tween', duration: p.travel, delay: p.delay, ease: 'easeInOut' },
+            y: { type: 'tween', duration: p.travel, delay: p.delay, ease: 'easeIn' },
+            scale: {
+              type: 'tween', duration: p.travel, delay: p.delay,
+              times: [0, 0.18, 0.7, 1], ease: 'easeOut',
+            },
+            opacity: {
+              type: 'tween', duration: p.travel, delay: p.delay,
+              times: [0, 0.12, 0.72, 1], ease: 'linear',
+            },
+          }}
+          className="absolute top-0 left-0"
+          style={{ marginLeft: -13, marginTop: -13 }}
+        >
+          {p.kind === 'coin' ? (
+            <span
+              className="flex items-center justify-center rounded-full"
+              style={{
+                width: 26, height: 26,
+                background: 'radial-gradient(circle at 34% 30%, #FFE082 0%, #FFC107 55%, #E8A200 100%)',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.35)',
+              }}
+            >
+              <Coins size={13} color="#8A5A00" strokeWidth={2.6} />
+            </span>
+          ) : (
+            <span
+              className="flex items-center justify-center rounded-[7px] text-[10px] font-black text-white"
+              style={{ width: 26, height: 22, background: '#1B6EF3', boxShadow: '0 2px 6px rgba(0,0,0,0.35)' }}
+            >
+              XP
+            </span>
+          )}
+        </motion.div>
+      ))}
+    </div>
+  );
+}
+
+// The live counters the burst flies into. Bumping on arrival is what makes
+// Walks a counter to its new value one unit at a time, starting only when
+// the burst actually lands.
+//
+// Before this, the number changed the instant the answer was judged — so the
+// coins spent a second flying into a total that had already moved, which made
+// the whole animation read as decoration. Now the coin arrives and *then* the
+// number climbs, one step per unit: 1, 2, 3, 4, 5.
+//
+// A decrease (spending energy) or a jump too large to be a reward (the
+// session's state loading in) snaps instead of crawling.
+function useTickUp(target, { delay = 0, stepMs = 62, enabled = true }) {
+  const [shown, setShown] = useState(target);
+  const shownRef = useRef(target);
+
+  const set = useCallback((v) => { shownRef.current = v; setShown(v); }, []);
+
+  useEffect(() => {
+    const from = shownRef.current;
+    const delta = target - from;
+    if (delta === 0) return undefined;
+    if (!enabled || delta < 0 || delta > 200) { set(target); return undefined; }
+
+    let i = 0;
+    let interval = null;
+    const start = setTimeout(() => {
+      interval = setInterval(() => {
+        i += 1;
+        set(from + i);
+        if (i >= delta) clearInterval(interval);
+      }, stepMs);
+    }, delay);
+
+    return () => { clearTimeout(start); if (interval) clearInterval(interval); };
+  }, [target, delay, stepMs, enabled, set]);
+
+  return shown;
+}
+
+// the coins feel like they landed rather than just faded out.
+function HudChip({ innerRef, icon, value, color, bumpKey }) {
+  return (
+    <div ref={innerRef} className="flex items-center gap-1.5">
+      {icon}
+      <motion.span
+        key={bumpKey}
+        initial={{ scale: 1 }}
+        animate={{ scale: [1, 1.22, 1] }}
+        transition={{ duration: 0.34, ease: 'easeOut' }}
+        className="text-[15px] font-black tabular-nums leading-none"
+        style={{ color }}
+      >
+        {value}
+      </motion.span>
+    </div>
+  );
 }
 
 function findLesson(modules, id) {
@@ -396,7 +580,8 @@ export default function LessonPage() {
   const { t, locale } = useI18n();
 
   const soundEnabled = state?.settings?.sound !== false;
-  const dailyFreeLessons = content?.limits?.dailyFreeLessons ?? 3;
+  const animationsEnabled = state?.settings?.animations !== false;
+  const { dailyFreeLessons, energyRefillHours } = energySettings(content);
 
   const found   = content ? findLesson(content.modules, lessonId) : null;
   const { lesson, module: mod } = found || {};
@@ -404,7 +589,7 @@ export default function LessonPage() {
   const quizCount     = cards.filter(c => c.type === 'quiz').length;
   const totalLessons  = (content?.modules || []).reduce((a, m) => a + m.lessons.length, 0);
 
-  const { resetMs: initResetMs } = computeLiveEnergy(state, dailyFreeLessons);
+  const { resetMs: initResetMs } = computeLiveEnergy(state, dailyFreeLessons, energyRefillHours);
 
   const [qIdx,        setQIdx]        = useState(0);
   const [deck,        setDeck]        = useState(null);
@@ -422,6 +607,21 @@ export default function LessonPage() {
   const [submitting,  setSubmitting]  = useState(false);
   const shakeTimer = useRef(null);
   const startLogged = useRef(false);
+
+  // ── Reward burst ─────────────────────────────────────────────────────
+  // The counters are optimistic: XP and coins are only actually awarded
+  // when the lesson completes, so these mirror the server's own formula
+  // (contentStore.js#limits) closely enough for a live HUD and are then
+  // replaced by the real numbers on the result screen.
+  const [particles,   setParticles]   = useState([]);
+  const [sessionXp,   setSessionXp]   = useState(0);
+  const [sessionCoins, setSessionCoins] = useState(0);
+  const coinChipRef = useRef(null);
+  const xpChipRef   = useRef(null);
+  const burstOrigin = useRef(null);
+  const burstSeq    = useRef(0);
+  const burstTimers = useRef([]);
+  useEffect(() => () => burstTimers.current.forEach(clearTimeout), []);
 
   // Task 7 — a wrong quiz answer re-queues that question to the end of the
   // deck, and the lesson can't be finished until every question has been
@@ -447,7 +647,7 @@ export default function LessonPage() {
   }, [lessonId, cards.length]);
 
   useEffect(() => {
-    if (!isReview && computeLiveEnergy(state, dailyFreeLessons).remaining === 0) setPhase('noenergy');
+    if (!isReview && computeLiveEnergy(state, dailyFreeLessons, energyRefillHours).remaining === 0) setPhase('noenergy');
   }, []);
 
   // Fire-and-forget analytics — never let telemetry affect the quiz itself.
@@ -464,6 +664,40 @@ export default function LessonPage() {
   // to the question's first appearance rather than its retry slot.
   const quizIndex = isQuiz ? cards.filter(c => c.type === 'quiz').indexOf(currentCard) : -1;
 
+  // Coins fly to the coin chip, XP badges to the XP chip, and the counters
+  // tick up as they land. Skipped entirely when animations are off — the
+  // sound still plays, since that's a separate setting.
+  const rewardBurst = useCallback(() => {
+    const lim = content?.limits || {};
+    const perQuestion = lim.xpPerQuestion ?? 10;
+    const coinGoal = mistakes === 0 ? (lim.coinsPerfectLesson ?? 10) : (lim.coinsNormalLesson ?? 5);
+
+    setSessionXp(x => x + perQuestion);
+    setSessionCoins(c => Math.min(coinGoal, c + 1));
+    if (soundEnabled) {
+      // The new clip layers over the "correct" chime rather than replacing
+      // it — the short delay is what lets both be heard.
+      const t = setTimeout(playCoinSound, 190);
+      burstTimers.current.push(t);
+    }
+    if (!animationsEnabled) return;
+
+    const seq = burstSeq.current++;
+    const next = buildBurst(
+      seq,
+      burstOrigin.current?.getBoundingClientRect(),
+      coinChipRef.current?.getBoundingClientRect(),
+      xpChipRef.current?.getBoundingClientRect(),
+    );
+    if (!next.length) return;
+    setParticles(prev => [...prev, ...next]);
+    const timer = setTimeout(
+      () => setParticles(prev => prev.filter(p => p.seq !== seq)),
+      BURST_MS + 500,
+    );
+    burstTimers.current.push(timer);
+  }, [content, mistakes, soundEnabled, animationsEnabled]);
+
   const handleSelect = useCallback((idx) => {
     if (answered || !currentCard) return;
     setSelected(idx);
@@ -471,6 +705,9 @@ export default function LessonPage() {
     const correct = idx === currentCard.a;
     if (correct) {
       if (soundEnabled) playSound('correct');
+      // A review earns nothing, so it gets the chime but no reward burst —
+      // flying coins that credit nobody would be a lie.
+      if (!isReview) rewardBurst();
     } else {
       if (soundEnabled) playSound('wrong');
       // First-try accuracy: remember this question was missed at least once,
@@ -487,7 +724,7 @@ export default function LessonPage() {
     if (!isReview) {
       api.logEvent(token, 'question_answered', { lessonId, questionIndex: quizIndex, correct }).catch(() => {});
     }
-  }, [answered, currentCard, isReview, soundEnabled, token, lessonId, quizIndex]);
+  }, [answered, currentCard, isReview, soundEnabled, token, lessonId, quizIndex, rewardBurst]);
 
   const handleContinue = useCallback(async () => {
     // Re-queue a missed question to the end so it comes back around. Review
@@ -514,7 +751,7 @@ export default function LessonPage() {
       if (newAchIds.length > 0) {
         const merged   = [...new Set([...(u.state?.achievements || []), ...newAchIds])];
         const xpBonus  = newAchIds.reduce((s, id) => s + (content?.achievements?.find(a => a.id === id)?.xp || 0), 0);
-        final = await api.patchState(token, { achievements: merged, xp: (u.state?.xp || 0) + xpBonus });
+        final = await api.patchState(token, { achievements: merged, xp: (u.state?.lifetimeXp || 0) + xpBonus });
         setEarnedAchs(newAchIds.map(id => content?.achievements?.find(a => a.id === id)).filter(Boolean));
       }
       updateUser(final);
@@ -562,6 +799,22 @@ export default function LessonPage() {
   const isLastCard     = qIdx === activeDeck.length - 1 && !willRequeue;
   const explanation    = localizedText(currentCard?.explanation, locale);
 
+  // Optimistic during the lesson, replaced by the server's numbers the
+  // moment the result screen mounts.
+  const liveCoins  = (state?.coins || 0) + sessionCoins;
+  // The lifetime total, not either league's score: this pill has to climb
+  // whether the points are landing on the general board or a campus one
+  // (admin-api/routes.js#awardXp).
+  const liveXp     = (state?.lifetimeXp || 0) + sessionXp;
+  const liveEnergy = computeLiveEnergy(state, dailyFreeLessons, energyRefillHours).remaining;
+
+  // The displayed counters lag the real ones by exactly the burst's flight
+  // time, then climb one unit per step. Coins go up by one per question, so
+  // that is a single beat; XP arrives ten at a time and gets a faster step so
+  // the whole run still finishes inside a second.
+  const shownCoins = useTickUp(liveCoins, { delay: BURST_MS - 140, stepMs: 95, enabled: animationsEnabled });
+  const shownXp    = useTickUp(liveXp,    { delay: BURST_MS - 140, stepMs: 52, enabled: animationsEnabled });
+
   const pageBg         = bright ? '#f8fafc' : '#0f172a';
   const qBlockBg       = bright ? '#eff6ff' : '#0d1626';
   const qBlockBorder   = bright ? `${moduleColor}60` : `${moduleColor}35`;
@@ -576,6 +829,46 @@ export default function LessonPage() {
       className="flex flex-col px-4 pt-4 pb-6 lg:max-w-[600px] lg:mx-auto lg:pt-8"
       style={{ background: pageBg, minHeight: 'calc(100dvh - 56px)' }}
     >
+      {/* Live counters — the targets the reward burst flies into, which is
+          why they live here rather than only in the app header (which the
+          lesson player replaces). */}
+      <div className="flex items-center justify-between mb-3 px-0.5">
+        <HudChip
+          innerRef={coinChipRef}
+          bumpKey={shownCoins}
+          value={formatGrouped(shownCoins)}
+          color={qTextColor}
+          icon={
+            <span
+              className="flex items-center justify-center rounded-full shrink-0"
+              style={{ width: 21, height: 21, background: 'radial-gradient(circle at 34% 30%, #FFE082 0%, #FFC107 55%, #E8A200 100%)' }}
+            >
+              <Coins size={11} color="#8A5A00" strokeWidth={2.6} />
+            </span>
+          }
+        />
+        <HudChip
+          bumpKey={liveEnergy}
+          value={liveEnergy}
+          color={qTextColor}
+          icon={<Zap size={17} color="#38BDF8" fill="#38BDF8" />}
+        />
+        <HudChip
+          innerRef={xpChipRef}
+          bumpKey={shownXp}
+          value={formatGrouped(shownXp)}
+          color={qTextColor}
+          icon={
+            <span
+              className="flex items-center justify-center rounded-[6px] text-[9.5px] font-black text-white shrink-0"
+              style={{ width: 23, height: 19, background: '#1B6EF3' }}
+            >
+              XP
+            </span>
+          }
+        />
+      </div>
+
       {/* Header */}
       <div className="flex items-center gap-3 mb-5">
         <button
@@ -627,6 +920,7 @@ export default function LessonPage() {
               transition={{ duration: 0.18 }}
             >
               <div
+                ref={burstOrigin}
                 className={`rounded-2xl p-5 mb-5 ${shake ? 'shake' : ''}`}
                 style={{ background: qBlockBg, border: `2px solid ${qBlockBorder}` }}
               >
@@ -725,6 +1019,8 @@ export default function LessonPage() {
           </AnimatePresence>
         </>
       )}
+
+      <BurstLayer particles={particles} />
     </div>
   );
 }

@@ -28,6 +28,7 @@ import 'package:path_provider/path_provider.dart';
 import '../core/config.dart';
 import '../models/content.dart';
 import '../models/user_state.dart';
+import '../models/university.dart';
 
 /// Errors the UI is expected to render differently. Anything the user can
 /// act on gets its own case; everything else collapses to [unknown] with the
@@ -35,9 +36,15 @@ import '../models/user_state.dart';
 enum ApiErrorKind { offline, timeout, unauthorized, badRequest, server, unknown }
 
 class ApiException implements Exception {
-  const ApiException(this.kind, this.message);
+  const ApiException(this.kind, this.message, {this.status});
   final ApiErrorKind kind;
   final String message;
+
+  /// The HTTP status, when there was one. Kept alongside [kind] because a
+  /// few flows need one specific code rather than a category — the
+  /// university league treats 429 ("already gave energy this period") as a
+  /// rule with its own copy, not a failure.
+  final int? status;
 
   @override
   String toString() => 'ApiException($kind): $message';
@@ -168,6 +175,7 @@ class ApiClient {
         _ => ApiErrorKind.server,
       },
       message,
+      status: status,
     );
   }
 
@@ -257,6 +265,14 @@ class ApiClient {
         (res) => AppContent.fromJson(_asMap(res)),
       );
 
+  /// Public client config — no auth, and deliberately not cached beyond the
+  /// provider, so flipping GOOGLE_CLIENT_ID on the server reaches the app on
+  /// its next launch.
+  Future<PublicConfig> fetchPublicConfig() => _run(
+        () => _dio.get('/public/config', options: Options(extra: {'skipAuth': true})),
+        (res) => PublicConfig.fromJson(_asMap(res)),
+      );
+
   Future<AppUser> fetchMe() => _run(
         () => _dio.get('/u/me'),
         (res) => AppUser.fromJson(_asMap(res)),
@@ -300,13 +316,12 @@ class ApiClient {
         },
       );
 
-  Future<UserState> claimDaily() => _run(
+  /// The daily streak claim. Fires on every session start; `claimed` marks
+  /// the one call per day that actually rolled the streak forward, which is
+  /// what gates the streak celebration screen.
+  Future<DailyClaim> claimDaily() => _run(
         () => _dio.post('/u/me/daily'),
-        (res) {
-          final data = _asMap(res);
-          final state = data['state'] ?? data;
-          return UserState.fromJson((state as Map).cast<String, dynamic>());
-        },
+        (res) => DailyClaim.fromJson(_asMap(res)),
       );
 
   Future<UserState> buyItem(String itemId) => _run(
@@ -374,6 +389,76 @@ class ApiClient {
               .map((e) => Redemption.fromJson(e.cast<String, dynamic>()))
               .toList(growable: false),
           _ => const <Redemption>[],
+        },
+      );
+
+  // ── Account ────────────────────────────────────────────────────────────
+
+  /// Self-serve password change. [currentPassword] is omitted for a
+  /// Google-only account (AppUser.hasPassword == false), which is setting
+  /// its first password and has nothing to prove. The server revokes every
+  /// other session and returns a fresh access token, so the caller must
+  /// adopt the returned token or the next request 401s.
+  Future<({String token, AppUser user})> changePassword({
+    String? currentPassword,
+    required String newPassword,
+  }) =>
+      _run(
+        () => _dio.post('/u/me/password', data: {
+          if (currentPassword != null) 'currentPassword': currentPassword,
+          'newPassword': newPassword,
+        }),
+        (res) {
+          final data = _asMap(res);
+          return (
+            token: data['token']?.toString() ?? '',
+            user: AppUser.fromJson((data['user'] as Map).cast<String, dynamic>()),
+          );
+        },
+      );
+
+  Future<void> saveAccessToken(String token) =>
+      _storage.write(key: _accessTokenKey, value: token);
+
+  // ── University league ──────────────────────────────────────────────────
+
+  /// Persists the campus + role the picker collected. Pass both null to
+  /// leave the league.
+  Future<AppUser> setUniversity({String? universityId, String? role}) => _run(
+        () => _dio.put('/u/me/university', data: {
+          'universityId': universityId,
+          'role': role,
+        }),
+        (res) => AppUser.fromJson(_asMap(res)),
+      );
+
+  /// The live board for one campus: students ranked by XP, plus the viewer
+  /// count behind the eye badge.
+  Future<UniBoard> fetchUniBoard(String universityId, {int limit = 10}) => _run(
+        () => _dio.get('/u/university/$universityId/board',
+            queryParameters: {'limit': limit}),
+        (res) => UniBoard.fromJson(_asMap(res)),
+      );
+
+  /// A viewer hands a student energy out of their own pool. Throws with
+  /// status 429 when this viewer already gave one away this period.
+  Future<SupportResult> sendSupportEnergy(String toUserId) => _run(
+        () => _dio.post('/u/university/support', data: {'toUserId': toUserId}),
+        (res) => SupportResult.fromJson(_asMap(res)),
+      );
+
+  /// "СЕНИ КОЛДОГОНДОР" — everyone who has backed the caller.
+  Future<List<Supporter>> fetchSupporters() => _run(
+        () => _dio.get('/u/me/supporters'),
+        (res) {
+          final data = _asMap(res);
+          return switch (data['supporters']) {
+            List list => list
+                .whereType<Map>()
+                .map((e) => Supporter.fromJson(e.cast<String, dynamic>()))
+                .toList(growable: false),
+            _ => const <Supporter>[],
+          };
         },
       );
 

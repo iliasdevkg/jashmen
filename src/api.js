@@ -29,6 +29,9 @@ async function req(method, path, body, token) {
 
 export const fetchContent = () => req('GET', '/public/content');
 export const fetchPublicConfig = () => req('GET', '/public/config');
+// Four aggregate counters for the landing page's stats band. Public and
+// anonymous by design — nothing here identifies a user.
+export const fetchPublicStats = () => req('GET', '/public/stats');
 
 // Exchanges a Google id_token for this app's own session. The server
 // verifies the token, then issues the same access JWT + refresh cookie the
@@ -86,6 +89,37 @@ export async function uploadAvatar(token, file) {
   }
   return data;
 }
+
+// ── Account ─────────────────────────────────────────────────────────────
+
+// Self-serve password change. `currentPassword` is omitted for a
+// Google-only account (user.hasPassword === false) — that account is
+// setting its first password, so there is nothing to prove. Resolves to
+// { token, user }: the server revokes every other session and hands this
+// device a fresh pair, so the caller MUST adopt the returned token.
+export const changePassword = (token, currentPassword, newPassword) =>
+  req('POST', '/u/me/password', { currentPassword, newPassword }, token);
+
+// ── University league ───────────────────────────────────────────────────
+
+// Persists the campus + role the picker collected. Pass both null to leave
+// the league. Resolves to the updated public user.
+export const setUniversity = (token, universityId, role) =>
+  req('PUT', '/u/me/university', { universityId, role }, token);
+
+// The live board for one campus: students ranked by XP, the viewer count
+// behind the eye badge, and where the caller sits.
+export const fetchUniBoard = (token, universityId, limit = 10) =>
+  req('GET', `/u/university/${encodeURIComponent(universityId)}/board?limit=${limit}`, null, token);
+
+// A viewer hands a student energy out of their own pool. 429 means this
+// viewer already gave one away in the current refill period.
+export const sendSupportEnergy = (token, toUserId) =>
+  req('POST', '/u/university/support', { toUserId }, token);
+
+// "СЕНИ КОЛДОГОНДОР" — everyone who has backed the caller, one row each.
+export const fetchSupporters = (token) =>
+  req('GET', '/u/me/supporters', null, token);
 
 export const fetchPushPublicKey = () => req('GET', '/public/push-key');
 export const subscribePush = (token, subscription) =>

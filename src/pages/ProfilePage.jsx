@@ -7,6 +7,7 @@ import { getCurrentLeague } from '../utils.js';
 import * as api from '../api.js';
 import Avatar from '../components/Avatar.jsx';
 import LeagueBadge from '../components/icons/LeagueBadges.jsx';
+import { lessonIconFor } from '../../shared/lessonIconComponents.jsx';
 
 function StatCard({ icon: Icon, label, value, color, bright }) {
   return (
@@ -24,6 +25,15 @@ function StatCard({ icon: Icon, label, value, color, bright }) {
   );
 }
 
+// Icon picked from the built-in set wins over an uploaded badge (the order
+// the server stores them in), and the gold trophy is the last resort.
+function AchievementGlyph({ ach }) {
+  const Picked = lessonIconFor(ach.icon);
+  if (Picked) return <Picked size={26} color="#FFD700" strokeWidth={2.3} />;
+  if (ach.iconUrl) return <img src={ach.iconUrl} alt="" className="w-8 h-8 rounded-lg object-cover" />;
+  return <Award size={24} color="#FFD700" />;
+}
+
 function AchievementBadge({ ach, earned, bright, locale }) {
   return (
     <div
@@ -36,9 +46,7 @@ function AchievementBadge({ ach, earned, bright, locale }) {
         opacity: earned ? 1 : 0.4,
       }}
     >
-      {ach.iconUrl
-        ? <img src={ach.iconUrl} alt="" className="w-8 h-8 rounded-lg object-cover" />
-        : <Award size={24} color="#FFD700" />}
+      <AchievementGlyph ach={ach} />
       <p className="text-[10px] font-bold text-center leading-tight" style={{ color: bright ? '#0f172a' : 'white' }}>{localizedText(ach.title, locale)}</p>
     </div>
   );
@@ -107,7 +115,11 @@ export default function ProfilePage() {
   const { bright } = useBrightMode();
   const { t, locale } = useI18n();
 
+  // `xp` is the general league's score — what the league card ranks on.
+  // The "Total XP" stat is the lifetime figure, which keeps climbing
+  // while the learner is competing on a campus board instead.
   const xp = state?.xp || 0;
+  const lifetimeXp = state?.lifetimeXp || 0;
   const streak = state?.streak || 0;
   const coins = state?.coins || 0;
   const completedLessons = state?.completedLessons || [];
@@ -242,7 +254,7 @@ export default function ProfilePage() {
               className="inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full"
               style={{ background: `${myLeague.color}20`, border: `1px solid ${myLeague.color}40` }}
             >
-              <LeagueBadge id={myLeague.id} color={myLeague.color} size={20} iconUrl={myLeague.iconUrl} />
+              <LeagueBadge id={myLeague.id} color={myLeague.color} size={20} iconUrl={myLeague.iconUrl} icon={myLeague.icon} />
               <span className="text-xs font-bold" style={{ color: myLeague.color }}>{t('profile.leagueBadge', { name: localizedText(myLeague.name, locale) })}</span>
             </div>
           )}
@@ -250,7 +262,7 @@ export default function ProfilePage() {
       </motion.div>
 
       <div className="flex gap-2 mb-4">
-        <StatCard icon={Star}     label={t('profile.totalXp')} value={xp.toLocaleString()}                     color="#FFD700" bright={bright} />
+        <StatCard icon={Star}     label={t('profile.totalXp')} value={lifetimeXp.toLocaleString()}                     color="#FFD700" bright={bright} />
         <StatCard icon={Flame}    label={t('profile.streak')}  value={formatDays(streak, locale)}              color="#fb923c" bright={bright} />
         <StatCard icon={BookOpen} label={t('profile.lessons')} value={`${completedLessons.length}/${totalLessons}`} color="#1CB0F6" bright={bright} />
       </div>

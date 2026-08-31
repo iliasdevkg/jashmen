@@ -42,6 +42,102 @@ String localizedContent(dynamic value, AppLocale locale) {
   return value.toString();
 }
 
+// ── Locale-aware formatting ───────────────────────────────────────────────
+//
+// Small and hand-rolled on purpose: the app needs exactly three shapes
+// (grouped integers, a som amount, a long date) in exactly three locales,
+// and pulling in `intl` for that would add a dependency plus a locale-data
+// initialisation step at startup for no gain.
+
+/// Kyrgyz vowels, grouped by the harmony class that decides which vowel a
+/// suffix takes. `ё/ю/я` appear in Russian loanwords and abbreviations, so
+/// they map onto their nearest native class.
+const _kyVowelClass = {
+  'а': 'ы', 'ы': 'ы', 'я': 'ы',
+  'о': 'у', 'у': 'у', 'ю': 'у', 'ё': 'у',
+  'э': 'и', 'е': 'и', 'и': 'и',
+  'ө': 'ү', 'ү': 'ү',
+};
+
+const _kyVoiceless = {'к', 'п', 'с', 'т', 'ф', 'х', 'ц', 'ч', 'ш', 'щ'};
+
+/// Kyrgyz genitive: "КГТУ" → "КГТУНУН", "АУЦА" → "АУЦАНЫН",
+/// "САЛЫМБЕКОВ" → "САЛЫМБЕКОВДУН".
+///
+/// Needed because headings like "КГТУНУН ТОП 10 СТУДЕНТИ" are built from a
+/// university name that varies — concatenating one fixed suffix would be
+/// wrong for most of them. Vowel harmony picks the suffix vowel; the final
+/// letter picks the consonant (-н- after a vowel, -т- after a voiceless
+/// consonant, -д- otherwise).
+String kyGenitive(String word) {
+  final trimmed = word.trim();
+  if (trimmed.isEmpty) return trimmed;
+
+  final lower = trimmed.toLowerCase();
+  final upper = trimmed == trimmed.toUpperCase();
+
+  var vowel = 'ы';
+  for (var i = lower.length - 1; i >= 0; i--) {
+    final v = _kyVowelClass[lower[i]];
+    if (v != null) {
+      vowel = v;
+      break;
+    }
+  }
+
+  final last = lower[lower.length - 1];
+  final lead = _kyVowelClass.containsKey(last)
+      ? 'н'
+      : (_kyVoiceless.contains(last) ? 'т' : 'д');
+
+  final suffix = '$lead$vowel\u043D';  // \u043D is Cyrillic 'н'
+  return trimmed + (upper ? suffix.toUpperCase() : suffix);
+}
+
+/// 1248560 → "1 248 560". The separator is a non-breaking space so an XP
+/// figure never wraps across two lines mid-number.
+String formatGrouped(int value) {
+  final digits = value.abs().toString();
+  final buffer = StringBuffer();
+  for (var i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 == 0) buffer.write('\u00A0');
+    buffer.write(digits[i]);
+  }
+  return '${value < 0 ? '-' : ''}$buffer';
+}
+
+/// "120 000 сом" / "120 000 KGS" — the currency is written out in Kyrgyz and
+/// Russian, and given as the ISO code in English where "som" would not read.
+/// Non-breaking throughout: an amount that wraps between its digits and its
+/// currency reads as two separate facts.
+String formatSom(int amount, AppLocale locale) =>
+    '${formatGrouped(amount)}\u00A0${locale == AppLocale.en ? 'KGS' : 'сом'}';
+
+const _monthsKy = [
+  'ЯНВАРЬ', 'ФЕВРАЛЬ', 'МАРТ', 'АПРЕЛЬ', 'МАЙ', 'ИЮНЬ',
+  'ИЮЛЬ', 'АВГУСТ', 'СЕНТЯБРЬ', 'ОКТЯБРЬ', 'НОЯБРЬ', 'ДЕКАБРЬ',
+];
+
+/// Russian dates take the genitive month ("18 сентября"), which is a
+/// different word from the nominative Kyrgyz uses.
+const _monthsRu = [
+  'ЯНВАРЯ', 'ФЕВРАЛЯ', 'МАРТА', 'АПРЕЛЯ', 'МАЯ', 'ИЮНЯ',
+  'ИЮЛЯ', 'АВГУСТА', 'СЕНТЯБРЯ', 'ОКТЯБРЯ', 'НОЯБРЯ', 'ДЕКАБРЯ',
+];
+
+const _monthsEn = [
+  'JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
+  'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER',
+];
+
+/// "18 СЕНТЯБРЬ 2025" / "18 СЕНТЯБРЯ 2025" / "SEPTEMBER 18, 2025".
+/// Upper-case because every date in the design sits in a label slot.
+String formatLongDate(DateTime date, AppLocale locale) => switch (locale) {
+      AppLocale.ky => '${date.day} ${_monthsKy[date.month - 1]} ${date.year}',
+      AppLocale.ru => '${date.day} ${_monthsRu[date.month - 1]} ${date.year}',
+      AppLocale.en => '${_monthsEn[date.month - 1]} ${date.day}, ${date.year}',
+    };
+
 /// UI copy. Kept as one flat map per locale — mirrors the shape of the web
 /// app's locale files so the two stay diffable by eye.
 const Map<String, Map<String, String>> _strings = {
@@ -57,16 +153,11 @@ const Map<String, Map<String, String>> _strings = {
     'onboarding.skip': 'Өткөрүп жиберүү',
     'onboarding.next': 'Кийинки',
     'onboarding.getStarted': 'Баштайлы',
-    'onboarding.slide1.title': 'JashMenге кош келдиң!',
-    'onboarding.slide1.desc': 'Каржылык сабаттуулукту оюн ойногондой үйрөн — кызыктуу сабактар, тесттер жана сыйлыктар менен.',
-    'onboarding.slide2.title': 'Кыска сабактар, тез үйрөнүү',
-    'onboarding.slide2.desc': 'Ар бир сабак бир нече мүнөткө созулат. Суроолорго жооп берип, XP жана монета топто.',
-    'onboarding.slide3.title': 'Досторуң менен атаандаш',
-    'onboarding.slide3.desc': 'Лигаларда орун ал, рейтингде жогорулап, эң мыктылардын катарына кош.',
-    'onboarding.slide4.title': 'Чыныгы сыйлыктарды ут',
-    'onboarding.slide4.desc': 'Топтогон монетаңды дүкөндөн жана өнөктөш компаниялардан сыйлыкка алмаштыр.',
+    'onboarding.slide1.title': 'Каржы сабаттуулугун досторуң менен атаандашып үйрөн!',
+    'onboarding.slide2.title': 'Оңой үйрөн, ишенимдүү башкар!',
+    'onboarding.slide3.title': 'Акча сен үчүн иштесин!',
 
-    'auth.tagline': 'Каржылык сабаттуулук — оюн сыяктуу',
+    'auth.tagline': 'Оюн аркылуу акчаңды башкарганды үйрөн!',
     'auth.createAccount': 'Аккаунт түзүү',
     'auth.signupTitle': 'JashMen\'ге кош келиңиз',
     'auth.loginSubtitle': 'Окууну улантуу үчүн кириңиз',
@@ -85,6 +176,7 @@ const Map<String, Map<String, String>> _strings = {
     'auth.or': 'же',
     'auth.google': 'Google менен улантуу',
     'auth.googleFailed': 'Google аркылуу кирүү ишке ашкан жок',
+    'auth.googleUnavailable': 'Google менен кирүү азырынча күйгүзүлө элек',
     'auth.googleCancelled': 'Кирүү жокко чыгарылды',
 
     'learn.title': 'Окуу',
@@ -92,6 +184,7 @@ const Map<String, Map<String, String>> _strings = {
     'learn.noEnergyDesc': 'Жаңы сабактар {time} кийин ачылат',
     'learn.empty': 'Азырынча сабак жок',
     'learn.emptyDesc': 'Жакында жаңы модулдар кошулат',
+    'learn.courseFrom': 'Курс от {partner}',
 
     'lesson.start': 'Баштоо',
     'lesson.review': 'Кайталоо',
@@ -113,8 +206,8 @@ const Map<String, Map<String, String>> _strings = {
     'lesson.upToXp': '+{n} XP чейин',
     'lesson.previewCheckpoint': 'Текшерүү',
     'lesson.previewLesson': 'Сабак',
-    'lesson.previewAvailableDesc': '{n} суроодон турат. Аякта да, {xp} XPге чейин жана монета тап!',
-    'lesson.previewCompletedDesc': 'Бул сабакты мурда аяктагансың. Кайра өтүп, билимиңди чыңда.',
+    'lesson.previewAvailableDesc': '{n} суроодон турат. Сабакты аякта да, {xp}XPге чейин топто жана тыйын чогулт!',
+    'lesson.previewCompletedDesc': 'Бул сабакты мурда аяктагансың. Кайра өтүп, билимиңди бышыкта.',
     'lesson.previewGatedDesc': 'Бүгүнкү акысыз сабактарың бүттү. Дүкөндөн кошумча энергия сатып ал же эртеңге чейин күт.',
     'lesson.previewNoEnergyBadge': 'Энергия жок',
     'lesson.previewCompletedBadge': 'Аякталды',
@@ -128,10 +221,68 @@ const Map<String, Map<String, String>> _strings = {
     'league.empty': 'Азырынча катышуучу жок',
     'league.participants': 'катышуучу',
     'league.leaderXp': 'лидер XP',
-    'league.yourPlace': 'сенин орун',
+    'league.yourPlace': 'сенин ордуң',
     'league.days': '{n} күн',
     'league.locked': 'Жабык',
     'league.xpNeeded': '{n}+ XP',
+    'league.tabGeneral': 'ЖАЛПЫ ЛИГА',
+    'league.tabUni': 'УНИВЕРСИТЕТ ЛИГАСЫ',
+    'league.generalSubtitle': 'Бардык оюнчулар менен жарыш!',
+
+    'uni.roleTitle': 'РОЛЬ ТАНДА',
+    'uni.roleSubtitle': 'Университет лигасына ким болуп катышасың?',
+    'uni.roleStudent': 'СТУДЕНТ',
+    'uni.roleStudentDesc': 'Мен өзүмдүн университетимдин атынан катышам',
+    'uni.roleViewer': 'КӨРҮҮЧҮ',
+    'uni.roleViewerDesc': 'Мен катышпайм, жөн гана рейтингди көрөм',
+    'uni.pickTitle': 'ӨЗҮНДҮН УНИВЕРСИТЕТИҢДИ ТАНДА',
+    'uni.pickSubtitle': 'Кайсы университеттин атынан ойнойсуң?',
+    'uni.pickSubtitleViewer': 'Кайсы университеттин рейтингин көргүң келет?',
+    'uni.ok': 'OK',
+    'uni.close': 'Жабуу',
+    'uni.change': 'Өзгөртүү',
+    'uni.organizer': 'Уюштуруучу:',
+    'uni.address': 'Дареги:',
+    'uni.prizePool': 'БАЙГЕ ФОНДУ',
+    'uni.sponsor': 'Спонсор',
+    'uni.studentsCount': 'Катышкан студент',
+    'uni.viewersCount': 'Көрүүчүлөр',
+    'uni.totalCollectedNote': 'Бул университеттин студенттери чогулткан жалпы XP. Ар бир аяктаган сабак ушул санды өстүрөт.',
+    'uni.rulesValue': 'Эрежелер',
+    'uni.rulesLabel': 'Шарттар жана мөөнөт',
+    'uni.prizes': 'БАЙГЕ',
+    'uni.place1': '1-ОРУН',
+    'uni.place2': '2-ОРУН',
+    'uni.place3': '3-ОРУН',
+    'uni.gifts': 'БЕЛЕК',
+    'uni.giftsTop': 'ТОП {n}',
+    'uni.totalCollected': 'ЖАЛПЫ ЧОГУЛГАН',
+    'uni.start': 'БАШТАЛЫШЫ',
+    'uni.end': 'БҮТҮШҮ',
+    'uni.topStudentsTitle': '{uni} ТОП 10 СТУДЕНТИ',
+    'uni.noContestTitle': 'Бул университетте азырынча конкурс жок',
+    'uni.noContestDesc': 'Уюштуруучулар конкурсту жарыялаганда, ал ушул жерден көрүнөт.',
+    'uni.chooseAnother': 'Башка университет тандоо',
+    'uni.emptyBoard': 'Азырынча студент катталган жок',
+    'uni.viewersAria': '{n} көрүүчү',
+    'uni.viewerXpNote': 'Көрүүчүнүн XPси университет лигасына кошулбайт — жалпы лигага гана эсептелет.',
+    'uni.viewerHint': 'Студентти басып, ага энергияңды бер',
+    'uni.studentHint': 'Өз атыңды бассаң, сени колдогондорду көрөсүң',
+    'uni.you': 'Сен',
+    'uni.supportTitle': 'Лидер менен энергияңды бөлүш!',
+    'uni.supportPlace': '{n}-орунда',
+    'uni.supportYourEnergy': 'СЕНИН ЭНЕРГИЯҢ',
+    'uni.supportCta': 'ЭНЕРГИЯ БЕРҮҮ',
+    'uni.supportCtaSub': 'энергия жөнөтүү',
+    'uni.supportNote': 'Колдоо XPге таасир этпейт, бирок лидерге чоң күч берет!',
+    'uni.supportSent': '{name} сенин колдооңду алды!',
+    'uni.supportAlready': 'Бул мезгилде энергия бердиң, кийинкисин күт',
+    'uni.supportNoEnergy': 'Энергияң жетишсиз',
+    'uni.supportersTitle': 'СЕНИ КОЛДОГОНДОР',
+    'uni.supportersEmpty': 'Азырынча эч ким энергия берген жок',
+    'uni.supportersCta': 'Сени колдогондор',
+    'uni.supportersCount': '{n} колдоочу',
+    'uni.boardError': 'Рейтингди жүктөө мүмкүн болбоду',
 
     'shop.title': 'Дүкөн',
     'shop.buy': 'Сатып алуу',
@@ -143,9 +294,9 @@ const Map<String, Map<String, String>> _strings = {
     'shop.noPrizesForPartner': 'Бул өнөктөштүн азырынча сыйлыгы жок',
     'shop.redeemInstructions': 'Бул кодду көрсөтүп сыйлыгыңды ал',
     'shop.redeemed': 'Сыйлык алынды!',
-    'shop.whatIsCoinsTitle': 'Акчи деген эмне?',
+    'shop.whatIsCoinsTitle': 'Акча деген эмне?',
     'shop.whatIsCoinsDesc':
-        'Акчи — JashMenдин ички монетасы. Сабактарды аяктап акчи тап, аны дүкөндөгү буюмдарга жана өнөктөштөрдүн сыйлыктарына алмаштыр.',
+        'Акча — JashMenдин ички монетасы. Сабактарды аяктап акча тап, аны дүкөндөгү буюмдарга жана өнөктөштөрдүн сыйлыктарына алмаштыр.',
     'common.back': 'Артка',
     'common.copied': 'Көчүрүлдү',
 
@@ -167,12 +318,37 @@ const Map<String, Map<String, String>> _strings = {
     'settings.editName': 'Атын өзгөртүү',
     'settings.language': 'Тил',
     'settings.theme': 'Тема',
-    'settings.themeDark': 'Күңүрт',
+    'settings.themeDark': 'Караңгы',
     'settings.themeBright': 'Жарык',
     'settings.sound': 'Үн',
     'settings.animations': 'Анимациялар',
     'settings.logout': 'Чыгуу',
     'settings.logoutConfirm': 'Аккаунттан чыгасызбы?',
+    'settings.account': 'Аккаунт',
+    'settings.changePassword': 'Сырсөздү өзгөртүү',
+    'settings.changePasswordDesc': 'Кирүү сырсөзүн жаңылоо',
+    'settings.setPassword': 'Сырсөз коюу',
+    'settings.setPasswordDesc': 'Google менен киргенсиң — email жана сырсөз менен да кире аласың',
+    'settings.currentPassword': 'Азыркы сырсөз',
+    'settings.newPassword': 'Жаңы сырсөз',
+    'settings.repeatPassword': 'Жаңы сырсөздү кайталаңыз',
+    'settings.passwordSaved': 'Сырсөз жаңыланды',
+    'settings.passwordMismatch': 'Сырсөздөр дал келбейт',
+    'settings.passwordShort': 'Сырсөз жок дегенде 6 белгиден турушу керек',
+    'common.save': 'Сактоо',
+    'streak.dayStreak': 'күндүк серия!',
+    'streak.perfectWeekStart': 'Идеалдуу жумага жол башталды!',
+    'streak.perfectWeekHalf': 'Идеалдуу жумага жарым жол калды!',
+    'streak.perfectWeekClose': 'Идеалдуу жумага бир аз калды!',
+    'streak.perfectWeekDone': 'Идеалдуу жума! Азаматсың!',
+    'streak.continue': 'УЛАНТУУ',
+    'streak.dow0': 'Жк',
+    'streak.dow1': 'Дш',
+    'streak.dow2': 'Шш',
+    'streak.dow3': 'Шр',
+    'streak.dow4': 'Бш',
+    'streak.dow5': 'Жм',
+    'streak.dow6': 'Иш',
     'settings.about': 'Колдонмо жөнүндө',
     'settings.privacy': 'Купуялык саясаты',
     'settings.version': 'Версия',
@@ -197,16 +373,11 @@ const Map<String, Map<String, String>> _strings = {
     'onboarding.skip': 'Пропустить',
     'onboarding.next': 'Далее',
     'onboarding.getStarted': 'Начать',
-    'onboarding.slide1.title': 'Добро пожаловать в JashMen!',
-    'onboarding.slide1.desc': 'Изучай финансовую грамотность как игру — увлекательные уроки, тесты и награды.',
-    'onboarding.slide2.title': 'Короткие уроки, быстрое обучение',
-    'onboarding.slide2.desc': 'Каждый урок занимает всего пару минут. Отвечай на вопросы и получай XP и монеты.',
-    'onboarding.slide3.title': 'Соревнуйся с друзьями',
-    'onboarding.slide3.desc': 'Занимай место в лигах, поднимайся в рейтинге и попади в число лучших.',
-    'onboarding.slide4.title': 'Выигрывай настоящие призы',
-    'onboarding.slide4.desc': 'Обменивай накопленные монеты на призы в магазине и у партнёров.',
+    'onboarding.slide1.title': 'Учись финансовой грамотности, соревнуясь с друзьями!',
+    'onboarding.slide2.title': 'Учись легко, управляй уверенно!',
+    'onboarding.slide3.title': 'Пусть деньги работают на тебя!',
 
-    'auth.tagline': 'Финансовая грамотность — как игра',
+    'auth.tagline': 'Учись управлять деньгами через игру!',
     'auth.createAccount': 'Создать аккаунт',
     'auth.signupTitle': 'Добро пожаловать в JashMen',
     'auth.loginSubtitle': 'Войдите, чтобы продолжить обучение',
@@ -225,6 +396,7 @@ const Map<String, Map<String, String>> _strings = {
     'auth.or': 'или',
     'auth.google': 'Продолжить с Google',
     'auth.googleFailed': 'Не удалось войти через Google',
+    'auth.googleUnavailable': 'Вход через Google пока не включён',
     'auth.googleCancelled': 'Вход отменён',
 
     'learn.title': 'Учёба',
@@ -232,6 +404,7 @@ const Map<String, Map<String, String>> _strings = {
     'learn.noEnergyDesc': 'Новые уроки откроются через {time}',
     'learn.empty': 'Пока нет уроков',
     'learn.emptyDesc': 'Скоро появятся новые модули',
+    'learn.courseFrom': 'Курс от {partner}',
 
     'lesson.start': 'Начать',
     'lesson.review': 'Повторить',
@@ -272,6 +445,64 @@ const Map<String, Map<String, String>> _strings = {
     'league.days': '{n} дн.',
     'league.locked': 'Закрыто',
     'league.xpNeeded': '{n}+ XP',
+    'league.tabGeneral': 'ОБЩАЯ ЛИГА',
+    'league.tabUni': 'ЛИГА ВУЗОВ',
+    'league.generalSubtitle': 'Соревнуйтесь со всеми игроками!',
+
+    'uni.roleTitle': 'ВЫБЕРИ РОЛЬ',
+    'uni.roleSubtitle': 'Кем ты участвуешь в вузовской лиге?',
+    'uni.roleStudent': 'СТУДЕНТ',
+    'uni.roleStudentDesc': 'Я студент и представляю свой университет',
+    'uni.roleViewer': 'ЗРИТЕЛЬ',
+    'uni.roleViewerDesc': 'Я не участвую, только смотрю рейтинг',
+    'uni.pickTitle': 'ВЫБЕРИ СВОЙ УНИВЕРСИТЕТ',
+    'uni.pickSubtitle': 'Выбери университет, за который будешь играть',
+    'uni.pickSubtitleViewer': 'Выбери университет, чей рейтинг хочешь смотреть',
+    'uni.ok': 'OK',
+    'uni.close': 'Закрыть',
+    'uni.change': 'Изменить',
+    'uni.organizer': 'Организатор:',
+    'uni.address': 'Адрес:',
+    'uni.prizePool': 'ПРИЗОВОЙ ФОНД',
+    'uni.sponsor': 'Спонсор',
+    'uni.studentsCount': 'Участников',
+    'uni.viewersCount': 'Зрителей',
+    'uni.totalCollectedNote': 'Общий XP, собранный студентами этого вуза. Каждый пройденный урок увеличивает это число.',
+    'uni.rulesValue': 'Правила',
+    'uni.rulesLabel': 'Условия и сроки',
+    'uni.prizes': 'ПРИЗЫ',
+    'uni.place1': '1-МЕСТО',
+    'uni.place2': '2-МЕСТО',
+    'uni.place3': '3-МЕСТО',
+    'uni.gifts': 'ПОДАРКИ',
+    'uni.giftsTop': 'ТОП {n}',
+    'uni.totalCollected': 'ВСЕГО СОБРАНО',
+    'uni.start': 'НАЧАЛО',
+    'uni.end': 'ЗАВЕРШЕНИЕ',
+    'uni.topStudentsTitle': 'ТОП 10 СТУДЕНТОВ {uni}',
+    'uni.noContestTitle': 'У этого вуза пока нет конкурса',
+    'uni.noContestDesc': 'Как только организаторы его объявят, он появится здесь.',
+    'uni.chooseAnother': 'Выбрать другой университет',
+    'uni.emptyBoard': 'Пока нет зарегистрированных студентов',
+    'uni.viewersAria': '{n} зрителей',
+    'uni.viewerXpNote': 'XP зрителя не идёт в университетскую лигу — только в общую.',
+    'uni.viewerHint': 'Нажми на студента, чтобы отдать ему энергию',
+    'uni.studentHint': 'Нажми на своё имя, чтобы увидеть, кто тебя поддержал',
+    'uni.you': 'Ты',
+    'uni.supportTitle': 'Поделись энергией с лидером!',
+    'uni.supportPlace': '{n}-е место',
+    'uni.supportYourEnergy': 'ТВОЯ ЭНЕРГИЯ',
+    'uni.supportCta': 'ОТДАТЬ ЭНЕРГИЮ',
+    'uni.supportCtaSub': 'отправить энергию',
+    'uni.supportNote': 'Поддержка не влияет на XP, но даёт лидеру большую силу!',
+    'uni.supportSent': '{name} получил твою поддержку!',
+    'uni.supportAlready': 'В этом периоде ты уже отдал энергию',
+    'uni.supportNoEnergy': 'Недостаточно энергии',
+    'uni.supportersTitle': 'ТЕБЯ ПОДДЕРЖАЛИ',
+    'uni.supportersEmpty': 'Пока никто не отдал тебе энергию',
+    'uni.supportersCta': 'Кто тебя поддержал',
+    'uni.supportersCount': '{n} поддержали',
+    'uni.boardError': 'Не удалось загрузить рейтинг',
 
     'shop.title': 'Магазин',
     'shop.buy': 'Купить',
@@ -313,6 +544,31 @@ const Map<String, Map<String, String>> _strings = {
     'settings.animations': 'Анимации',
     'settings.logout': 'Выйти',
     'settings.logoutConfirm': 'Выйти из аккаунта?',
+    'settings.account': 'Аккаунт',
+    'settings.changePassword': 'Изменить пароль',
+    'settings.changePasswordDesc': 'Обновить пароль для входа',
+    'settings.setPassword': 'Установить пароль',
+    'settings.setPasswordDesc': 'Вы вошли через Google — задайте пароль, чтобы входить и по email',
+    'settings.currentPassword': 'Текущий пароль',
+    'settings.newPassword': 'Новый пароль',
+    'settings.repeatPassword': 'Повторите новый пароль',
+    'settings.passwordSaved': 'Пароль обновлён',
+    'settings.passwordMismatch': 'Пароли не совпадают',
+    'settings.passwordShort': 'Пароль минимум из 6 символов',
+    'common.save': 'Сохранить',
+    'streak.dayStreak': 'дней подряд!',
+    'streak.perfectWeekStart': 'Идеальная неделя начинается!',
+    'streak.perfectWeekHalf': 'Ты на полпути к идеальной неделе!',
+    'streak.perfectWeekClose': 'До идеальной недели совсем чуть-чуть!',
+    'streak.perfectWeekDone': 'Идеальная неделя! Молодец!',
+    'streak.continue': 'ПРОДОЛЖИТЬ',
+    'streak.dow0': 'Вс',
+    'streak.dow1': 'Пн',
+    'streak.dow2': 'Вт',
+    'streak.dow3': 'Ср',
+    'streak.dow4': 'Чт',
+    'streak.dow5': 'Пт',
+    'streak.dow6': 'Сб',
     'settings.about': 'О приложении',
     'settings.privacy': 'Политика конфиденциальности',
     'settings.version': 'Версия',
@@ -337,16 +593,11 @@ const Map<String, Map<String, String>> _strings = {
     'onboarding.skip': 'Skip',
     'onboarding.next': 'Next',
     'onboarding.getStarted': 'Get started',
-    'onboarding.slide1.title': 'Welcome to JashMen!',
-    'onboarding.slide1.desc': 'Learn financial literacy like a game — engaging lessons, quizzes, and rewards.',
-    'onboarding.slide2.title': 'Short lessons, fast learning',
-    'onboarding.slide2.desc': 'Each lesson takes just a few minutes. Answer questions to earn XP and coins.',
-    'onboarding.slide3.title': 'Compete with friends',
-    'onboarding.slide3.desc': 'Climb the leagues, rise in the rankings, and join the best.',
-    'onboarding.slide4.title': 'Win real rewards',
-    'onboarding.slide4.desc': 'Trade your coins for prizes in the shop and from partner brands.',
+    'onboarding.slide1.title': 'Learn financial literacy while competing with friends!',
+    'onboarding.slide2.title': 'Learn with ease, manage with confidence!',
+    'onboarding.slide3.title': 'Make your money work for you!',
 
-    'auth.tagline': 'Financial literacy — like a game',
+    'auth.tagline': 'Learn money management through play!',
     'auth.createAccount': 'Create account',
     'auth.signupTitle': 'Welcome to JashMen',
     'auth.loginSubtitle': 'Sign in to continue learning',
@@ -365,6 +616,7 @@ const Map<String, Map<String, String>> _strings = {
     'auth.or': 'or',
     'auth.google': 'Continue with Google',
     'auth.googleFailed': 'Google sign-in failed',
+    'auth.googleUnavailable': 'Google sign-in isn\'t switched on yet',
     'auth.googleCancelled': 'Sign-in cancelled',
 
     'learn.title': 'Learn',
@@ -372,6 +624,7 @@ const Map<String, Map<String, String>> _strings = {
     'learn.noEnergyDesc': 'New lessons unlock in {time}',
     'learn.empty': 'No lessons yet',
     'learn.emptyDesc': 'New modules are coming soon',
+    'learn.courseFrom': 'Course by {partner}',
 
     'lesson.start': 'Start',
     'lesson.review': 'Review',
@@ -412,6 +665,64 @@ const Map<String, Map<String, String>> _strings = {
     'league.days': '{n}d',
     'league.locked': 'Locked',
     'league.xpNeeded': '{n}+ XP',
+    'league.tabGeneral': 'GENERAL LEAGUE',
+    'league.tabUni': 'UNI LEAGUE',
+    'league.generalSubtitle': 'Compete with all players!',
+
+    'uni.roleTitle': 'CHOOSE A ROLE',
+    'uni.roleSubtitle': 'Who are you in the university league?',
+    'uni.roleStudent': 'STUDENT',
+    'uni.roleStudentDesc': 'I am a student and I represent my university',
+    'uni.roleViewer': 'VIEWER',
+    'uni.roleViewerDesc': "I'm not participating, just checking the rankings",
+    'uni.pickTitle': 'CHOOSE YOUR UNIVERSITY',
+    'uni.pickSubtitle': 'Choose the university you will play for',
+    'uni.pickSubtitleViewer': 'Choose the university whose rankings you want to see',
+    'uni.ok': 'OK',
+    'uni.close': 'Close',
+    'uni.change': 'Change',
+    'uni.organizer': 'Organizer:',
+    'uni.address': 'Address:',
+    'uni.prizePool': 'PRIZE POOL',
+    'uni.sponsor': 'Sponsor',
+    'uni.studentsCount': 'Students',
+    'uni.viewersCount': 'Viewers',
+    'uni.totalCollectedNote': 'The total XP this university\'s students have collected. Every finished lesson adds to it.',
+    'uni.rulesValue': 'Rules',
+    'uni.rulesLabel': 'Terms and dates',
+    'uni.prizes': 'PRIZES',
+    'uni.place1': '1st PLACE',
+    'uni.place2': '2nd PLACE',
+    'uni.place3': '3rd PLACE',
+    'uni.gifts': 'GIFTS',
+    'uni.giftsTop': 'TOP {n}',
+    'uni.totalCollected': 'TOTAL COLLECTED',
+    'uni.start': 'START',
+    'uni.end': 'END',
+    'uni.topStudentsTitle': '{uni} TOP 10 STUDENTS',
+    'uni.noContestTitle': 'This university has no contest yet',
+    'uni.noContestDesc': 'It will show up here as soon as the organisers announce one.',
+    'uni.chooseAnother': 'Choose another university',
+    'uni.emptyBoard': 'No students have signed up yet',
+    'uni.viewersAria': '{n} viewers',
+    'uni.viewerXpNote': 'A viewer\'s XP counts toward the general league only, never the university one.',
+    'uni.viewerHint': 'Tap a student to send them your energy',
+    'uni.studentHint': 'Tap your own name to see who backed you',
+    'uni.you': 'You',
+    'uni.supportTitle': 'Share your energy with the leader!',
+    'uni.supportPlace': 'Rank {n}',
+    'uni.supportYourEnergy': 'YOUR ENERGY',
+    'uni.supportCta': 'GIVE ENERGY',
+    'uni.supportCtaSub': 'send energy',
+    'uni.supportNote': 'Support doesn\'t change XP, but it powers the leader up!',
+    'uni.supportSent': '{name} got your support!',
+    'uni.supportAlready': 'You already gave energy this period',
+    'uni.supportNoEnergy': 'Not enough energy',
+    'uni.supportersTitle': 'YOUR SUPPORTERS',
+    'uni.supportersEmpty': 'Nobody has sent you energy yet',
+    'uni.supportersCta': 'Your supporters',
+    'uni.supportersCount': '{n} supporters',
+    'uni.boardError': 'Could not load the board',
 
     'shop.title': 'Shop',
     'shop.buy': 'Buy',
@@ -453,6 +764,31 @@ const Map<String, Map<String, String>> _strings = {
     'settings.animations': 'Animations',
     'settings.logout': 'Log out',
     'settings.logoutConfirm': 'Log out of your account?',
+    'settings.account': 'Account',
+    'settings.changePassword': 'Change password',
+    'settings.changePasswordDesc': 'Update your sign-in password',
+    'settings.setPassword': 'Set a password',
+    'settings.setPasswordDesc': 'You signed in with Google — add a password to sign in by email too',
+    'settings.currentPassword': 'Current password',
+    'settings.newPassword': 'New password',
+    'settings.repeatPassword': 'Repeat new password',
+    'settings.passwordSaved': 'Password updated',
+    'settings.passwordMismatch': 'Passwords do not match',
+    'settings.passwordShort': 'Password must be at least 6 characters',
+    'common.save': 'Save',
+    'streak.dayStreak': 'day streak!',
+    'streak.perfectWeekStart': 'Your perfect week starts here!',
+    'streak.perfectWeekHalf': 'You\'re halfway to your perfect week!',
+    'streak.perfectWeekClose': 'You\'re almost at a perfect week!',
+    'streak.perfectWeekDone': 'A perfect week! Nice work!',
+    'streak.continue': 'CONTINUE',
+    'streak.dow0': 'Su',
+    'streak.dow1': 'Mo',
+    'streak.dow2': 'Tu',
+    'streak.dow3': 'We',
+    'streak.dow4': 'Th',
+    'streak.dow5': 'Fr',
+    'streak.dow6': 'Sa',
     'settings.about': 'About',
     'settings.privacy': 'Privacy policy',
     'settings.version': 'Version',

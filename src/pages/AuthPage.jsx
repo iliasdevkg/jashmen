@@ -5,10 +5,15 @@ import GoogleSignInButton from '../components/GoogleSignInButton.jsx';
 import { useAuth } from '../store.jsx';
 import { useI18n } from '../i18n.jsx';
 
-export default function AuthPage() {
+// `initialMode` is which tab opens first, not a lock — the visitor can
+// still switch. The landing page's two buttons are the only callers that
+// pass it: "Акысыз баштоо" wants the sign-up tab, "Кирүү" the sign-in one,
+// and sending someone to the wrong tab after they chose is its own kind of
+// broken. Everywhere else keeps the original sign-in default.
+export default function AuthPage({ initialMode = 'login' }) {
   const { login, signup } = useAuth();
   const { t } = useI18n();
-  const [mode, setMode] = useState('login');
+  const [mode, setMode] = useState(initialMode === 'signup' ? 'signup' : 'login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -152,8 +157,9 @@ export default function AuthPage() {
             {loading ? t('common.loading') : mode === 'login' ? t('auth.login') : t('auth.createAccount')}
           </motion.button>
 
-          {/* Renders nothing unless the server reports a Google client ID,
-              so this is a no-op until GOOGLE_CLIENT_ID is configured. */}
+          {/* Always rendered, in both login and signup mode. Until
+              GOOGLE_CLIENT_ID is configured it says so on click rather than
+              disappearing — see GoogleSignInButton.jsx. */}
           <GoogleSignInButton disabled={loading} onError={setError} />
         </form>
       </motion.div>

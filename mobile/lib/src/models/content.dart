@@ -7,6 +7,7 @@
 library;
 
 import '../core/config.dart';
+import 'university.dart';
 
 enum CardType { theory, media, quiz, unknown }
 
@@ -85,6 +86,7 @@ class Lesson {
     required this.title,
     required this.cards,
     this.iconUrl,
+    this.icon,
   });
 
   final String id;
@@ -94,6 +96,11 @@ class Lesson {
   final dynamic title;
   final List<LessonCard> cards;
   final String? iconUrl;
+
+  /// Slug from the built-in glyph set (core/lesson_icons.dart), chosen in the
+  /// admin panel. Takes precedence over [iconUrl] — the server treats the two
+  /// as mutually exclusive, but an older content.json may still carry both.
+  final String? icon;
 
   factory Lesson.fromJson(Map<String, dynamic> json) {
     // utils.js#cardsOf: `cards` is authoritative; seed/legacy lessons only
@@ -115,8 +122,16 @@ class Lesson {
       title: json['title'],
       cards: cards,
       iconUrl: _asIconUrl(json['iconUrl']),
+      icon: _asIconSlug(json['icon']),
     );
   }
+}
+
+/// A built-in glyph slug (core/lesson_icons.dart), or null when unset or
+/// blank. Every icon-bearing entity stores it under the same `icon` key.
+String? _asIconSlug(dynamic value) {
+  final s = value?.toString().trim() ?? '';
+  return s.isEmpty ? null : s;
 }
 
 class Module {
@@ -126,6 +141,7 @@ class Module {
     required this.color,
     required this.lessons,
     this.iconUrl,
+    this.icon,
     this.partnerId,
   });
 
@@ -139,6 +155,11 @@ class Module {
   final String color;
   final List<Lesson> lessons;
   final String? iconUrl;
+
+  /// The small badge beside the module title. Independent of [iconUrl],
+  /// which is the large framed artwork above the path — a module can carry
+  /// both, and the badge only surfaces when the artwork is absent.
+  final String? icon;
   final String? partnerId;
 
   factory Module.fromJson(Map<String, dynamic> json) => Module(
@@ -147,6 +168,7 @@ class Module {
         color: _asString(json['color'], '#1CB0F6'),
         lessons: _asList(json['lessons'], Lesson.fromJson),
         iconUrl: _asIconUrl(json['iconUrl']),
+        icon: _asIconSlug(json['icon']),
         partnerId: json['partnerId']?.toString(),
       );
 }
@@ -158,6 +180,7 @@ class League {
     required this.color,
     required this.minXp,
     this.iconUrl,
+    this.icon,
   });
 
   final String id;
@@ -172,12 +195,16 @@ class League {
   /// _RankCard hexagon glyph set on mobile).
   final String? iconUrl;
 
+  /// Built-in glyph slug — takes precedence over [iconUrl].
+  final String? icon;
+
   factory League.fromJson(Map<String, dynamic> json) => League(
         id: _asString(json['id']),
         name: json['name'],
         color: _asString(json['color'], '#1CB0F6'),
         minXp: _asInt(json['minXp']),
         iconUrl: _asIconUrl(json['iconUrl']),
+        icon: _asIconSlug(json['icon']),
       );
 }
 
@@ -197,6 +224,7 @@ class Achievement {
     required this.description,
     required this.xp,
     this.iconUrl,
+    this.icon,
     this.rule,
   });
 
@@ -207,6 +235,9 @@ class Achievement {
   final dynamic description;
   final int xp;
   final String? iconUrl;
+
+  /// Built-in glyph slug — takes precedence over [iconUrl].
+  final String? icon;
   final AchievementRule? rule;
 
   factory Achievement.fromJson(Map<String, dynamic> json) => Achievement(
@@ -215,6 +246,7 @@ class Achievement {
         description: json['desc'],
         xp: _asInt(json['xp']),
         iconUrl: _asIconUrl(json['iconUrl']),
+        icon: _asIconSlug(json['icon']),
         rule: json['rule'] is Map
             ? AchievementRule.fromJson((json['rule'] as Map).cast<String, dynamic>())
             : null,
@@ -229,6 +261,7 @@ class ShopItem {
     required this.price,
     required this.effect,
     this.iconUrl,
+    this.icon,
   });
 
   final String id;
@@ -245,6 +278,9 @@ class ShopItem {
   final String effect;
   final String? iconUrl;
 
+  /// Built-in glyph slug — takes precedence over [iconUrl].
+  final String? icon;
+
   factory ShopItem.fromJson(Map<String, dynamic> json) => ShopItem(
         id: _asString(json['id']),
         title: json['title'],
@@ -252,6 +288,7 @@ class ShopItem {
         price: _asInt(json['price']),
         effect: _asString(json['effect']),
         iconUrl: _asIconUrl(json['iconUrl']),
+        icon: _asIconSlug(json['icon']),
       );
 }
 
@@ -300,13 +337,40 @@ class Prize {
 }
 
 class ContentLimits {
-  const ContentLimits({this.dailyFreeLessons = 3, this.dailyPrizeCap = 5});
+  const ContentLimits({
+    this.dailyFreeLessons = 3,
+    this.dailyPrizeCap = 5,
+    this.energyRefillHours = 24,
+    this.supportEnergyAmount = 5,
+    this.xpPerQuestion = 10,
+    this.coinsPerfectLesson = 10,
+    this.coinsNormalLesson = 5,
+  });
   final int dailyFreeLessons;
   final int dailyPrizeCap;
+
+  /// How often the energy allowance refills, in hours. Admin-editable
+  /// (Module В); 24 means the original UTC-midnight behaviour. See
+  /// logic.dart#computeLiveEnergy and admin-api/energy.js.
+  final int energyRefillHours;
+
+  /// University league: how much energy one viewer hands a student.
+  final int supportEnergyAmount;
+
+  /// Only used to drive the lesson HUD's optimistic counters — the server
+  /// stays the authority on what is actually awarded.
+  final int xpPerQuestion;
+  final int coinsPerfectLesson;
+  final int coinsNormalLesson;
 
   factory ContentLimits.fromJson(Map<String, dynamic> json) => ContentLimits(
         dailyFreeLessons: _asInt(json['dailyFreeLessons'], 3),
         dailyPrizeCap: _asInt(json['dailyPrizeCap'], 5),
+        energyRefillHours: _asInt(json['energyRefillHours'], 24),
+        supportEnergyAmount: _asInt(json['supportEnergyAmount'], 5),
+        xpPerQuestion: _asInt(json['xpPerQuestion'], 10),
+        coinsPerfectLesson: _asInt(json['coinsPerfectLesson'], 10),
+        coinsNormalLesson: _asInt(json['coinsNormalLesson'], 5),
       );
 }
 
@@ -319,6 +383,7 @@ class AppContent {
     required this.partners,
     required this.prizes,
     required this.limits,
+    this.universities = const [],
   });
 
   final List<Module> modules;
@@ -328,6 +393,11 @@ class AppContent {
   final List<Partner> partners;
   final List<Prize> prizes;
   final ContentLimits limits;
+
+  /// Module Г — the campuses and their contests. Server content since the
+  /// admin took ownership of it; the league screen reads this instead of a
+  /// hardcoded list.
+  final List<University> universities;
 
   factory AppContent.fromJson(Map<String, dynamic> json) => AppContent(
         modules: _asList(json['modules'], Module.fromJson),
@@ -339,6 +409,7 @@ class AppContent {
         limits: json['limits'] is Map
             ? ContentLimits.fromJson((json['limits'] as Map).cast<String, dynamic>())
             : const ContentLimits(),
+        universities: _asList(json['universities'], University.fromJson),
       );
 
   Partner? partnerById(String? id) {
@@ -354,4 +425,50 @@ class AppContent {
 
   int get totalLessons =>
       modules.fold(0, (sum, m) => sum + m.lessons.length);
+
+  /// Null for an id that is no longer in the catalogue — a campus can be
+  /// deleted in the admin while a learner still has it on their account.
+  University? universityById(String? id) {
+    if (id == null) return null;
+    for (final u in universities) {
+      if (u.id == id) return u;
+    }
+    return null;
+  }
+}
+
+
+/// GET /public/config — the handful of settings the app has to learn from
+/// the server rather than from its own build.
+///
+/// Google's client ids live here rather than in a --dart-define so that
+/// turning sign-in on is a server change, not a store release: an
+/// already-installed build starts showing the button as soon as the backend
+/// is configured.
+class PublicConfig {
+  const PublicConfig({
+    this.googleClientId,
+    this.googleClientIdIos,
+    this.googleClientIdAndroid,
+  });
+
+  /// The WEB client id — sent as Google's `serverClientId` on every
+  /// platform, because it is the audience the backend verifies against.
+  final String? googleClientId;
+
+  /// iOS needs its own client id at sign-in time. Android resolves itself
+  /// from the package name + signing certificate, so it sends none.
+  final String? googleClientIdIos;
+  final String? googleClientIdAndroid;
+
+  static String? _str(dynamic v) {
+    final s = v?.toString().trim();
+    return (s == null || s.isEmpty) ? null : s;
+  }
+
+  factory PublicConfig.fromJson(Map<String, dynamic> json) => PublicConfig(
+        googleClientId: _str(json['googleClientId']),
+        googleClientIdIos: _str(json['googleClientIdIos']),
+        googleClientIdAndroid: _str(json['googleClientIdAndroid']),
+      );
 }

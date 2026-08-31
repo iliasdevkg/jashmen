@@ -20,7 +20,6 @@ import '../state/providers.dart';
 /// from the accent so they read correctly on a dark bar and a white one.
 class _Accent {
   const _Accent._();
-  static const crown = Color(0xFFEAB308);
   static const fire = Color(0xFFF97316);
   static const coin = Color(0xFFD4A72C);
   static const energy = Color(0xFF38BDF8);
@@ -40,9 +39,11 @@ class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
     final content = ref.watch(contentProvider);
     final st = ref.watch(userStateProvider);
 
+    final limits = content.valueOrNull?.limits;
     final energy = computeLiveEnergy(
       st,
-      dailyFreeLessons: content.valueOrNull?.limits.dailyFreeLessons ?? 3,
+      dailyFreeLessons: limits?.dailyFreeLessons ?? 3,
+      energyRefillHours: limits?.energyRefillHours ?? kDefaultRefillHours,
     );
 
     // Scaffold reserves `preferredSize.height + status-bar inset` for an
@@ -72,19 +73,12 @@ class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
                   excludeFromSemantics: true,
                 ),
               ),
-              const SizedBox(width: 8),
-              Image.asset(
-                tokens.bright
-                    ? 'assets/images/wordmark_blue.png'
-                    : 'assets/images/wordmark_white.png',
-                // 12, not the web's 16: these assets are trimmed to their
-                // glyphs now, so 16 rendered wider than the web's padded
-                // original ever did and crowded the counter chips.
-                height: 12,
-                fit: BoxFit.contain,
-                semanticLabel: 'JashMen',
-              ),
-              const SizedBox(width: 8),
+              // The "Jashmen" wordmark and the achievements medal used to
+              // sit here. They are gone on purpose: once the coin and
+              // streak counts reached three or four digits the chips
+              // scrolled out of the row, and the mark alone identifies the
+              // app just as well. Achievements remain on the profile.
+              const SizedBox(width: 12),
 
               // Right-aligned, and scrollable only as a safety valve: a four
               // digit coin balance on a narrow phone should push the chips
@@ -96,11 +90,6 @@ class AppHeader extends ConsumerWidget implements PreferredSizeWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      const HeaderChip(
-                        icon: Icons.workspace_premium_rounded,
-                        tint: _Accent.crown,
-                      ),
-                      const SizedBox(width: 7),
                       HeaderChip(
                         icon: Icons.local_fire_department_rounded,
                         tint: _Accent.fire,

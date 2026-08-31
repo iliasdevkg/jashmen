@@ -52,6 +52,13 @@ dependencies:
   intl: ^0.20.2
   shared_preferences: ^2.3.3
 
+  # Short sound-effect playback (correct answer, lesson complete). Web does
+  # this with raw Web Audio oscillator beeps (src/pages/LessonPage.jsx); on
+  # mobile we play real recorded clips instead, so a package that just fires
+  # a short asset with low latency is all that's needed — no streaming, no
+  # playlist.
+  audioplayers: ^6.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -64,6 +71,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - assets/sounds/
 
 # Store icon generated from the web app's logo so the two brands match.
 flutter_launcher_icons:

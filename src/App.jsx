@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { StoreProvider, useAuth, useBrightMode } from './store.jsx';
 import { LocaleProvider } from './i18n.jsx';
@@ -6,6 +7,7 @@ import BottomNav from './components/BottomNav.jsx';
 import TopBar from './components/TopBar.jsx';
 import SideNav from './components/SideNav.jsx';
 import RightPanel from './components/RightPanel.jsx';
+import LandingPage from './pages/LandingPage.jsx';
 import OnboardingPage from './pages/OnboardingPage.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import LearnPage from './pages/LearnPage.jsx';
@@ -14,6 +16,7 @@ import LeaguePage from './pages/LeaguePage.jsx';
 import ShopPage from './pages/ShopPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
+import StreakCelebration from './components/StreakCelebration.jsx';
 
 // Task 9 — shown exactly once, on a device/browser that's never dismissed
 // it before. A returning user (or one already signed in) never sees this
@@ -22,10 +25,18 @@ import SettingsPage from './pages/SettingsPage.jsx';
 const ONBOARDED_KEY = 'fl_onboarded';
 
 function AppRoutes() {
-  const { user, loading } = useAuth();
+  const { user, loading, streakEvent, dismissStreakEvent } = useAuth();
   const { bright } = useBrightMode();
   const location = useLocation();
   const [onboarded, setOnboarded] = useState(() => localStorage.getItem(ONBOARDED_KEY) === '1');
+
+  // Read once: the display mode can't change without a fresh launch, and
+  // `navigator.standalone` is the iOS-only twin of the media query.
+  const standalone = useMemo(
+    () => window.matchMedia?.('(display-mode: standalone)').matches === true
+      || window.navigator.standalone === true,
+    [],
+  );
 
   const isLesson      = location.pathname.startsWith('/lesson/');
   const isLeaderboard = location.pathname === '/leaderboard';
@@ -40,21 +51,45 @@ function AppRoutes() {
     );
   }
 
-  // Only a signed-out visitor sees onboarding — an already-live session
-  // (restored from the refresh cookie) skips straight to the app, same as
-  // before this existed.
-  if (!user && !onboarded) {
+  // A signed-out visitor gets the marketing site at `/` and reaches the
+  // product through one of two doors:
+  //
+  //   /start — "Акысыз баштоо": onboarding first (once per browser), then
+  //            the form on its sign-up tab
+  //   /login — "Кирүү": straight to the form on its sign-in tab
+  //
+  // Before the landing page existed, `/` WAS the onboarding, so anything
+  // else 404'd into it; now anything else comes back to the front door.
+  if (!user) {
     return (
-      <OnboardingPage
-        onDone={() => {
-          localStorage.setItem(ONBOARDED_KEY, '1');
-          setOnboarded(true);
-        }}
-      />
+      <Routes>
+        <Route
+          path="/"
+          element={
+            // Launching from a home-screen icon is not a visit to the
+            // website — that person already knows what JashMen is and
+            // wants their account, not the pitch.
+            standalone ? <Navigate to="/start" replace /> : <LandingPage />
+          }
+        />
+        <Route
+          path="/start"
+          element={
+            onboarded ? <AuthPage initialMode="signup" /> : (
+              <OnboardingPage
+                onDone={() => {
+                  localStorage.setItem(ONBOARDED_KEY, '1');
+                  setOnboarded(true);
+                }}
+              />
+            )
+          }
+        />
+        <Route path="/login" element={<AuthPage initialMode="login" />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     );
   }
-
-  if (!user) return <AuthPage />;
 
   return (
     <div className="flex flex-1" style={{ background: rootBg }}>
@@ -99,6 +134,20 @@ function AppRoutes() {
       <div className="lg:hidden">
         <BottomNav />
       </div>
+
+      {/* Streak screen — over everything, including the lesson player, since
+          it only ever fires on the first session of a new day. */}
+      <AnimatePresence>
+        {streakEvent && (
+          <StreakCelebration
+            key="streak"
+            streak={streakEvent.streak}
+            activeDays={streakEvent.activeDays}
+            bright={bright}
+            onDismiss={dismissStreakEvent}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

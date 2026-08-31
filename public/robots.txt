@@ -6,4 +6,10 @@ Allow: /
 Disallow: /admin
 Disallow: /admin/
 
+# The two doors into the product. Both are sign-in forms with no content of
+# their own, and every other app route now redirects a logged-out visitor to
+# the landing page — so these are the only thin pages a crawler can reach.
+Disallow: /start
+Disallow: /login
+
 Sitemap: https://jashmenstudio.com/sitemap.xml
