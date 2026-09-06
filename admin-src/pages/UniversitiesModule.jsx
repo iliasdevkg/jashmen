@@ -14,7 +14,7 @@ import { Plus, Trash2, GraduationCap, Trophy, CalendarDays } from 'lucide-react'
 import * as api from '../api.js';
 import {
   Card, Field, TextInput, Button, EmptyState, ErrorNote,
-  TrilingualInput, ImageUpload, previewText,
+  TrilingualInput, ImageUpload, ColorPicker, previewText,
 } from '../components/ui.jsx';
 
 const BLANK_TRI = { ky: '', ru: '', en: '' };
@@ -212,22 +212,12 @@ function UniversityForm({ token, university, onDone, onCancel }) {
       <TrilingualInput label="Толук аты (карточкада)" value={name} onChange={setName} kyRequired />
       <TrilingualInput label="Кыска аты (рейтингдин аталышында)" value={shortName} onChange={setShortName} kyRequired />
 
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Түсү">
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={color}
-              onChange={e => setColor(e.target.value)}
-              className="w-10 h-10 rounded-lg bg-transparent border border-white/10 shrink-0 cursor-pointer"
-            />
-            <TextInput value={color} onChange={e => setColor(e.target.value)} className="flex-1" />
-          </div>
-        </Field>
-        <Field label="Гербы / логотиби">
-          <ImageUpload token={token} url={logoUrl} onChange={u => setLogoUrl(u || '')} variant="inline" shape="circle" />
-        </Field>
-      </div>
+      <Field label="Гербы / логотиби">
+        <ImageUpload token={token} url={logoUrl} onChange={u => setLogoUrl(u || '')} variant="inline" shape="circle" />
+      </Field>
+      <Field label="Түсү">
+        <ColorPicker value={color} onChange={setColor} />
+      </Field>
 
       <div
         className="flex items-center justify-between rounded-xl px-3 py-2.5 mt-1"

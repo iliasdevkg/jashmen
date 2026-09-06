@@ -1,208 +1,28 @@
-// admin-src/pages/LandingModule.jsx — the public marketing page's copy.
+// admin-src/components/SectionsEditor.jsx — the editor both marketing pages
+// are written in.
 //
-// jashmenstudio.com used to open straight onto the sign-in wall, so the only
-// thing a visitor (or a search engine) could learn about JashMen was what fit
-// in index.html's <head>. The landing page fixed that, and every word on it
-// is edited here rather than in the frontend bundle: marketing copy changes
-// far more often than code ships.
+// A page is a list of sections; a section is a handful of trilingual fields,
+// optionally a url or two, optionally one repeatable list. That shape is
+// declared once per page as a table (see BusinessModule.jsx) and this
+// component renders it: a sidebar of sections on the left, the selected
+// section's fields on the right. Saving PUTs only the section being edited,
+// so two people editing different sections cannot clobber each other.
 //
-// Two panes, same shape as the university manager: sections on the left,
-// the selected section's fields on the right. Saving PUTs only the section
-// on screen — the backend merges it over the rest
-// (contentStore.js#sanitizeLanding), so an in-progress edit somewhere else
-// can never be clobbered by this one.
+// It was extracted from the landing editor when the business site got its
+// own copy in the store — the field kinds are identical, and a second copy
+// of this form would have drifted from the first within a month.
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Rocket, BarChart3, BookOpen, ListOrdered, GraduationCap, Gamepad2,
-  Smartphone, HelpCircle, Link2, Plus, Trash2, ArrowUp, ArrowDown,
-  Eye, EyeOff, ExternalLink, Check, Megaphone, MessageSquareQuote, User, Building2,
+  Plus, Trash2, ArrowUp, ArrowDown, Eye, EyeOff, ExternalLink, Check,
+  Film, Upload, ImageIcon, Link as LinkIcon,
 } from 'lucide-react';
+
 import * as api from '../api.js';
 import {
   Card, Field, TextInput, Select, Button, ErrorNote, TrilingualInput, ImageUpload, previewText,
-} from '../components/ui.jsx';
-import IconPicker from '../components/IconPicker.jsx';
+} from './ui.jsx';
+import IconPicker from './IconPicker.jsx';
 
-// Mirrors contentStore.js#LANDING_SECTIONS field for field. The backend
-// silently drops anything not listed there, so a field added here without
-// its counterpart would look like it saved and then vanish on reload.
-const SECTIONS = [
-  {
-    key: 'hero', label: 'Башкы экран', icon: Rocket,
-    hint: 'Келген адам биринчи көргөн нерсе. Ураан кыска жана так болсун.',
-    fields: [
-      { key: 'eyebrow', label: 'Үстүңкү кичине жазуу' },
-      { key: 'title', label: 'Негизги ураан', multiline: true },
-      { key: 'subtitle', label: 'Түшүндүрмө', multiline: true },
-      { key: 'primaryCta', label: 'Негизги баскычтын жазуусу' },
-      { key: 'secondaryCta', label: 'Экинчи баскычтын жазуусу' },
-      { key: 'badgeLabel', label: 'Жашыл ромбдогу жазуу' },
-    ],
-    selects: [
-      {
-        key: 'badgeStat',
-        label: 'Жашыл ромбдо кайсы сан турат',
-        // The number itself is never typed in — it is read from the live
-        // database, so it cannot go stale the way "200+ өнөктөш" would.
-        help: 'Сан сервердин чыныгы маалыматынан алынат, кол менен жазылбайт.',
-        options: [
-          { value: 'universities', label: 'Университеттердин саны' },
-          { value: 'learners', label: 'Окуучулардын саны' },
-          { value: 'lessons', label: 'Сабактардын саны' },
-          { value: 'xp', label: 'Жалпы чогултулган XP' },
-          { value: 'none', label: 'Ромб көрсөтүлбөсүн' },
-        ],
-      },
-    ],
-  },
-  {
-    key: 'ribbon', label: 'Чуркаган лента', icon: Megaphone,
-    hint: 'Геройдун астындагы сары тилке. Кыска сөз тиркештери — үч сөздөн ашса окулбай калат.',
-    fields: [],
-    list: {
-      key: 'items', label: 'Тиркештер', addLabel: 'Тиркеш кошуу', max: 10,
-      fields: [{ key: 'text', label: 'Текст' }],
-    },
-  },
-  {
-    key: 'stats', label: 'Сандар', icon: BarChart3,
-    hint: 'Сандардын өзү сервердин чыныгы маалыматынан алынат — бул жерде алардын аталыштары гана.',
-    fields: [
-      { key: 'title', label: 'Бөлүмдүн аталышы' },
-      { key: 'subtitle', label: 'Түшүндүрмө', multiline: true },
-      { key: 'learnersLabel', label: 'Окуучулардын саны — аталышы' },
-      { key: 'lessonsLabel', label: 'Сабактардын саны — аталышы' },
-      { key: 'universitiesLabel', label: 'Университеттердин саны — аталышы' },
-      { key: 'xpLabel', label: 'Жалпы XP — аталышы' },
-    ],
-  },
-  {
-    key: 'features', label: 'Эмне үйрөнөт', icon: BookOpen,
-    hint: 'Долбоордун негизги пайдасы. 3–6 карточка эң жакшы иштейт.',
-    fields: [
-      { key: 'title', label: 'Бөлүмдүн аталышы' },
-      { key: 'subtitle', label: 'Түшүндүрмө', multiline: true },
-    ],
-    list: {
-      key: 'items', label: 'Карточкалар', addLabel: 'Карточка кошуу', max: 12, icon: true,
-      fields: [
-        { key: 'title', label: 'Аталышы' },
-        { key: 'text', label: 'Тексти', multiline: true },
-      ],
-    },
-  },
-  {
-    key: 'steps', label: 'Кантип иштейт', icon: ListOrdered,
-    hint: 'Номерленген кадамдар. Үчөө идеалдуу.',
-    fields: [
-      { key: 'title', label: 'Бөлүмдүн аталышы' },
-      { key: 'subtitle', label: 'Түшүндүрмө', multiline: true },
-    ],
-    list: {
-      key: 'items', label: 'Кадамдар', addLabel: 'Кадам кошуу', max: 8, icon: true,
-      fields: [
-        { key: 'title', label: 'Аталышы' },
-        { key: 'text', label: 'Тексти', multiline: true },
-      ],
-    },
-  },
-  {
-    key: 'uni', label: 'Университет лигасы', icon: GraduationCap,
-    hint: 'Университеттердин өзү «Университеттер» табынан алынат — бул жерде айланасындагы текст гана.',
-    fields: [
-      { key: 'title', label: 'Бөлүмдүн аталышы' },
-      { key: 'subtitle', label: 'Түшүндүрмө', multiline: true },
-      { key: 'cta', label: 'Баскычтын жазуусу' },
-      { key: 'prizeLabel', label: '«Байге фонду» аталышы' },
-    ],
-  },
-  {
-    key: 'partners', label: 'Өнөктөш логотиптери', icon: Building2,
-    hint: 'Логотиптер «Өнөктөштөр» табындагы чыныгы тизмеден алынат — логотиби жүктөлгөндөр гана чыгат. Бул жерде үстүндөгү жазуу гана.',
-    fields: [
-      { key: 'title', label: 'Үстүндөгү жазуу' },
-    ],
-  },
-  {
-    key: 'gamification', label: 'Геймификация', icon: Gamepad2,
-    hint: 'XP, серия, монета, дүкөн — окуучуну кармап турган нерселер.',
-    fields: [
-      { key: 'title', label: 'Бөлүмдүн аталышы' },
-      { key: 'subtitle', label: 'Түшүндүрмө', multiline: true },
-    ],
-    list: {
-      key: 'items', label: 'Карточкалар', addLabel: 'Карточка кошуу', max: 12, icon: true,
-      fields: [
-        { key: 'title', label: 'Аталышы' },
-        { key: 'text', label: 'Тексти', multiline: true },
-      ],
-    },
-  },
-  {
-    key: 'testimonials', label: 'Пикирлер', icon: MessageSquareQuote,
-    hint: 'Демейки тексттер — ойлоп табылган. Чыныгы пикирлерге алмаштырыңыз: жасалма отзыв — бул беттеги жалгыз ишенимди буза турган нерсе.',
-    fields: [
-      { key: 'title', label: 'Бөлүмдүн аталышы' },
-      { key: 'subtitle', label: 'Түшүндүрмө', multiline: true },
-    ],
-    list: {
-      key: 'items', label: 'Пикирлер', addLabel: 'Пикир кошуу', max: 12,
-      titleKey: 'name',
-      // A person's name is the same in all three languages, and their photo
-      // is an upload rather than an icon slug — both sit outside the
-      // trilingual fields below.
-      plains: [{ key: 'name', label: 'Аты', placeholder: 'Айпери' }],
-      images: [{ key: 'avatarUrl', label: 'Сүрөтү (милдеттүү эмес)' }],
-      fields: [
-        { key: 'role', label: 'Кайсы университет, курс' },
-        { key: 'text', label: 'Пикирдин тексти', multiline: true },
-      ],
-    },
-  },
-  {
-    key: 'download', label: 'Колдонмону жүктөө', icon: Smartphone,
-    hint: 'APK шилтемесин койсоңуз — жүктөө баскычы чыгат. Бош калса баскыч көрүнбөйт.',
-    fields: [
-      { key: 'title', label: 'Бөлүмдүн аталышы' },
-      { key: 'subtitle', label: 'Түшүндүрмө', multiline: true },
-      { key: 'apkLabel', label: 'Жүктөө баскычынын жазуусу' },
-      { key: 'webCta', label: 'Браузерде ачуу баскычы' },
-      { key: 'note', label: 'Кичине эскертүү' },
-    ],
-    links: [
-      { key: 'apkUrl', label: 'APK шилтемеси', placeholder: 'https://... же /downloads/jashmen.apk' },
-    ],
-  },
-  {
-    key: 'faq', label: 'Суроо-жооп', icon: HelpCircle,
-    hint: 'Адамдар кайра-кайра берген суроолор. Ар бир жооп 1–3 сүйлөм.',
-    fields: [
-      { key: 'title', label: 'Бөлүмдүн аталышы' },
-      { key: 'subtitle', label: 'Түшүндүрмө (бош калса көрүнбөйт)', multiline: true },
-    ],
-    list: {
-      key: 'items', label: 'Суроолор', addLabel: 'Суроо кошуу', max: 20,
-      fields: [
-        { key: 'q', label: 'Суроо' },
-        { key: 'a', label: 'Жооп', multiline: true },
-      ],
-    },
-  },
-  {
-    key: 'footer', label: 'Ылдыйкы бөлүк', icon: Link2,
-    hint: 'Байланыш маалыматы жана автордук укук.',
-    fields: [
-      { key: 'tagline', label: 'Кыска сүрөттөмө' },
-      { key: 'rights', label: 'Автордук укук' },
-    ],
-    links: [
-      { key: 'instagram', label: 'Instagram шилтемеси', placeholder: 'https://www.instagram.com/...' },
-    ],
-    plains: [
-      { key: 'email', label: 'Байланыш почтасы', placeholder: 'jashmenstudio@gmail.com' },
-    ],
-  },
-];
 
 const SITE_URL = 'https://jashmenstudio.com/';
 
@@ -228,23 +48,128 @@ function move(list, from, to) {
   return next;
 }
 
-export default function LandingModule({ token, onAuthError }) {
+// The B2B page's hero video. One control, two ways in, because both are what
+// people actually have: a file (the panel's uploader already accepts
+// mp4/webm/mov up to 25MB — admin-api/uploads.js) and a YouTube or Vimeo
+// link, which is what a marketing team is far more likely to own.
+//
+// An empty field is a supported state, not a missing one: the site then
+// renders the hero with no play button at all rather than a control that
+// opens nothing. That is what the "Бош калса" line under the field says, and
+// it is why there is a clear button.
+function VideoField({ token, label, url, onChange }) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+
+  const hosted = /youtube\.com|youtu\.be|vimeo\.com/i.test(url);
+  const isFile = url && !hosted;
+
+  async function upload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setError('');
+    try {
+      const { url: u } = await api.uploadMedia(token, file);
+      onChange(u);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+      // Let the same file be picked again after a failure.
+      e.target.value = '';
+    }
+  }
+
+  return (
+    <Field label={label}>
+      {url && (
+        <div
+          className="rounded-xl overflow-hidden mb-2.5"
+          style={{ background: '#0b1220', border: '1px solid #1e293b' }}
+        >
+          {isFile ? (
+            // eslint-disable-next-line jsx-a11y/media-has-caption
+            <video src={url} controls className="w-full max-h-56 bg-black" />
+          ) : (
+            <div className="flex items-center gap-2.5 px-3.5 py-3">
+              <LinkIcon size={15} className="shrink-0" style={{ color: '#1CB0F6' }} />
+              <a
+                href={url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-[12.5px] text-slate-300 truncate hover:text-white transition-colors"
+              >
+                {url}
+              </a>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <label
+          className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm cursor-pointer"
+          style={{ background: '#0f172a', border: '1.5px dashed #334155', color: '#94a3b8' }}
+        >
+          <Upload size={14} />
+          {uploading ? 'Жүктөлүүдө...' : url ? 'Файл алмаштыруу' : 'Видео файл жүктөө'}
+          <input type="file" accept="video/mp4,video/webm,video/quicktime" className="hidden" onChange={upload} />
+        </label>
+        {url && (
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            className="p-2.5 rounded-xl shrink-0"
+            style={{ background: '#0f172a', border: '1.5px solid #334155', color: '#f87171' }}
+            title="Видеону алып салуу"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
+      </div>
+
+      <div className="mt-2.5">
+        <TextInput
+          value={url}
+          onChange={e => onChange(e.target.value)}
+          placeholder="же YouTube / Vimeo шилтемеси: https://youtu.be/..."
+        />
+      </div>
+
+      {error && <p className="text-[11.5px] text-red-400 mt-1.5">{error}</p>}
+      <p className="text-[11px] text-slate-600 mt-1.5 leading-relaxed">
+        Бош калса — башкы бетте ойнотуу баскычы такыр чыкпайт. Файл 25 МБ чейин.
+      </p>
+    </Field>
+  );
+}
+
+
+// The editor itself, driven entirely by a section table. Two pages run
+// through it — the student landing (SECTIONS above) and the business site
+// (BUSINESS_SECTIONS in BusinessModule.jsx) — because the field kinds are
+// identical and a second copy of 300 lines of form would drift from this
+// one within a month.
+export function SectionsEditor({
+  token, onAuthError, sections, fetchAll, saveOne, title, hint, siteUrl,
+}) {
   const [landing, setLanding] = useState(null);
-  const [active, setActive] = useState(SECTIONS[0].key);
+  const [active, setActive] = useState(sections[0].key);
   const [draft, setDraft] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
 
-  const spec = SECTIONS.find(s => s.key === active);
+  const spec = sections.find(s => s.key === active);
 
   useEffect(() => {
-    api.fetchLanding(token)
+    fetchAll(token)
       .then(setLanding)
       .catch(e => { if (e.status === 401) onAuthError(); else setError(e.message); })
       .finally(() => setLoading(false));
-  }, [token, onAuthError]);
+  }, [token, onAuthError, fetchAll]);
 
   // The draft is per-section: switching tabs re-seeds it from the server
   // copy, so a half-typed sentence never leaks into a section it wasn't
@@ -272,7 +197,7 @@ export default function LandingModule({ token, onAuthError }) {
     setSaving(true);
     setError('');
     try {
-      const next = await api.saveLanding(token, { [active]: draft });
+      const next = await saveOne(token, { [active]: draft });
       setLanding(next);
       setSaved(true);
       setTimeout(() => setSaved(false), 2200);
@@ -293,13 +218,11 @@ export default function LandingModule({ token, onAuthError }) {
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-black text-white">Landing бет</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            jashmenstudio.com дарегине кирген ар бир адам көргөн бет. Үч тилде тең толтуруңуз.
-          </p>
+          <h2 className="text-lg font-black text-white">{title}</h2>
+          <p className="text-xs text-slate-500 mt-0.5">{hint}</p>
         </div>
         <a
-          href={SITE_URL}
+          href={siteUrl}
           target="_blank"
           rel="noreferrer"
           className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-slate-300 transition-colors hover:text-white"
@@ -312,7 +235,7 @@ export default function LandingModule({ token, onAuthError }) {
       <div className="flex flex-col lg:flex-row gap-5 items-start">
         {/* Sections */}
         <div className="w-full lg:w-60 shrink-0 flex lg:flex-col gap-1.5 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0">
-          {SECTIONS.map(({ key, label, icon: Icon }) => {
+          {sections.map(({ key, label, icon: Icon }) => {
             const on = landing[key]?.enabled !== false;
             return (
               <button
@@ -395,6 +318,24 @@ export default function LandingModule({ token, onAuthError }) {
                     value={draft[f.key] || ''}
                     onChange={e => setField(f.key, e.target.value)}
                     placeholder={f.placeholder}
+                  />
+                </Field>
+              ))}
+              {spec.video && (
+                <VideoField
+                  token={token}
+                  label={spec.video.label}
+                  url={draft[spec.video.key] || ''}
+                  onChange={v => setField(spec.video.key, v)}
+                />
+              )}
+              {(spec.images || []).map(f => (
+                <Field key={f.key} label={f.label}>
+                  <ImageUpload
+                    token={token}
+                    url={draft[f.key] || ''}
+                    onChange={v => setField(f.key, v)}
+                    emptyIcon={Film}
                   />
                 </Field>
               ))}
@@ -490,7 +431,7 @@ export default function LandingModule({ token, onAuthError }) {
                           url={row[f.key] || ''}
                           variant="inline"
                           shape="circle"
-                          emptyIcon={User}
+                          emptyIcon={ImageIcon}
                           onChange={url => setItem(list.key, i, { [f.key]: url })}
                         />
                       </div>

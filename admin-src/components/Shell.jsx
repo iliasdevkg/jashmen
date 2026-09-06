@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { LayoutGrid, Building2, Sliders, BarChart3, LogOut, RefreshCw, Trophy, Award, BellRing, ShoppingBag, GraduationCap, Globe } from 'lucide-react';
+import { LayoutGrid, Building2, Sliders, BarChart3, LogOut, RefreshCw, Trophy, Award, BellRing, ShoppingBag, GraduationCap, Globe, Users, Inbox } from 'lucide-react';
 import { useAdminAuth } from '../store.jsx';
 import * as api from '../api.js';
 import LessonsModule from '../pages/LessonsModule.jsx';
@@ -10,8 +10,10 @@ import UniversitiesModule from '../pages/UniversitiesModule.jsx';
 import ShopModule from '../pages/ShopModule.jsx';
 import RetentionModule from '../pages/RetentionModule.jsx';
 import LimitsModule from '../pages/LimitsModule.jsx';
-import LandingModule from '../pages/LandingModule.jsx';
+import BusinessModule from '../pages/BusinessModule.jsx';
+import UsersModule from '../pages/UsersModule.jsx';
 import AnalyticsModule from '../pages/AnalyticsModule.jsx';
+import LeadsModule from '../pages/LeadsModule.jsx';
 
 const TABS = [
   { id: 'lessons',      label: 'Сабактар',      icon: LayoutGrid },
@@ -21,9 +23,11 @@ const TABS = [
   { id: 'universities', label: 'Университеттер', icon: GraduationCap },
   { id: 'shop',         label: 'Дүкөн',         icon: ShoppingBag },
   { id: 'retention',    label: 'Кармап калуу',  icon: BellRing },
-  { id: 'landing',      label: 'Landing бет',   icon: Globe },
+  { id: 'business',     label: 'Бизнес бет',    icon: Globe },
   { id: 'limits',       label: 'Лимиттер',      icon: Sliders },
+  { id: 'users',        label: 'Колдонуучулар', icon: Users },
   { id: 'analytics',    label: 'Аналитика',     icon: BarChart3 },
+  { id: 'leads',        label: 'Кайрылуулар',   icon: Inbox },
 ];
 
 export default function Shell() {
@@ -53,7 +57,7 @@ export default function Shell() {
           <div className="w-8 h-8 rounded-lg flex items-center justify-center font-extrabold text-white text-sm" style={{ background: '#1CB0F6' }}>J</div>
           <span className="font-extrabold text-white text-[15px]">JashMen Админ</span>
         </div>
-        <div className="flex flex-col gap-0.5 px-3 flex-1">
+        <div className="flex flex-col gap-0.5 px-3 flex-1 overflow-y-auto">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -94,9 +98,11 @@ export default function Shell() {
             {tab === 'universities' && <UniversitiesModule token={token} content={content} reload={reload} onAuthError={logout} />}
             {tab === 'shop'         && <ShopModule         token={token} content={content} reload={reload} onAuthError={logout} />}
             {tab === 'retention'    && <RetentionModule    token={token} content={content} reload={reload} onAuthError={logout} />}
-            {tab === 'landing'      && <LandingModule      token={token} onAuthError={logout} />}
+            {tab === 'business'     && <BusinessModule     token={token} onAuthError={logout} />}
             {tab === 'limits'       && <LimitsModule       token={token} onAuthError={logout} />}
+            {tab === 'users'        && <UsersModule        token={token} onAuthError={logout} />}
             {tab === 'analytics'    && <AnalyticsModule    token={token} content={content} onAuthError={logout} />}
+            {tab === 'leads'        && <LeadsModule        token={token} onAuthError={logout} />}
           </div>
         )}
       </main>

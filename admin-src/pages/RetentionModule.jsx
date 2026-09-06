@@ -5,12 +5,34 @@
 // is the only lever a re-engagement campaign needs — see
 // admin-api/push.js#sendRetentionReminders for how a rule actually fires.
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, BellRing, Send, Check, X } from 'lucide-react';
+import { Plus, Trash2, BellRing, Send, Check, X, Flame } from 'lucide-react';
 import * as api from '../api.js';
 import { Card, Field, TextInput, Button, EmptyState, ErrorNote, TrilingualInput, previewText } from '../components/ui.jsx';
 
 function kyOf(v) {
   return (typeof v === 'string' ? v : v?.ky || '').trim();
+}
+
+// One campaign's button plus its own report. Both campaigns return the same
+// four keys (push.js), so one component covers both.
+function SendNow({ icon: Icon, label, hint, busy, disabled, result, onSend }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Button variant="ghost" className="self-start" onClick={onSend} loading={busy} disabled={disabled && !busy}>
+        <Icon size={14} /> {label}
+      </Button>
+      <p className="text-[11px] text-slate-600">{hint}</p>
+      {result && (
+        result.error
+          ? <ErrorNote>{result.error}</ErrorNote>
+          : <p className="text-xs text-slate-500">
+              {result.candidateUsers} колдонуучу дал келди · {result.sent} билдирүү жиберилди
+              {result.removedDead > 0 && ` · ${result.removedDead} жараксыз жазылуу өчүрүлдү`}
+              {result.alreadyReminded > 0 && ` · ${result.alreadyReminded} колдонуучу бүгүн эскертүү алган, кайра жиберилген жок`}
+            </p>
+      )}
+    </div>
+  );
 }
 
 function RuleForm({ token, rule, onDone, onCancel }) {
@@ -64,11 +86,14 @@ function RuleForm({ token, rule, onDone, onCancel }) {
   );
 }
 
-export default function RetentionModule({ token, content, reload }) {
+export default function RetentionModule({ token, content, reload, onAuthError }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [sending, setSending] = useState(false);
-  const [result, setResult] = useState(null);
+  // Keyed by campaign ('retention' | 'streak'). Both buttons used to share
+  // one slot, so firing either wiped the other's report with nothing on
+  // screen saying which run the numbers belonged to.
+  const [sending, setSending] = useState(null);
+  const [results, setResults] = useState({});
   const [pushEnabled, setPushEnabled] = useState(true);
 
   useEffect(() => {
@@ -88,16 +113,20 @@ export default function RetentionModule({ token, content, reload }) {
     reload();
   };
 
-  const handleSendNow = async () => {
-    setSending(true);
-    setResult(null);
+  const handleSendNow = async (campaign) => {
+    setSending(campaign);
+    setResults(prev => ({ ...prev, [campaign]: null }));
+    const send = campaign === 'streak'
+      ? api.sendStreakRemindersNow
+      : api.sendRetentionRemindersNow;
     try {
-      const r = await api.sendRetentionRemindersNow(token);
-      setResult(r);
+      const r = await send(token);
+      setResults(prev => ({ ...prev, [campaign]: r }));
     } catch (err) {
-      setResult({ error: err.message });
+      if (err.status === 401) { onAuthError(); return; }
+      setResults(prev => ({ ...prev, [campaign]: { error: err.message } }));
     } finally {
-      setSending(false);
+      setSending(null);
     }
   };
 
@@ -158,18 +187,28 @@ export default function RetentionModule({ token, content, reload }) {
         </div>
       )}
 
-      <div className="pt-2 flex flex-col gap-2" style={{ borderTop: '1px solid #1e293b' }}>
-        <Button variant="ghost" className="self-start" onClick={handleSendNow} loading={sending}>
-          <Send size={14} /> Азыр текшерип жибер
-        </Button>
-        {result && (
-          result.error
-            ? <ErrorNote>{result.error}</ErrorNote>
-            : <p className="text-xs text-slate-500">
-                {result.candidateUsers} колдонуучу дал келди · {result.sent} билдирүү жиберилди
-                {result.removedDead > 0 && ` · ${result.removedDead} жараксыз жазылуу өчүрүлдү`}
-              </p>
-        )}
+      <div className="pt-3 flex flex-col gap-4" style={{ borderTop: '1px solid #1e293b' }}>
+        <SendNow
+          icon={Send}
+          label="Эрежелерди азыр текшерип жибер"
+          hint="Жогорудагы күйгүзүлгөн эрежелерге дал келген колдонуучуларга жиберет."
+          busy={sending === 'retention'}
+          disabled={Boolean(sending)}
+          result={results.retention}
+          onSend={() => handleSendNow('retention')}
+        />
+        {/* The streak campaign's text lives in admin-api/push.js and is not
+            editable here, so the hint has to say what will be sent — there is
+            nothing else on this screen that shows it. */}
+        <SendNow
+          icon={Flame}
+          label="Streak эскертмесин азыр жибер"
+          hint="Streak'и бар, бирок бүгүн кирбегендерге: «стригиң түн ортосунда бүтөт» деген даяр билдирүү."
+          busy={sending === 'streak'}
+          disabled={Boolean(sending)}
+          result={results.streak}
+          onSend={() => handleSendNow('streak')}
+        />
       </div>
     </div>
   );

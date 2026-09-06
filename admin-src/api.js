@@ -44,6 +44,11 @@ export const deleteModule = (token, id) => req('DELETE', `/modules/${id}`, null,
 export const createLesson = (token, moduleId, body) => req('POST', `/modules/${moduleId}/lessons`, body, token);
 export const updateLesson = (token, id, body) => req('PUT', `/lessons/${id}`, body, token);
 export const deleteLesson = (token, id) => req('DELETE', `/lessons/${id}`, null, token);
+// The whole order, not a from/to pair — see adminRoutes.js for why.
+export const reorderLessons = (token, moduleId, order) =>
+  req('PUT', `/modules/${moduleId}/lessons/order`, { order }, token);
+export const reorderModules = (token, order) =>
+  req('PUT', '/modules/order', { order }, token);
 
 export const createPartner = (token, body) => req('POST', '/partners', body, token);
 export const updatePartner = (token, id, body) => req('PUT', `/partners/${id}`, body, token);
@@ -60,6 +65,10 @@ export const saveLimits = (token, body) => req('PUT', '/limits', body, token);
 // which the backend merges over the rest (contentStore#sanitizeLanding).
 export const fetchLanding = (token) => req('GET', '/landing', null, token);
 export const saveLanding = (token, body) => req('PUT', '/landing', body, token);
+
+// The business site at `/`. Same partial-PUT contract as the landing above.
+export const fetchBusiness = (token) => req('GET', '/business', null, token);
+export const saveBusiness = (token, body) => req('PUT', '/business', body, token);
 
 export const createShopItem = (token, body) => req('POST', '/shop-items', body, token);
 export const updateShopItem = (token, id, body) => req('PUT', `/shop-items/${id}`, body, token);
@@ -84,12 +93,49 @@ export const createRetentionRule = (token, body) => req('POST', '/retention-rule
 export const updateRetentionRule = (token, id, body) => req('PUT', `/retention-rules/${id}`, body, token);
 export const deleteRetentionRule = (token, id) => req('DELETE', `/retention-rules/${id}`, null, token);
 export const sendRetentionRemindersNow = (token) => req('POST', '/push/send-retention-reminders', null, token);
+// The streak campaign's copy is hardcoded in admin-api/push.js, so unlike the
+// retention rules there is nothing on screen to edit — only a button to fire it.
+export const sendStreakRemindersNow = (token) => req('POST', '/push/send-streak-reminders', null, token);
 export const fetchPushStatus = (token) => req('GET', '/push/status', null, token);
+
+// Prize coupons learners have redeemed, newest first, joined to the learner,
+// the prize and the partner. `fulfilled` marks a code as handed to the partner.
+export const fetchRedemptions = (token) => req('GET', '/redemptions', null, token);
+
+// Prize analytics for one date range. `from`/`to` are UTC "YYYY-MM-DD";
+// omitting them asks the server for the whole history it has.
+export const fetchPrizeAnalytics = (token, { from, to, bucket } = {}) => {
+  const q = new URLSearchParams();
+  if (from) q.set('from', from);
+  if (to) q.set('to', to);
+  if (bucket) q.set('bucket', bucket);
+  const qs = q.toString();
+  return req('GET', `/analytics/prizes${qs ? `?${qs}` : ''}`, null, token);
+};
+export const setRedemptionFulfilled = (token, id, fulfilled) =>
+  req('PATCH', `/redemptions/${id}`, { fulfilled }, token);
 
 export const fetchFunnel   = (token) => req('GET', '/analytics/funnel', null, token);
 export const fetchHeatmap  = (token) => req('GET', '/analytics/heatmap', null, token);
 export const fetchOverview = (token) => req('GET', '/analytics/overview', null, token);
+// Analytics housekeeping: how many rows point at deleted lessons, and the
+// two ways to forget them.
+export const fetchStaleAnalytics = (token) => req('GET', '/analytics/stale', null, token);
+export const purgeAnalytics = (token, scope) => req('DELETE', `/analytics/events?scope=${scope}`, null, token);
+// The public forms' inbox (admin-api/leads.js). One call returns both
+// queues plus their unanswered counts, because the tab strip needs the
+// counts before anyone has chosen a queue.
+export const fetchLeads = (token) => req('GET', '/leads', null, token);
+export const setLeadHandled = (token, id, handled) =>
+  req('PATCH', `/leads/${id}`, { handled }, token);
+export const deleteLead = (token, id) => req('DELETE', `/leads/${id}`, null, token);
+
 export const fetchUsers    = (token) => req('GET', '/users', null, token);
+// Who is using the app right now. In-memory on the server, so this is a
+// live snapshot rather than history — see admin-api/presence.js.
+export const fetchOnlineUsers = (token) => req('GET', '/users/online', null, token);
+// The student side of the roster: the two-league split, and a row per campus.
+export const fetchStudentStats = (token) => req('GET', '/analytics/students', null, token);
 export const createUser    = (token, body) => req('POST', '/users', body, token);
 export const updateUser    = (token, id, body) => req('PATCH', `/users/${id}`, body, token);
 export const deleteUser    = (token, id) => req('DELETE', `/users/${id}`, null, token);

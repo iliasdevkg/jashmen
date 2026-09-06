@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import { Plus, Trash2, Trophy } from 'lucide-react';
 import * as api from '../api.js';
-import { Card, Field, TextInput, Button, EmptyState, ErrorNote, TrilingualInput, ImageUpload, previewText } from '../components/ui.jsx';
+import { Card, Field, TextInput, Button, EmptyState, ErrorNote, TrilingualInput, ImageUpload, ColorPicker, previewText } from '../components/ui.jsx';
 import IconPicker from '../components/IconPicker.jsx';
 
 function kyOf(v) {
@@ -53,17 +53,12 @@ function LeagueForm({ token, league, onDone, onCancel }) {
         onChange={next => { setIcon(next.icon); setIconUrl(next.iconUrl); }}
         emptyIcon={Trophy}
       />
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Керектүү XP (минимум)">
-          <TextInput type="number" min={0} value={minXp} onChange={e => setMinXp(e.target.value)} />
-        </Field>
-        <Field label="Түс">
-          <div className="flex items-center gap-2">
-            <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-10 h-10 rounded-lg cursor-pointer" style={{ background: 'transparent', border: 'none' }} />
-            <TextInput value={color} onChange={e => setColor(e.target.value)} className="flex-1" />
-          </div>
-        </Field>
-      </div>
+      <Field label="Керектүү XP (минимум)">
+        <TextInput type="number" min={0} value={minXp} onChange={e => setMinXp(e.target.value)} className="w-40" />
+      </Field>
+      <Field label="Түс">
+        <ColorPicker value={color} onChange={setColor} />
+      </Field>
       <ErrorNote>{error}</ErrorNote>
       <div className="flex gap-2">
         <Button onClick={handleSave} loading={saving}>Сактоо</Button>

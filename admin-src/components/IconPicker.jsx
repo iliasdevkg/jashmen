@@ -12,7 +12,7 @@
 // the app never renders. Choosing one clears the other.
 import { useMemo, useState } from 'react';
 import { Search, X } from 'lucide-react';
-import { LESSON_ICONS } from '../../shared/lessonIcons.js';
+import { LESSON_ICONS, LESSON_ICON_GROUPS } from '../../shared/lessonIcons.js';
 import { lessonIconFor } from '../../shared/lessonIconComponents.jsx';
 import { ImageUpload } from './ui.jsx';
 
@@ -42,8 +42,26 @@ export default function IconPicker({
 
   const q = query.trim().toLowerCase();
   const results = useMemo(
-    () => (q ? LESSON_ICONS.filter(i => i.label.toLowerCase().includes(q) || i.slug.includes(q)) : LESSON_ICONS),
+    () => (q
+      ? LESSON_ICONS.filter(i =>
+          i.label.toLowerCase().includes(q) ||
+          i.slug.includes(q) ||
+          i.group.toLowerCase().includes(q))
+      : LESSON_ICONS),
     [q],
+  );
+
+  // A flat wall of 138 glyphs is unusable; the headings are what make the set
+  // browsable when nobody has typed anything. A search result is already a
+  // narrow list, so it stays flat — splitting five matches across four
+  // headings would be noise.
+  const sections = useMemo(
+    () => (q
+      ? [{ group: null, items: results }]
+      : LESSON_ICON_GROUPS
+          .map(group => ({ group, items: LESSON_ICONS.filter(i => i.group === group) }))
+          .filter(s => s.items.length > 0)),
+    [q, results],
   );
 
   return (
@@ -88,7 +106,7 @@ export default function IconPicker({
             <input
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="Иконка издөө..."
+              placeholder={`Иконка издөө... (${LESSON_ICONS.length})`}
               className="w-full pl-8 pr-3 py-2 rounded-xl text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-[#1CB0F6]"
               style={{ background: '#0b1220', border: '1.5px solid #334155' }}
             />
@@ -98,31 +116,43 @@ export default function IconPicker({
             <p className="text-xs text-slate-500 py-4 text-center">«{query}» боюнча эч нерсе табылган жок</p>
           ) : (
             <div
-              className="grid gap-1.5 p-2 rounded-xl max-h-[248px] overflow-y-auto"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))', background: '#0b1220', border: '1px solid #1e293b' }}
+              className="flex flex-col gap-3 p-2 rounded-xl max-h-[320px] overflow-y-auto"
+              style={{ background: '#0b1220', border: '1px solid #1e293b' }}
             >
-              {results.map(({ slug, label }) => {
-                const Glyph = lessonIconFor(slug);
-                const active = icon === slug;
-                return (
-                  <button
-                    key={slug}
-                    type="button"
-                    title={label}
-                    aria-label={label}
-                    aria-pressed={active}
-                    // Picking from the set drops the uploaded image — see the
-                    // mutual-exclusion note at the top of this file.
-                    onClick={() => onChange({ icon: active ? null : slug, iconUrl: allowUpload ? null : iconUrl })}
-                    className="aspect-square rounded-lg flex items-center justify-center transition-colors"
-                    style={active
-                      ? { background: 'rgba(28,176,246,0.16)', border: '1.5px solid #1CB0F6', color: '#1CB0F6' }
-                      : { background: '#12141c', border: '1.5px solid #1e293b', color: '#94a3b8' }}
-                  >
-                    <Glyph size={19} strokeWidth={2.2} />
-                  </button>
-                );
-              })}
+              {sections.map(({ group, items }) => (
+                <div key={group || 'results'} className="flex flex-col gap-1.5">
+                  {group && (
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-600 px-0.5 sticky top-0 py-1"
+                       style={{ background: '#0b1220' }}>
+                      {group}
+                    </p>
+                  )}
+                  <div className="grid gap-1.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))' }}>
+                    {items.map(({ slug, label }) => {
+                      const Glyph = lessonIconFor(slug);
+                      const active = icon === slug;
+                      return (
+                        <button
+                          key={slug}
+                          type="button"
+                          title={`${label} · ${slug}`}
+                          aria-label={label}
+                          aria-pressed={active}
+                          // Picking from the set drops the uploaded image — see the
+                          // mutual-exclusion note at the top of this file.
+                          onClick={() => onChange({ icon: active ? null : slug, iconUrl: allowUpload ? null : iconUrl })}
+                          className="aspect-square rounded-lg flex items-center justify-center transition-colors"
+                          style={active
+                            ? { background: 'rgba(28,176,246,0.16)', border: '1.5px solid #1CB0F6', color: '#1CB0F6' }
+                            : { background: '#12141c', border: '1.5px solid #1e293b', color: '#94a3b8' }}
+                        >
+                          <Glyph size={19} strokeWidth={2.2} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 

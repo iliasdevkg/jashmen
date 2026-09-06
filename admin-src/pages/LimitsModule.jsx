@@ -6,7 +6,7 @@
 // XP formula, coin payouts — is tunable from the admin panel with zero code
 // changes and zero deploys.
 import { useState, useEffect } from 'react';
-import { Sliders, Gift, Zap, Star, Coins } from 'lucide-react';
+import { Sliders, Zap, Star, Coins } from 'lucide-react';
 import * as api from '../api.js';
 import { Card, Field, TextInput, Button, ErrorNote } from '../components/ui.jsx';
 
@@ -21,6 +21,7 @@ const SECTIONS = [
       { key: 'dailyFreeLessons', label: 'Бир мезгилде акысыз сабак саны', min: 1, help: 'Ушул сандан ашык сабак өткөндөн кийин студент "Жаңы энергия чыгат" экранын көрөт.' },
       { key: 'maxBonusEnergyPerDay', label: 'Монетага сатылып алынуучу кошумча энергиянын чеги', min: 0, help: '"Дүкөн" бөлүмүндөгү энергия толтуруучу товар бир мезгилде канча жолу сатылып алынышы мүмкүн.' },
       { key: 'supportEnergyAmount', label: 'Көрүүчү студентке бере турган энергия', min: 1, help: 'Университет лигасында "зритель" болуп кирген адам студентке бир мезгилде бир жолу ушунча энергия бере алат. Энергия көрүүчүнүн өз запасынан алынат.' },
+      { key: 'streakRepairEnergy', label: 'Үзүлгөн серияны кайтаруунун баасы (энергия)', min: 0, max: 10, help: 'Күн өткөрүп жиберип серияны жоготкон студент ошол эле күнү ушунча энергия сарптап аны кайтарып ала алат. Эртеси мүмкүн эмес. 0 койсоңуз — кайтаруу таптакыр өчүрүлөт, жоготкон сериясы 0 бойдон калат.' },
     ],
   },
   {
@@ -31,6 +32,7 @@ const SECTIONS = [
       { key: 'xpMinFloorPct', label: 'Минималдуу XP чеги (%)', min: 0, suffix: '%', help: 'Канча көп ката кетирсе да, негизги XPтин ушул пайызынан кем берилбейт.' },
       { key: 'xpPerfectBonusPct', label: 'Ката жок сабак үчүн бонус (%)', min: 0, suffix: '%', help: 'Бир да ката кетирилбесе, негизги XPтин ушул пайызы кошумча берилет.' },
       { key: 'xpBoostMultiplierPct', label: '"XP күчөткүч" эффектинин көбөйтүүчүсү (%)', min: 100, suffix: '%', help: '125% = 1.25x. Дүкөндөн xp_boost эффектүү товар сатып алган колдонуучуга колдонулат.' },
+      { key: 'xpPerReview', label: 'Кайталоо сабагы үчүн XP', min: 0, help: 'Аяктаган сабакты кайра өткөндө берилет. Суроонун санына көз каранды эмес жана энергия сарптабайт. 0 койсоңуз, кайталоо эч нерсе бербейт.' },
     ],
   },
   {
@@ -40,18 +42,18 @@ const SECTIONS = [
       { key: 'coinsNormalLesson', label: 'Кадимки сабак үчүн монета', min: 0 },
     ],
   },
-  {
-    title: 'Күндүк сыйлык лимити', icon: Gift, color: '#CE82FF',
-    fields: [
-      { key: 'dailyPrizeCap', label: 'Лимит (бардык колдонуучулар үчүн жалпы)', min: 1, help: 'Лимитке жеткенде "Алмаштыруу" баскычы бардык колдонуучулар үчүн 00:00гө чейин бөгөттөлөт.' },
-    ],
-  },
 ];
+
+// The "Күндүк сыйлык лимити" section used to sit here — one house-wide
+// ceiling on how many prizes could be claimed a day. It predates promo-code
+// stock: back then nothing limited how many coupons a prize could issue, so
+// a daily cap was the only brake. Every prize now carries its own finite
+// pool of codes (Өнөктөштөр → Каталог), which is a real inventory, and the
+// ceiling only stopped people claiming prizes that were genuinely in stock.
 
 const ALL_KEYS = SECTIONS.flatMap(s => s.fields.map(f => f.key));
 
 export default function LimitsModule({ token, onAuthError }) {
-  const [limits, setLimits] = useState(null);
   const [values, setValues] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -60,10 +62,7 @@ export default function LimitsModule({ token, onAuthError }) {
 
   useEffect(() => {
     api.fetchLimits(token)
-      .then(l => {
-        setLimits(l);
-        setValues(Object.fromEntries(ALL_KEYS.map(k => [k, l[k]])));
-      })
+      .then(l => setValues(Object.fromEntries(ALL_KEYS.map(k => [k, l[k]]))))
       .catch(e => { if (e.status === 401) onAuthError(); else setError(e.message); })
       .finally(() => setLoading(false));
   }, [token, onAuthError]);
@@ -109,6 +108,7 @@ export default function LimitsModule({ token, onAuthError }) {
                   <TextInput
                     type="number"
                     min={f.min}
+                    max={f.max}
                     value={values[f.key] ?? ''}
                     onChange={e => setField(f.key, e.target.value)}
                     className="w-32"
@@ -119,14 +119,6 @@ export default function LimitsModule({ token, onAuthError }) {
               {f.help && <p className="text-xs text-slate-500">{f.help}</p>}
             </div>
           ))}
-          {section.title === 'Күндүк сыйлык лимити' && limits && (
-            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl" style={{ background: '#0b1220' }}>
-              <Sliders size={14} color="#94a3b8" />
-              <span className="text-xs text-slate-300">
-                Бүгүн берилди: <span className="font-extrabold text-white">{limits.redeemedToday}</span> / {values.dailyPrizeCap}
-              </span>
-            </div>
-          )}
         </Card>
       ))}
 
