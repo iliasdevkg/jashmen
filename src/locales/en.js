@@ -251,6 +251,13 @@ export const en = {
   // ── Landing (the public marketing page) ──────────────────────────────
   'landing.privacy': 'Privacy',
   'landing.forBusiness': 'For business',
+  'settings.deleteAccount': 'Delete account',
+  'settings.deleteWarning': 'Your account will be deleted permanently: your email, name, photo, password, completed lessons, coins and coupons are gone for good. Only your university’s overall score remains, attached to nobody. This cannot be undone.',
+  'settings.deleteTypePassword': 'Type your password to confirm',
+  'settings.deleteTypeWord': 'Type “{{word}}” to confirm',
+  'settings.deleteConfirm': 'Delete permanently',
+  'settings.deleting': 'Deleting…',
+  'settings.deleteFailed': 'Could not delete. Please try again.',
   'lesson.nextLesson': 'Next lesson',
   'lesson.backToPath': 'Back to the path',
   'profile.streakSub': 'Daily streak',

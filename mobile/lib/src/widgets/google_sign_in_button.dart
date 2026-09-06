@@ -148,6 +148,20 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
     // flow the moment the config lands, with no rebuild of the screen.
     ref.watch(publicConfigProvider);
 
+    // Nothing at all until the SDK can actually run.
+    //
+    // This used to render the button anyway and explain on tap, on the
+    // reasoning that taking a sign-in method away is worse than one that is
+    // not ready. App Store review does not read it that way: a visible
+    // control that cannot do its job is a broken feature (Guideline 2.1),
+    // and on iOS — where GOOGLE_CLIENT_ID_IOS is not set — that is exactly
+    // what it was. iPhone users are not left without a social sign-in
+    // either, because Sign in with Apple sits directly below this.
+    //
+    // Set GOOGLE_CLIENT_ID_IOS on the server and the button appears on the
+    // next launch, with no store release.
+    if (!_canStartSdk) return const SizedBox.shrink();
+
     final s = StringsScope.of(context);
 
     final disabled = _busy || !widget.enabled;

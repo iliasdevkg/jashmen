@@ -71,7 +71,7 @@ export async function sendStreakReminders() {
   // and can be triggered again by hand; nothing stopped two runs on the
   // same day from pushing the same notification twice to the same phone.
   let alreadyReminded = 0;
-  const candidates = db.listUsers().filter(u => {
+  const candidates = db.listActiveUsers().filter(u => {
     if ((u.state.streak || 0) <= 0) return false;
     if (u.state.lastActiveDate === today) return false;
     if ((u.state.pushSubscriptions || []).length === 0) return false;
@@ -134,7 +134,7 @@ export async function sendRetentionReminders() {
   // Same one-per-day guard as the streak reminder above, with its own stamp
   // so the two campaigns don't suppress each other.
   let alreadyReminded = 0;
-  const candidates = db.listUsers().filter(u => {
+  const candidates = db.listActiveUsers().filter(u => {
     if (!u.state.lastActiveDate || u.state.lastActiveDate === today) return false;
     if ((u.state.pushSubscriptions || []).length === 0) return false;
     const inactiveDays = daysBetweenUTC(u.state.lastActiveDate, today);

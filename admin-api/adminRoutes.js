@@ -742,7 +742,7 @@ router.get('/users/online', (req, res) => {
 // A safe projection of each user record for the admin's monitoring/cleanup
 // list — passwordHash and googleSub never leave this endpoint.
 router.get('/users', (req, res) => {
-  const list = db.listUsers().map(u => ({
+  const list = db.listActiveUsers().map(u => ({
     id: u.id,
     name: u.name,
     email: u.email,

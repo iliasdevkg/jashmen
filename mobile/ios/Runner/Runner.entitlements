@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- "Sign in with Apple", required by App Store Guideline 4.8 anywhere a
+	     third-party sign-in ships.
+
+	     THIS FILE IS ONLY HALF OF IT. The capability also has to be enabled
+	     on the App ID (com.jashmenstudio.jashmen) in the Apple Developer
+	     portal, and the provisioning profile regenerated afterwards —
+	     otherwise the build is signed against a profile that does not carry
+	     the entitlement and the archive is rejected at upload with a
+	     signing error rather than anything that names Apple sign-in.
+	     See docs/STORE_SUBMISSION.md. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+</dict>
+</plist>

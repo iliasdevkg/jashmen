@@ -17,6 +17,7 @@ import '../core/i18n.dart';
 import '../core/theme.dart';
 import '../state/providers.dart';
 import '../widgets/brand_pill_button.dart';
+import '../widgets/apple_sign_in_button.dart';
 import '../widgets/google_sign_in_button.dart';
 
 const _bg = AppColors.authBg;
@@ -267,10 +268,18 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           onPressed: _busy ? null : _submit,
                         ),
 
-                        // Renders nothing unless GOOGLE_SERVER_CLIENT_ID was
-                        // provided at build time — see docs/GOOGLE_SIGNIN.md.
+                        // Both render nothing unless their provider is
+                        // actually configured — a sign-in button that cannot
+                        // work is what App Store review calls a broken
+                        // feature (Guideline 2.1).
                         GoogleSignInButton(
                           enabled: !_busy,
+                          onError: (msg) => setState(() => _error = msg),
+                        ),
+
+                        // iOS only, and required there by Guideline 4.8
+                        // wherever Google ships.
+                        AppleSignInButton(
                           onError: (msg) => setState(() => _error = msg),
                         ),
                       ],

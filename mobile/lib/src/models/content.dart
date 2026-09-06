@@ -577,6 +577,7 @@ class PublicConfig {
     this.googleClientId,
     this.googleClientIdIos,
     this.googleClientIdAndroid,
+    this.appleSignIn = false,
   });
 
   /// The WEB client id — sent as Google's `serverClientId` on every
@@ -588,6 +589,12 @@ class PublicConfig {
   final String? googleClientIdIos;
   final String? googleClientIdAndroid;
 
+  /// Whether the server can verify an Apple token at all — it answers false
+  /// until APPLE_BUNDLE_ID is set. The button is shown only when this is
+  /// true, for the same reason the Google one is: App Store review treats a
+  /// visible control that cannot work as a broken feature (Guideline 2.1).
+  final bool appleSignIn;
+
   static String? _str(dynamic v) {
     final s = v?.toString().trim();
     return (s == null || s.isEmpty) ? null : s;
@@ -597,5 +604,6 @@ class PublicConfig {
         googleClientId: _str(json['googleClientId']),
         googleClientIdIos: _str(json['googleClientIdIos']),
         googleClientIdAndroid: _str(json['googleClientIdAndroid']),
+        appleSignIn: json['appleSignIn'] == true,
       );
 }

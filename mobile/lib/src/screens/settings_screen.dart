@@ -16,6 +16,7 @@ import '../core/i18n.dart';
 import '../core/theme.dart';
 import '../state/providers.dart';
 import '../widgets/app_header.dart';
+import '../widgets/delete_account_dialog.dart';
 import '../widgets/password_dialog.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -236,6 +237,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             ),
           ),
+
+          // Deleting the account is required to be here (App Store 5.1.1(v),
+          // Play's "Data deletion") and required not to be easy. It sits
+          // below sign-out, as plain text rather than a button, so the
+          // destructive action is never the one a thumb finds first.
+          const SizedBox(height: Gap.xl),
+          Center(
+            child: TextButton(
+              onPressed: user == null ? null : () => showDeleteAccountDialog(
+                    context,
+                    hasPassword: user.hasPassword,
+                  ),
+              child: Text(
+                s.t('settings.deleteAccount'),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: tokens.faint,
+                  decoration: TextDecoration.underline,
+                  decorationColor: tokens.faint,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: Gap.lg),
         ],
       ),
     );

@@ -163,6 +163,9 @@ function persist() {
 
 export function findUserByEmail(email) {
   const normalized = String(email || '').toLowerCase().trim();
+  // An empty lookup must not match the stripped rows, whose email is null —
+  // otherwise a blank sign-in form would resolve to a deleted account.
+  if (!normalized) return null;
   return state.users.find(u => u.email === normalized) || null;
 }
 
@@ -179,6 +182,91 @@ export async function insertUser(user) {
   state.users.push(user);
   await persist();
   return user;
+}
+
+/// Erasure, as both stores and the GDPR require it — and as this product
+/// can afford it.
+///
+/// A hard delete would take the learner's XP out of their university's
+/// total, so a campus that finished a season on 105 541 points would quietly
+/// drop to 98 200 and the sponsor's report would disagree with the one they
+/// were shown. That is a real cost to other people, and it is avoidable:
+/// what has to go is everything that identifies a PERSON, not the fact that
+/// the points were earned.
+///
+/// So the row stays and is stripped. Afterwards nothing on it can be traced
+/// back to anyone: no address to write to, no name, no picture, no password
+/// or provider id to sign in with, and no session that still works. What
+/// survives is a number in a column and the dates it moved — the same thing
+/// that would survive if we had only ever counted totals.
+///
+/// `deletedAt` is what every list keys off: a stripped row is out of the
+/// leaderboards, out of the learner count and out of the admin's roster,
+/// while its points still add up in the campus total.
+export async function anonymizeUser(id) {
+  const user = state.users.find(u => u.id === id);
+  if (!user || user.deletedAt) return null;
+
+  // Everything that names a person, gone. Email is null rather than '' so a
+  // later signup cannot collide with the tombstone (findUserByEmail refuses
+  // empty input for the same reason).
+  user.email = null;
+  user.name = 'Өчүрүлгөн колдонуучу';
+  user.avatar = null;
+  user.avatarUrl = null;
+  user.passwordHash = null;
+  user.googleSub = null;
+  user.appleSub = null;
+  user.pushSubscriptions = [];
+  user.deletedAt = Date.now();
+
+  // The learning history is personal too — which lessons someone struggled
+  // with says as much about them as their name. The counters stay because
+  // they are what the campus total is made of.
+  const kept = user.state || {};
+  user.state = {
+    xp: kept.xp || 0,
+    uniXp: kept.uniXp || 0,
+    lifetimeXp: kept.lifetimeXp || 0,
+    uniId: kept.uniId || null,
+    uniRole: kept.uniRole || null,
+    coins: 0,
+    streak: 0,
+    completedLessons: [],
+    achievements: [],
+    ownedShop: [],
+    settings: { sound: true, animations: true },
+  };
+
+  // A coupon already handed over is the partner's record of a prize given
+  // out, so the row stays — but the code itself is the reward, and it
+  // belonged to the person who is leaving.
+  for (const r of state.redemptions) {
+    if (r.userId === id) {
+      r.userId = null;
+      r.userName = null;
+      r.code = null;
+      r.partnerCode = null;
+    }
+  }
+
+  // Energy gifts name both sides; neither side is identifiable afterwards.
+  state.energyGifts = (state.energyGifts || []).filter(
+    g => g.fromUserId !== id && g.toUserId !== id,
+  );
+
+  // Every device signed out, now.
+  state.sessions = (state.sessions || []).filter(sess => sess.userId !== id);
+
+  await persist();
+  return user;
+}
+
+/// Everyone whose account still exists. Every visible list — leaderboards,
+/// the admin roster, the public learner count — is built from this rather
+/// than from listUsers(), so a stripped row cannot surface as a person.
+export function listActiveUsers() {
+  return state.users.filter(u => !u.deletedAt);
 }
 
 export async function deleteUser(id) {

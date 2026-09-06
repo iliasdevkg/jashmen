@@ -248,6 +248,48 @@ class ApiClient {
         },
       );
 
+  /// Exchanges an Apple identity token for this app's own session. Same
+  /// contract as [loginWithGoogle].
+  ///
+  /// [name] is sent because Apple returns the display name only on the very
+  /// first authorisation and never again — the server uses it only when
+  /// creating the account, and dropping it here means an account named after
+  /// the local part of a relay address.
+  Future<AppUser> loginWithApple(String identityToken, {String? name}) => _run(
+        () => _dio.post('/u/auth/apple',
+            data: {
+              'identityToken': identityToken,
+              if (name != null && name.isNotEmpty) 'name': name,
+            },
+            options: Options(extra: {'skipAuth': true})),
+        (res) {
+          final data = _asMap(res);
+          _saveToken(data['token'] as String);
+          return AppUser.fromJson((data['user'] as Map).cast<String, dynamic>());
+        },
+      );
+
+  /// Deletes the signed-in account. Both stores require this of any app
+  /// that can create one, from inside the app rather than by writing to
+  /// support (App Store 5.1.1(v), Play's "Data deletion").
+  ///
+  /// One of [password] or [confirm] is required by the server, depending on
+  /// how the account was created — an account made with Google or Apple has
+  /// no password to retype, so it confirms by typing a word instead. The
+  /// device is cleared whatever the server said, because by the time this
+  /// returns the account either no longer exists or the request never
+  /// reached it; in both cases the token in hand is worthless.
+  Future<void> deleteAccount({String? password, String? confirm}) async {
+    await _run(
+      () => _dio.delete('/u/me', data: {
+        if (password != null) 'password': password,
+        if (confirm != null) 'confirm': confirm,
+      }),
+      (_) => null,
+    );
+    await clearToken();
+  }
+
   Future<void> logout() async {
     try {
       await _dio.post('/u/logout', options: Options(extra: {'skipAuth': true}));

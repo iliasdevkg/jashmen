@@ -255,6 +255,13 @@ export const ky = {
   // is admin-authored content (admin-api/landing.seed.js), not a locale key.
   'landing.privacy': 'Купуялык',
   'landing.forBusiness': 'Бизнес үчүн',
+  'settings.deleteAccount': 'Аккаунтту өчүрүү',
+  'settings.deleteWarning': 'Аккаунтуңуз биротоло өчүрүлөт: email, атыңыз, сүрөтүңүз, сырсөзүңүз, сабактарыңыз, монеталарыңыз жана купондоруңуз кайтарылгыс жоголот. Университетиңиздин жалпы упайы гана калат — ал эч кимге байланышпайт. Бул аракетти артка кайтарууга болбойт.',
+  'settings.deleteTypePassword': 'Ырастоо үчүн сырсөзүңүздү жазыңыз',
+  'settings.deleteTypeWord': 'Ырастоо үчүн «{{word}}» деп жазыңыз',
+  'settings.deleteConfirm': 'Биротоло өчүрүү',
+  'settings.deleting': 'Өчүрүлүүдө…',
+  'settings.deleteFailed': 'Өчүрүлгөн жок. Кайра аракет кылыңыз.',
   // The device mock-up in the hero. Its module and lesson names come from
   // the real curriculum; these are the labels around them.
   'lesson.nextLesson': 'Кийинки сабак',

@@ -47,6 +47,12 @@ dependencies:
   # server-side auth path, not two.
   google_sign_in: ^6.2.2
 
+  # "Sign in with Apple" — required by App Store Guideline 4.8 anywhere the
+  # Google button ships, and the only social sign-in an iPhone user is
+  # guaranteed to already have. iOS uses the system sheet; the package is a
+  # no-op on Android, where the button is never shown.
+  sign_in_with_apple: ^8.2.0
+
   # Version string for the About row.
   package_info_plus: ^8.1.2
   intl: ^0.20.2

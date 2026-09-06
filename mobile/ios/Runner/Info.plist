@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>jashmen</string>
+	<string>JashMen</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -26,6 +26,12 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- The only cryptography here is HTTPS to jashmenstudio.com, which is
+	     exempt under the US export rules App Store Connect is asking about.
+	     Without this key every single upload stops and asks, and answering it
+	     wrong is a compliance problem rather than a form-filling one. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>JashMen профилиңдин сүрөтүн тандаш үчүн сүрөт китепканаңа кирүү керек.</string>
 	<key>UIApplicationSceneManifest</key>
@@ -55,18 +61,14 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<!-- Portrait only. Every screen in this app is one column — the learn
+	     path, the lesson deck, the league table — and landscape would show a
+	     stretched version of a layout nobody designed. Review tests whatever
+	     is declared here, so declaring less is not a limitation, it is not
+	     shipping a screen that was never drawn. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<!-- Google Sign-In callback.
 	     The client ids themselves come from the server (GET /public/config),

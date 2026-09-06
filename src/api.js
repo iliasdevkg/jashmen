@@ -126,6 +126,16 @@ export const apiRefresh = () => req('POST', '/u/refresh');
 // Real server-side logout — revokes the session backing the refresh
 // cookie and clears it. Safe to call even with no live session.
 export const apiLogout = () => req('POST', '/u/logout');
+
+// Deletes the signed-in account. Both stores require this of any app that
+// can create one, and the web carries it too because the account is the same
+// account — someone who signed up in a browser must be able to leave from a
+// browser. What it does is in admin-api/db.js#anonymizeUser.
+//
+// One of `password` or `confirm` is required by the server, depending on
+// whether the account has a password at all.
+export const deleteAccount = (token, { password, confirm } = {}) =>
+  req('DELETE', '/u/me', { password, confirm }, token);
 export const fetchMe = (token) => req('GET', '/u/me', null, token);
 export const claimDaily = (token) => req('POST', '/u/me/daily', null, token);
 // Buys a broken streak back with energy, on the day it broke. Rejects with

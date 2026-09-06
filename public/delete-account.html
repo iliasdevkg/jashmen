@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ky">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Аккаунтту өчүрүү — JashMen</title>
+  <meta name="description" content="JashMen аккаунтуңузду кантип өчүрүү керек: колдонмонун ичинен же почта аркылуу. Эмне өчүрүлөт жана эмне калат." />
+  <link rel="icon" href="/logo.png" type="image/png" />
+  <link rel="canonical" href="https://jashmenstudio.com/delete-account" />
+  <!-- Google Play's Data Safety form and App Store review both ask for a URL
+       where anyone — signed in or not, with the app installed or not — can
+       find out how to delete their account. That is what this page is, which
+       is why it is a standalone file rather than a route inside the SPA:
+       the SPA sits behind a login wall, and a reviewer with no account has to
+       be able to read this. -->
+  <style>
+    :root {
+      --bg: #0f172a; --card: #1e293b; --border: #334155;
+      --text: #f8fafc; --muted: #94a3b8; --primary: #1cb0f6; --danger: #f87171;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f8fafc; --card: #ffffff; --border: #e2e8f0;
+        --text: #0f172a; --muted: #64748b; --danger: #dc2626;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 24px 20px 64px;
+      background: var(--bg); color: var(--text);
+      font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    main { max-width: 720px; margin: 0 auto; }
+    header { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
+    header img { width: 44px; height: 44px; border-radius: 12px; }
+    h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin: 0 0 4px; }
+    h2 { font-size: 19px; font-weight: 800; margin: 32px 0 10px; }
+    h3 { font-size: 16px; font-weight: 700; margin: 22px 0 8px; }
+    p, li { color: var(--text); }
+    .lead { color: var(--muted); margin-top: 0; }
+    ul, ol { padding-left: 22px; }
+    li { margin-bottom: 6px; }
+    a { color: var(--primary); }
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 16px 20px; margin: 20px 0;
+    }
+    .card--warn { border-color: var(--danger); }
+    footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); font-size: 15px; vertical-align: top; }
+    th { color: var(--muted); font-weight: 700; }
+    .steps { counter-reset: step; list-style: none; padding: 0; }
+    .steps li {
+      counter-increment: step; position: relative;
+      padding: 0 0 0 40px; margin-bottom: 14px;
+    }
+    .steps li::before {
+      content: counter(step); position: absolute; left: 0; top: 1px;
+      width: 26px; height: 26px; border-radius: 50%;
+      background: var(--primary); color: #fff;
+      font-size: 14px; font-weight: 800;
+      display: grid; place-items: center;
+    }
+    nav.langs { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+    nav.langs a {
+      padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 700;
+      border: 1px solid var(--border); text-decoration: none; color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="/logo.png" alt="" />
+    <div>
+      <h1>Аккаунтту өчүрүү</h1>
+      <p class="lead">JashMen — <a href="https://jashmenstudio.com">jashmenstudio.com</a></p>
+    </div>
+  </header>
+
+  <p>Аккаунтуңузду каалаган убакта, эч кимден сурабай, өзүңүз өчүрө аласыз.
+  Эки жол бар: колдонмонун ичинен (дароо) же почта аркылуу (эгер колдонмого
+  кире албай жатсаңыз).</p>
+
+  <h2>1-жол — колдонмонун ичинен</h2>
+  <p>Эң тез жолу. Өчүрүү ошол замат аткарылат.</p>
+  <ol class="steps">
+    <li><strong>Орнотуулар</strong> бөлүмүн ачыңыз (төмөнкү менюдагы акыркы кыстырма).</li>
+    <li>Барактын эң ылдый жагындагы <strong>«Аккаунтту өчүрүү»</strong> дегенди басыңыз.</li>
+    <li>Ырастоо үчүн сырсөзүңүздү жазыңыз. Google же Apple менен катталган
+    болсоңуз, сырсөз жок — анда <strong>ӨЧҮР</strong> деп жазасыз.</li>
+    <li><strong>«Биротоло өчүрүү»</strong> дегенди басыңыз.</li>
+  </ol>
+  <p>Ошол эле кадамдар <a href="https://jashmenstudio.com">сайттагы</a>
+  Орнотуулар бетинде да иштейт.</p>
+
+  <h2>2-жол — почта аркылуу</h2>
+  <p>Телефонуңузду жоготсоңуз же кире албай жатсаңыз, бизге жазыңыз:</p>
+  <div class="card">
+    <p style="margin:0"><strong>jashmenstudio@gmail.com</strong></p>
+    <p style="margin:8px 0 0; color:var(--muted); font-size:14px">
+      Каттын темасына «Аккаунтту өчүрүү» деп жазыңыз жана каттоодо колдонгон
+      электрондук почтаңызды көрсөтүңүз. Ошол дарек чын эле сиздики экенин
+      ырастаганыңыздан кийин, <strong>30 күндүн ичинде</strong> өчүрөбүз.
+    </p>
+  </div>
+
+  <h2>Эмне өчүрүлөт</h2>
+  <p>Төмөнкүлөрдүн баары кайтарылгыс жоголот:</p>
+  <ul>
+    <li>Электрондук почтаңыз</li>
+    <li>Атыңыз жана профилдин сүрөтү</li>
+    <li>Сырсөзүңүз, ошондой эле Google/Apple менен байланышы</li>
+    <li>Бүткөн сабактарыңыз, жетишкендиктериңиз, серияңыз</li>
+    <li>Монеталарыңыз жана алынган купондордун коддору</li>
+    <li>Бардык түзмөктөрдөгү сессиялар — дароо чыгып калат</li>
+  </ul>
+
+  <h2>Эмне калат, жана эмне үчүн</h2>
+  <div class="card">
+    <p style="margin:0">Университетиңиздин <strong>жалпы упай саны</strong> ошол
+    бойдон калат.</p>
+    <p style="margin:8px 0 0; color:var(--muted); font-size:14px">
+      Себеби ал упай жалгыз сизге эмес — бүт кампуска таандык. Аны алып салсак,
+      сезонду 105 541 упай менен аяктаган университеттин жыйынтыгы кийин
+      өзүнөн-өзү өзгөрүп, спонсорго көрсөтүлгөн отчёт жалган болуп калмак.
+      Ошондуктан <strong>сан калат, бирок ал эч кимге байланышпайт</strong>:
+      анын артында аты да, почтасы да, сүрөтү да, кирүү жолу да жок.
+      Ошол сандан сизди таап алуу мүмкүн эмес.
+    </p>
+  </div>
+  <p>Ошол эле себеп менен өнөктөшкө берилген сыйлыктардын <em>саны</em> калат —
+  бирок кимге берилгени да, промокоддун өзү да өчүрүлөт.</p>
+
+  <h2>Канча убакытта</h2>
+  <table>
+    <tr><th>Жол</th><th>Убакыт</th></tr>
+    <tr><td>Колдонмонун ичинен</td><td>Ошол замат</td></tr>
+    <tr><td>Почта аркылуу</td><td>30 күндүн ичинде</td></tr>
+    <tr><td>Камдык көчүрмөлөрдөн</td><td>90 күндүн ичинде</td></tr>
+  </table>
+  <p style="color:var(--muted); font-size:14px">Камдык көчүрмөлөр — маалымат
+  жоголуп кетпеси үчүн сакталган архивдер. Алар жаңыланганда өчүрүлгөн
+  маалымат аларда да калбайт.</p>
+
+  <h2>Кайра катталсам болобу</h2>
+  <p>Болот. Өчүргөндөн кийин ошол эле электрондук почта бошойт — аны менен
+  жаңы аккаунт түзө аласыз. Бирок ал <strong>таптакыр жаңы аккаунт</strong>
+  болот: эски прогрессиңиз, монетаңыз жана купондоруңуз кайтпайт.</p>
+
+  <h2>Суроолор</h2>
+  <p><a href="mailto:jashmenstudio@gmail.com">jashmenstudio@gmail.com</a></p>
+
+  <footer>
+    © 2026 JashMen Studio ·
+    <a href="/privacy">Купуялык саясаты</a> ·
+    <a href="/terms">Колдонуу шарттары</a> ·
+    <a href="https://jashmenstudio.com">jashmenstudio.com</a>
+  </footer>
+</main>
+</body>
+</html>

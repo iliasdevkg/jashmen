@@ -82,9 +82,20 @@ if (!process.env.VERCEL && fs.existsSync(DIST_DIR)) {
   // public privacy-policy URL and fetch it with a plain crawler that runs no
   // JavaScript — without this, /privacy would fall through to the SPA shell
   // below and a reviewer would see the login wall instead of the policy.
-  app.get('/privacy', (req, res) => {
-    res.sendFile(path.join(DIST_DIR, 'privacy.html'));
-  });
+  // Extension-less aliases for the three standalone legal pages. Every one
+  // of them is a URL a store form or a review note points at, and all three
+  // are fetched by plain crawlers that run no JavaScript — so they are real
+  // files rather than SPA routes, and they answer without a login.
+  //
+  //   /privacy         both stores' required privacy policy
+  //   /delete-account  Play's Data Safety "data deletion" URL, and what an
+  //                    App Store reviewer is told to check for 5.1.1(v)
+  //   /terms           the rewards programme and league rules
+  for (const page of ['privacy', 'terms', 'delete-account']) {
+    app.get(`/${page}`, (req, res) => {
+      res.sendFile(path.join(DIST_DIR, `${page}.html`));
+    });
+  }
 
   // A request for a *file* that express.static didn't find is a genuine 404,
   // not a client-side route — no route in src/App.jsx has a dot in it. Without

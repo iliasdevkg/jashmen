@@ -12,9 +12,11 @@ Future<void> main() async {
 
   // Portrait only: the learn path's canvas is a fixed 288pt wide and the
   // whole layout is designed as a single column.
+  // Upright only, matching what ios/Runner/Info.plist declares — iOS obeys
+  // the plist and would ignore portraitDown anyway, and leaving the two
+  // disagreeing invites someone to "fix" the wrong one later.
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
   ]);
 
   // Both are awaited before the first frame so no provider has to expose an

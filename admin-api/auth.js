@@ -88,6 +88,17 @@ export function requireAuth(req, res, next) {
   }
   try {
     const payload = jwt.verify(token, JWT_SECRET);
+
+    // An access token is a signed statement, not a lookup — it stays valid
+    // for its whole TTL even after the account behind it is gone. So the one
+    // thing worth a database read on every request is whether that account
+    // still exists: without it, someone who has just deleted their account
+    // could keep acting as it until the token expired.
+    const user = db.findUserById(payload.sub);
+    if (!user || user.deletedAt) {
+      return res.status(401).json({ error: 'Сессия аяктады, кайра кириңиз' });
+    }
+
     req.userId = payload.sub;
     // Every authenticated request is a heartbeat. In memory only — see
     // presence.js for why this is not written to the database.

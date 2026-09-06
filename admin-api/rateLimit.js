@@ -45,10 +45,15 @@ export const authLimiter = rateLimit({
  * allowance in a minute. LEAD_RATE_LIMIT raises the hourly count without a
  * redeploy — a shared office or a university NAT puts many people behind one
  * address, which is the case where 12 stops being generous. */
-const LEAD_LIMIT = (() => {
-  const n = Number(process.env.LEAD_RATE_LIMIT);
-  return Number.isFinite(n) && n >= 1 && n <= 1000 ? Math.floor(n) : 12;
-})();
+/// Reads an hourly allowance from the environment, falling back to the
+/// shipped default. Out-of-range or unparseable input takes the default
+/// rather than the value — a typo in an env file must not remove the brake.
+function envLimit(name, fallback) {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n >= 1 && n <= 10000 ? Math.floor(n) : fallback;
+}
+
+const LEAD_LIMIT = envLimit('LEAD_RATE_LIMIT', 12);
 
 export const leadLimiter = rateLimit({
   ...common,
@@ -57,11 +62,18 @@ export const leadLimiter = rateLimit({
   message: { error: 'Слишком много обращений. Попробуйте через час.' },
 });
 
-/** Account creation — tighter, since one person needs this at most once. */
+/** Account creation — tighter, since one person needs this at most once.
+ *
+ * SIGNUP_RATE_LIMIT raises the hourly count without a redeploy, the same
+ * knob LEAD_RATE_LIMIT gives the enquiry forms. The case it exists for is a
+ * lecture hall: thirty students signing up from one campus wi-fi share one
+ * address, and ten would turn most of them away. */
+const SIGNUP_LIMIT = envLimit('SIGNUP_RATE_LIMIT', 10);
+
 export const signupLimiter = rateLimit({
   ...common,
   windowMs: 60 * 60 * 1000,
-  limit: 10,
+  limit: SIGNUP_LIMIT,
   message: { error: 'Өтө көп катталуу аракети. Бир сааттан кийин аракет кылыңыз.' },
 });
 

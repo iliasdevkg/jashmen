@@ -315,6 +315,13 @@ class AuthController extends StateNotifier<SessionState> {
 
   /// Google sign-in: the server turns the id_token into the same session
   /// login/signup produce, so nothing downstream changes.
+  /// Apple sends the display name only on the first authorisation, so
+  /// [name] is whatever the plugin was given this once — the server keeps it
+  /// only when it creates the account.
+  Future<void> signInWithApple(String identityToken, {String? name}) async {
+    _onSignedIn(await _api.loginWithApple(identityToken, name: name));
+  }
+
   Future<void> signInWithGoogle(String idToken) async {
     _onSignedIn(await _api.loginWithGoogle(idToken));
   }
@@ -336,6 +343,20 @@ class AuthController extends StateNotifier<SessionState> {
 
   Future<void> signOut() async {
     await _api.logout();
+    await _prefs.remove(_cachedUserKey);
+    _ref.read(streakEventProvider.notifier).state = null;
+    state = const SessionSignedOut();
+  }
+
+  /// Deletes the account, then leaves the device in exactly the state a
+  /// sign-out leaves it. The cached user goes with it — the whole point is
+  /// that nothing about this person is left on the phone either.
+  ///
+  /// Errors are rethrown so the dialog can show what the server said (a
+  /// wrong password, most often) rather than closing on a silent failure and
+  /// letting someone believe their account is gone when it is not.
+  Future<void> deleteAccount({String? password, String? confirm}) async {
+    await _api.deleteAccount(password: password, confirm: confirm);
     await _prefs.remove(_cachedUserKey);
     _ref.read(streakEventProvider.notifier).state = null;
     state = const SessionSignedOut();

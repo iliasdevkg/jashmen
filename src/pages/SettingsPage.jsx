@@ -7,6 +7,7 @@ import { useI18n, LANGUAGES } from '../i18n.jsx';
 import { subscribeToPush, unsubscribeFromPush, isPushSupported } from '../push.js';
 import * as api from '../api.js';
 import Avatar from '../components/Avatar.jsx';
+import DeleteAccountDialog from '../components/DeleteAccountDialog.jsx';
 import PasswordDialog from '../components/PasswordDialog.jsx';
 
 function Toggle({ checked, onChange }) {
@@ -101,6 +102,7 @@ export default function SettingsPage() {
   };
 
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const startEditName = () => {
     setNameDraft(user?.name || '');
@@ -305,11 +307,27 @@ export default function SettingsPage() {
         {t('nav.logout')}
       </motion.button>
 
+      {/* Deleting the account has to be reachable from inside the product
+          (App Store 5.1.1(v), Play's "Data deletion") and has to not be the
+          control a mis-click finds. Plain underlined text below sign-out,
+          not a button beside it. */}
+      <button
+        type="button"
+        onClick={() => setDeleteOpen(true)}
+        className="block mx-auto mt-5 text-[12.5px] underline underline-offset-2"
+        style={{ color: textMuted }}
+      >
+        {t('settings.deleteAccount')}
+      </button>
+
       <div className="h-4" />
 
       <AnimatePresence>
         {passwordOpen && (
           <PasswordDialog bright={bright} onDismiss={() => setPasswordOpen(false)} />
+        )}
+        {deleteOpen && (
+          <DeleteAccountDialog bright={bright} onDismiss={() => setDeleteOpen(false)} />
         )}
       </AnimatePresence>
     </div>

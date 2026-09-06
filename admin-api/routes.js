@@ -13,6 +13,9 @@ import {
 } from './auth.js';
 import { setRefreshCookie, clearRefreshCookie } from './cookies.js';
 import { verifyGoogleIdToken, resolveGoogleUser, GoogleAuthError } from './googleAuth.js';
+import {
+  verifyAppleIdentityToken, resolveAppleUser, AppleAuthError, isAppleAuthConfigured,
+} from './appleAuth.js';
 import { authLimiter, signupLimiter, uploadLimiter, leadLimiter } from './rateLimit.js';
 import * as db from './db.js';
 import {
@@ -190,6 +193,12 @@ router.get('/public/config', (req, res) => {
     // server is configured — no store release to turn it on.
     googleClientIdIos: process.env.GOOGLE_CLIENT_ID_IOS || null,
     googleClientIdAndroid: process.env.GOOGLE_CLIENT_ID_ANDROID || null,
+    // Whether the server can verify an Apple token at all. The app shows the
+    // Apple button only when this is true, for the same reason it does for
+    // Google: a sign-in method that cannot work must not be on screen —
+    // App Store review treats a visible, non-functional control as a broken
+    // feature (Guideline 2.1).
+    appleSignIn: isAppleAuthConfigured(),
   });
 });
 
@@ -200,13 +209,16 @@ router.get('/public/config', (req, res) => {
 // Nothing here identifies anybody — four totals, no names, no ids, no
 // per-user rows — so it stays unauthenticated like the rest of /public/*.
 router.get('/public/stats', (req, res) => {
-  const users = db.listUsers();
+  // Active accounts for the headcount; every account ever for the XP total,
+  // because a deleted learner's points were still earned and still count
+  // towards their campus (db.js#anonymizeUser).
+  const users = db.listActiveUsers();
   res.json({
     learners: users.length,
     lessons: totalLessons(),
     modules: getContent().modules.length,
     universities: getUniversities().length,
-    xp: users.reduce((sum, u) => sum + (u.state?.lifetimeXp || 0), 0),
+    xp: db.listUsers().reduce((sum, u) => sum + (u.state?.lifetimeXp || 0), 0),
   });
 });
 
@@ -216,7 +228,7 @@ router.get('/public/push-key', (req, res) => {
 
 router.get('/u/leaderboard', (req, res) => {
   const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
-  const rows = db.listUsers()
+  const rows = db.listActiveUsers()
     .map(u => ({ id: u.id, name: u.name, avatar: u.avatar, xp: u.state.xp || 0, streak: u.state.streak || 0 }))
     .sort((a, b) => b.xp - a.xp)
     .slice(0, limit);
@@ -317,6 +329,40 @@ router.post('/u/auth/google', authLimiter, async (req, res, next) => {
   }
 });
 
+// "Sign in with Apple" — required by App Store Guideline 4.8 anywhere the
+// Google button ships, and the only social sign-in an iPhone user is
+// guaranteed to already have.
+//
+// Same contract as /u/auth/google above: the token is verified, an account
+// is found or created, and the caller gets the *same* session the password
+// path issues.
+//
+// `name` is in the body because Apple only ever sends it once, on the first
+// authorisation — the client forwards what it was given, and it is used only
+// when the account is created (appleAuth.js#resolveAppleUser).
+router.post('/u/auth/apple', authLimiter, async (req, res, next) => {
+  try {
+    const identityToken = req.body?.identityToken ?? req.body?.identity_token;
+    const name = req.body?.name;
+
+    const claims = await verifyAppleIdentityToken(identityToken);
+    const { user, created } = await resolveAppleUser(claims, { defaultState, name });
+
+    const refreshToken = await issueRefreshToken(user.id);
+    setRefreshCookie(res, REFRESH_COOKIE_NAME, refreshToken, REFRESH_TOKEN_TTL_MS);
+    presence.touch(user.id);
+    res.status(created ? 201 : 200).json({
+      token: signAccessToken(user.id),
+      user: toPublicUser(user),
+    });
+  } catch (err) {
+    if (err instanceof AppleAuthError) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
 // Silently exchanges the httpOnly refresh cookie for a fresh access token
 // — called once on app load (so a page reload doesn't force a re-login)
 // and periodically thereafter, well before the 15-minute access token
@@ -358,10 +404,63 @@ router.post('/u/logout', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+/// What a passwordless account types to confirm deletion. Kyrgyz, because
+/// the person reading the dialog is reading Kyrgyz — a confirmation word in
+/// a language the user does not speak is a checkbox with extra steps.
+const DELETE_CONFIRM_WORD = 'ӨЧҮР';
+
 router.get('/u/me', requireAuth, (req, res) => {
   const user = db.findUserById(req.userId);
   if (!user) return res.status(401).json({ error: 'Колдонуучу табылган жок' });
   res.json(toPublicUser(user));
+});
+
+// Account deletion. Both stores require it of any app that can create an
+// account — App Store 5.1.1(v), Play's "Data deletion" — and it has to be
+// reachable from inside the app, not only by writing to support.
+//
+// What it does is in db.js#anonymizeUser: everything identifying is
+// destroyed, the points stay in the campus total. This route's own job is to
+// make sure the person asking is the person leaving.
+//
+// An account with a password must retype it. That is not ceremony: the one
+// way this goes badly wrong is a borrowed or unlocked phone, and a password
+// is the only thing the phone's owner has that a borrower does not. An
+// account created through Google or Apple has no password to ask for, so it
+// confirms by typing the word the client shows them instead — deliberate
+// friction in place of a check we cannot make.
+//
+// Irreversible, so it answers 200 with what happened rather than a bare 204:
+// the client shows "your account is gone" only after the server says so.
+router.delete('/u/me', requireAuth, async (req, res, next) => {
+  try {
+    const user = db.findUserById(req.userId);
+    if (!user) return res.status(401).json({ error: 'Колдонуучу табылган жок' });
+    if (user.deletedAt) return res.status(410).json({ error: 'Аккаунт мурунтан өчүрүлгөн' });
+
+    const { password, confirm } = req.body || {};
+
+    if (user.passwordHash) {
+      if (!password || !(await verifyPassword(password, user.passwordHash))) {
+        return res.status(403).json({ error: 'Сырсөз туура эмес' });
+      }
+    } else if (String(confirm || '').trim().toUpperCase() !== DELETE_CONFIRM_WORD) {
+      return res.status(403).json({
+        error: `Ырастоо үчүн «${DELETE_CONFIRM_WORD}» деп жазыңыз`,
+      });
+    }
+
+    await db.anonymizeUser(user.id);
+
+    // The refresh cookie outlives the access token, so clear it here too —
+    // otherwise the next launch would silently restore a session for an
+    // account that no longer exists.
+    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+    if (refreshToken) await revokeRefreshToken(refreshToken);
+    clearRefreshCookie(res, REFRESH_COOKIE_NAME);
+
+    res.json({ deleted: true });
+  } catch (err) { next(err); }
 });
 
 // ── Daily streak claim ───────────────────────────────────────────────────────
@@ -918,9 +1017,16 @@ router.get('/u/university/:uniId/board', requireAuth, (req, res, next) => {
     if (!UNI_ID_RE.test(uniId)) return res.status(400).json({ error: 'Университет туура эмес' });
 
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10));
+    // Deleted members stay in `members` on purpose: their points are part of
+    // what this campus scored, and dropping them would silently rewrite a
+    // season the sponsor was already shown. They are stripped of everything
+    // that identifies them (db.js#anonymizeUser) and filtered out of the
+    // visible ranking below — the total counts them, the table does not.
     const members = db.listUsers().filter(u => u.state?.uniId === uniId);
     const students = members.filter(u => u.state.uniRole === 'student');
-    const viewerCount = members.filter(u => u.state.uniRole === 'viewer').length;
+    const viewerCount = members.filter(
+      u => u.state.uniRole === 'viewer' && !u.deletedAt,
+    ).length;
     const supporters = db.countSupportersByUniversity(uniId);
 
     const ranked = students
@@ -931,18 +1037,27 @@ router.get('/u/university/:uniId/board', requireAuth, (req, res, next) => {
         xp: u.state.uniXp || 0,
         streak: u.state.streak || 0,
         supporters: supporters.get(u.id)?.size || 0,
+        deleted: !!u.deletedAt,
       }))
-      .sort((a, b) => b.xp - a.xp || a.name.localeCompare(b.name));
+      .sort((a, b) => b.xp - a.xp || (a.name || '').localeCompare(b.name || ''));
 
-    const myIndex = ranked.findIndex(r => r.id === req.userId);
+    // The campus total is every student's points; the table shows only the
+    // students who still have an account.
+    const totalXp = ranked.reduce((sum, r) => sum + r.xp, 0);
+    const visible = ranked.filter(r => !r.deleted);
+
+    const myIndex = visible.findIndex(r => r.id === req.userId);
     const me = db.findUserById(req.userId);
 
     res.json({
       universityId: uniId,
-      studentCount: ranked.length,
+      studentCount: visible.length,
       viewerCount,
-      totalXp: ranked.reduce((sum, r) => sum + r.xp, 0),
-      students: ranked.slice(0, limit).map((r, i) => ({ ...r, rank: i + 1 })),
+      totalXp,
+      students: visible.slice(0, limit).map(({ deleted: _gone, ...r }, i) => ({
+        ...r,
+        rank: i + 1,
+      })),
       me: {
         role: me?.state?.uniRole || null,
         rank: myIndex === -1 ? null : myIndex + 1,

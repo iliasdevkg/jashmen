@@ -252,6 +252,13 @@ export const ru = {
   // ── Landing (the public marketing page) ──────────────────────────────
   'landing.privacy': 'Конфиденциальность',
   'landing.forBusiness': 'Для бизнеса',
+  'settings.deleteAccount': 'Удалить аккаунт',
+  'settings.deleteWarning': 'Аккаунт будет удалён навсегда: email, имя, фото, пароль, пройденные уроки, монеты и купоны исчезнут безвозвратно. Останется только общий счёт вашего университета — он ни с кем не связан. Это действие нельзя отменить.',
+  'settings.deleteTypePassword': 'Введите пароль для подтверждения',
+  'settings.deleteTypeWord': 'Напишите «{{word}}» для подтверждения',
+  'settings.deleteConfirm': 'Удалить навсегда',
+  'settings.deleting': 'Удаляем…',
+  'settings.deleteFailed': 'Не удалось удалить. Попробуйте ещё раз.',
   'lesson.nextLesson': 'Следующий урок',
   'lesson.backToPath': 'Вернуться к обучению',
   'profile.streakSub': 'Ежедневная серия',
