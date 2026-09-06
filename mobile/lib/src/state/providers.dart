@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -180,6 +181,22 @@ class AuthController extends StateNotifier<SessionState> {
   static const _legacyRoleKey = 'jashmen.uniRole';
   static const _legacyUniKey = 'jashmen.uniId';
 
+  /// The last account /u/me described, verbatim. Launching with no signal
+  /// used to mean the login screen even though the token on disk was fine;
+  /// with this the app opens on the learner's own numbers, slightly stale,
+  /// and corrects itself the moment a request gets through. Cleared on a
+  /// real sign-out so the next person on the device sees nothing of theirs.
+  static const _cachedUserKey = 'jashmen.cachedUser';
+
+  /// How long to wait between attempts at the launch probe. Short, because
+  /// the splash screen is on display the whole time, and only three of them
+  /// because a launch cannot hang forever waiting for a dead network.
+  static const _restoreBackoff = [
+    Duration(milliseconds: 400),
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+  ];
+
   /// A stored access token may be expired; the client's 401 interceptor
   /// refreshes it transparently, so one /u/me call is the whole probe.
   Future<void> _restore() async {
@@ -187,14 +204,35 @@ class AuthController extends StateNotifier<SessionState> {
       state = const SessionSignedOut();
       return;
     }
-    try {
-      _onSignedIn(await _api.fetchMe());
-    } on ApiException catch (e) {
-      // Offline at launch must NOT log the user out — only an actual
-      // rejection from the server does.
-      state = e.kind == ApiErrorKind.unauthorized
-          ? const SessionSignedOut()
-          : const SessionSignedOut();
+    // A rejection from the server is the only thing that ends a session.
+    // Anything else — no signal, a timeout, a container still starting — is
+    // the network's problem, not the learner's, so the probe is simply
+    // asked again. This block used to be a ternary whose two branches were
+    // both SessionSignedOut(), which meant one blip at launch threw someone
+    // onto the login screen with a perfectly valid session still on disk.
+    for (var attempt = 0; ; attempt++) {
+      try {
+        _onSignedIn(await _api.fetchMe());
+        return;
+      } on ApiException catch (e) {
+        if (e.kind == ApiErrorKind.unauthorized) {
+          state = const SessionSignedOut();
+          return;
+        }
+        if (attempt >= _restoreBackoff.length) {
+          // Out of patience with the network. If this device has seen the
+          // account before, open on that rather than on a login screen: the
+          // token is still on disk, every screen refreshes itself as soon as
+          // a request gets through, and the alternative is asking someone
+          // to re-type a password for a session that never expired.
+          final cached = _cachedUser();
+          state = cached == null
+              ? const SessionSignedOut()
+              : SessionSignedIn(cached);
+          return;
+        }
+        await Future<void>.delayed(_restoreBackoff[attempt]);
+      }
     }
   }
 
@@ -203,8 +241,30 @@ class AuthController extends StateNotifier<SessionState> {
   /// migration — hangs off here rather than being repeated at four call
   /// sites (which is how the web version's claimDaily got missed on mobile
   /// entirely: the endpoint existed and nothing ever called it).
+  void _cacheUser() {
+    final body = _api.lastMeBody;
+    if (body == null) return;
+    unawaited(_prefs.setString(_cachedUserKey, jsonEncode(body)));
+  }
+
+  /// The cached account, or null when there is none or it will not parse.
+  AppUser? _cachedUser() {
+    final raw = _prefs.getString(_cachedUserKey);
+    if (raw == null) return null;
+    try {
+      return AppUser.fromJson((jsonDecode(raw) as Map).cast<String, dynamic>());
+    } catch (_) {
+      return null; // written by an older build — not worth keeping
+    }
+  }
+
   void _onSignedIn(AppUser user) {
+    _cacheUser();
     state = SessionSignedIn(user);
+    // The previous account's refresh clocks say nothing about this one, and
+    // the content is per-account in places (a campus board, a shop the
+    // learner has already bought from).
+    _ref.read(refresherProvider).reset();
     unawaited(_claimDaily());
     unawaited(_migrateLegacyEnrolment(user));
   }
@@ -221,6 +281,12 @@ class AuthController extends StateNotifier<SessionState> {
       // A missed daily claim is recoverable on the next launch — never let
       // it block the app from opening.
     }
+  }
+
+  /// Buys back the run a missed day ended. Throws [ApiException] straight
+  /// through: the caller is a button that has to say why it failed.
+  Future<void> repairStreak() async {
+    applyUser(await _api.repairStreak());
   }
 
   Future<void> _migrateLegacyEnrolment(AppUser user) async {
@@ -270,12 +336,16 @@ class AuthController extends StateNotifier<SessionState> {
 
   Future<void> signOut() async {
     await _api.logout();
+    await _prefs.remove(_cachedUserKey);
     _ref.read(streakEventProvider.notifier).state = null;
     state = const SessionSignedOut();
   }
 
   void signOutLocally() {
     _api.clearToken();
+    // The session is genuinely over — the next person to open this phone
+    // must not be shown the last one's coins, streak or name.
+    unawaited(_prefs.remove(_cachedUserKey));
     _ref.read(streakEventProvider.notifier).state = null;
     state = const SessionSignedOut();
   }
@@ -346,6 +416,13 @@ final contentProvider = FutureProvider<AppContent>(
   (ref) => ref.watch(apiClientProvider).fetchContent(),
 );
 
+/// The economy's dials, straight from the Лимиттер tab. Null until content
+/// lands — every reader falls back to the same defaults routes.js uses, so a
+/// screen built before the fetch resolves still shows sane numbers.
+final limitsProvider = Provider<ContentLimits?>(
+  (ref) => ref.watch(contentProvider).valueOrNull?.limits,
+);
+
 final leaderboardProvider = FutureProvider<List<LeaderboardEntry>>(
   (ref) => ref.watch(apiClientProvider).fetchLeaderboard(),
 );
@@ -356,3 +433,129 @@ final leaderboardProvider = FutureProvider<List<LeaderboardEntry>>(
 final redemptionsProvider = FutureProvider.autoDispose<List<Redemption>>(
   (ref) => ref.watch(apiClientProvider).fetchMyRedemptions(),
 );
+
+// ── Keeping the screens current ────────────────────────────────────────────
+//
+// Everything above is fetched once and then cached for the life of the
+// process, which is right for a scroll but wrong for a shop: an operator
+// changes a prize's stock in the admin and the app goes on selling the old
+// number until someone force-quits it. The five tabs live in an IndexedStack
+// so they all stay mounted, which also means `autoDispose` never fires and
+// the providers that were supposed to refetch on re-entry never did.
+//
+// The answer is not to refetch everything on every tap — that spends the
+// learner's data and makes the screen jump under their thumb. It is to
+// refetch what a screen actually shows, and only when it might have gone
+// stale:
+//
+//   • switching to a tab, if that tab's data is older than [_staleAfter]
+//   • coming back from the background, always — a phone in a pocket for an
+//     hour has stale everything
+//   • pulling down, always — that gesture IS the request
+//
+// Nothing here blanks a screen: `ref.invalidate` on a watched provider is a
+// refresh rather than a reload, and AsyncValue.when keeps showing the last
+// value while the new one is in flight (skipLoadingOnRefresh defaults to
+// true). The learner sees the old number until the new one lands, never a
+// spinner where their coins used to be.
+
+/// How long a tab's data stays trustworthy without asking again. One
+/// second, so in practice every tab a learner opens refetches — the freshest
+/// possible reading, at the cost of a request per tap. Not zero because a
+/// single tap can still rebuild twice, and one request per tap is the point.
+const Duration kStaleAfter = Duration(seconds: 1);
+
+/// Which reads belong to which tab, so switching to one refreshes what that
+/// screen draws and nothing else. Indexes match _HomeShell's tab order.
+enum HomeTab { learn, league, shop, profile, settings }
+
+/// Remembers when each data source was last refreshed, and answers whether
+/// it is worth asking again. Split out from [Refresher] so the rule that
+/// actually decides how much traffic the app makes can be tested on its
+/// own, with no Riverpod and no network.
+class StaleClock {
+  StaleClock({DateTime Function()? now}) : _now = now ?? DateTime.now;
+
+  final DateTime Function() _now;
+  final Map<String, DateTime> _seen = {};
+
+  /// True when [key] has never been refreshed, or was refreshed longer ago
+  /// than [after]. Marks it as refreshed when it answers true, so two
+  /// callers in the same moment do not both fire.
+  bool due(String key, {Duration after = kStaleAfter, bool force = false}) {
+    final last = _seen[key];
+    if (!force && last != null && _now().difference(last) < after) return false;
+    _seen[key] = _now();
+    return true;
+  }
+
+  /// Forgets every clock, so the next read of anything refetches.
+  void reset() => _seen.clear();
+}
+
+class Refresher {
+  Refresher(this._ref, {StaleClock? clock}) : _clock = clock ?? StaleClock();
+
+  final Ref _ref;
+  final StaleClock _clock;
+
+  /// Everything a tab shows. [force] skips the staleness check — that is
+  /// what a pull-to-refresh and a return from the background both want.
+  ///
+  /// Awaitable, because RefreshIndicator holds its spinner until the future
+  /// it is given completes; a fire-and-forget invalidate makes the gesture
+  /// look like it did nothing.
+  Future<void> tab(HomeTab which, {bool force = false}) {
+    final work = <Future<void>>[];
+    switch (which) {
+      case HomeTab.learn:
+        work.add(_refresh('content', force, () => _ref.refresh(contentProvider.future)));
+      case HomeTab.league:
+        work.add(_refresh(
+            'leaderboard', force, () => _ref.refresh(leaderboardProvider.future)));
+        final uni = _ref.read(currentUserProvider)?.state.uniId;
+        if (uni != null) {
+          work.add(_refresh(
+              'uniBoard', force, () => _ref.refresh(uniBoardProvider(uni).future)));
+        }
+      case HomeTab.shop:
+        // The prize stock lives in the content blob, so the shop's "3 left"
+        // is only as fresh as this call.
+        work.add(_refresh('content', force, () => _ref.refresh(contentProvider.future)));
+      case HomeTab.profile:
+        work.add(_refresh(
+            'redemptions', force, () => _ref.refresh(redemptionsProvider.future)));
+        work.add(_refresh('content', force, () => _ref.refresh(contentProvider.future)));
+      case HomeTab.settings:
+        break;
+    }
+    // Coins, energy and streak sit in the header of every tab, so the
+    // session is refreshed alongside whatever else that tab needs.
+    work.add(_refresh(
+        'me', force, () => _ref.read(authProvider.notifier).refreshMe()));
+    return Future.wait(work);
+  }
+
+  /// Every tab at once — for a return from the background, where there is no
+  /// telling how long the app was away or which screen it will come back to.
+  Future<void> everything() =>
+      Future.wait([for (final t in HomeTab.values) tab(t, force: true)]);
+
+  /// Runs [run] when [key] has gone stale, and swallows its failure: a
+  /// refresh that cannot reach the server must leave the screen showing
+  /// what it already had, not replace it with an error.
+  Future<void> _refresh(String key, bool force, Future<void> Function() run) async {
+    if (!_clock.due(key, force: force)) return;
+    try {
+      await run();
+    } catch (_) {
+      // The provider keeps its previous value; the next attempt will retry.
+    }
+  }
+
+  /// Used on sign-in: the previous account's timings say nothing about this
+  /// one, so the next read of anything refetches.
+  void reset() => _clock.reset();
+}
+
+final refresherProvider = Provider<Refresher>((ref) => Refresher(ref));

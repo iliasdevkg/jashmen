@@ -6,11 +6,17 @@
 /// — a slug missing here falls back to the caller's default glyph, which is
 /// safe but wrong, so keep the lists in step.
 ///
-/// Material's rounded set is the closest match to lucide's geometry, which is
-/// what keeps a lesson looking like the same lesson on both clients.
+/// The glyphs themselves now come from lucide, the same source the web
+/// bundles (core/lucide_svg.dart) — Material Rounded was the closest
+/// available match and it still was not close: filled and chunky against
+/// lucide's thin geometry, so the same lesson looked like two different
+/// products side by side. The Material map below survives as the fallback
+/// for a slug the generated set does not carry.
 library;
 
 import 'package:flutter/material.dart';
+
+import '../widgets/lucide_icon.dart';
 
 const Map<String, IconData> _lessonIcons = {
   // Акча жана төлөм
@@ -68,5 +74,26 @@ const Map<String, IconData> _lessonIcons = {
 
 /// The icon for [slug], or null when the slug is absent/unknown — the caller
 /// then draws whatever it was going to draw anyway.
+///
+/// Kept for the places that genuinely need an [IconData] (a fallback, an
+/// [IconButton]); anything that just draws the glyph should use
+/// [lessonGlyph], which prefers the lucide artwork.
 IconData? lessonIconFor(String? slug) =>
     slug == null ? null : _lessonIcons[slug];
+
+/// The glyph for [slug] as a widget — lucide where we have it, the Material
+/// equivalent where we do not, and [fallback] when the slug means nothing.
+///
+/// Every screen that paints a lesson, module, league or achievement icon goes
+/// through here, so the two clients can never drift into drawing different
+/// pictures for the same slug again.
+Widget? lessonGlyph(
+  String? slug, {
+  double size = 24,
+  Color? color,
+  IconData? fallback,
+}) {
+  if (LucideIcon.has(slug)) return LucideIcon(slug!, size: size, color: color);
+  final data = lessonIconFor(slug) ?? fallback;
+  return data == null ? null : Icon(data, size: size, color: color);
+}

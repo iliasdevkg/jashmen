@@ -58,6 +58,7 @@ dependencies:
   # a short asset with low latency is all that's needed — no streaming, no
   # playlist.
   audioplayers: ^6.1.0
+  flutter_svg: ^2.3.0
 
 dev_dependencies:
   flutter_test:
@@ -72,6 +73,9 @@ flutter:
   assets:
     - assets/images/
     - assets/sounds/
+    # 1/2/3 place artwork — the same three files the web serves from
+    # public/medals/, so the award looks identical on both clients.
+    - assets/medals/
 
 # Store icon generated from the web app's logo so the two brands match.
 flutter_launcher_icons:

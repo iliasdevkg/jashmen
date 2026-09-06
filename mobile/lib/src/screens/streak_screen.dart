@@ -16,12 +16,15 @@ import '../core/theme.dart';
 import '../state/providers.dart';
 
 const int _daysInWeek = 7;
-const Color _flameTop = Color(0xFFFFA000);
-const Color _flameBottom = Color(0xFFFF8A00);
-const Color _coreTop = Color(0xFFFFE083);
-const Color _coreBottom = Color(0xFFFFC400);
-const Color _streakOrange = Color(0xFFFF9600);
-const Color _trackOn = Color(0xFFFFC800);
+// A blue flame — the core lighter than the body, the way the hottest part
+// of a real one is. Mirrors src/utils.js#STREAK on the web.
+const Color _flameTop = Color(0xFF3D7BFF);
+const Color _flameBottom = Color(0xFF1B4FD8);
+const Color _coreTop = Color(0xFFA8CCFF);
+const Color _coreBottom = Color(0xFF4E9BFF);
+const Color _streakOrange = Color(0xFF2E6BFF);
+const Color _trackOn = Color(0xFF3E8DFF);
+const Color _trackOnLight = Color(0xFF7FB4FF);
 
 /// activeDays are UTC calendar dates (the server's own day boundary), so the
 /// week is built in UTC too — a local-time week would shift the strip by a
@@ -294,7 +297,7 @@ class _WeekCard extends StatelessWidget {
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(999),
                                   gradient: const LinearGradient(
-                                    colors: [_trackOn, Color(0xFFFFD84D)],
+                                    colors: [_trackOn, _trackOnLight],
                                   ),
                                 ),
                               ),
@@ -310,8 +313,8 @@ class _WeekCard extends StatelessWidget {
                                             size: 19,
                                             weight: 900,
                                             color: tokens.bright
-                                                ? const Color(0xFF8A6400)
-                                                : const Color(0xFF3B2C00),
+                                                ? const Color(0xFF0B3A8F)
+                                                : const Color(0xFF062A66),
                                           )
                                         : i == week.length - 1
                                             ? const Icon(Icons.star_border_rounded,

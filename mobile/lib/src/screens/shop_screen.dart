@@ -23,6 +23,7 @@ import '../widgets/app_header.dart';
 import '../widgets/confetti.dart';
 import '../widgets/press_scale.dart';
 import '../widgets/states.dart';
+import '../widgets/zoomable_image.dart';
 
 class ShopScreen extends ConsumerStatefulWidget {
   const ShopScreen({super.key});
@@ -92,9 +93,18 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
         _confetti.play();
         await showDialog<void>(
           context: context,
-          builder: (_) => _RedeemedCodeDialog(code: result.code),
+          builder: (_) => _RedeemedCodeDialog(
+            code: result.code,
+            promoCode: result.promoCode,
+          ),
         );
       }
+      // The sale took a code out of the pool, so the "3 left" on the card
+      // behind this dialog is already wrong; the coupon list has a new row
+      // too. Both are refetched rather than patched, because the server is
+      // the one that knows what is left after everyone else's purchases.
+      ref.invalidate(contentProvider);
+      ref.invalidate(redemptionsProvider);
     } on ApiException catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
@@ -131,7 +141,10 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
               ),
             )
           : const AppHeader(),
-      body: content.when(
+      body: RefreshIndicator(
+        onRefresh: () async =>
+            ref.read(refresherProvider).tab(HomeTab.shop, force: true),
+        child: content.when(
         loading: () => ListView(
           padding: const EdgeInsets.all(Gap.lg),
           children: [
@@ -166,11 +179,16 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
                       clipBehavior: Clip.antiAlias,
                       child: activePartner.logoUrl == null
                           ? Icon(Icons.storefront_rounded, color: context.tokens.faint)
-                          : CachedNetworkImage(
+                          : ZoomableImage(
                               imageUrl: activePartner.logoUrl!,
-                              fit: BoxFit.cover,
-                              errorWidget: (_, __, ___) =>
-                                  Icon(Icons.storefront_rounded, color: context.tokens.faint),
+                              tag: 'partner-head-${activePartner.id}',
+                              caption: localizedContent(activePartner.name, locale),
+                              child: CachedNetworkImage(
+                                imageUrl: activePartner.logoUrl!,
+                                fit: BoxFit.contain,
+                                errorWidget: (_, __, ___) =>
+                                    Icon(Icons.storefront_rounded, color: context.tokens.faint),
+                              ),
                             ),
                     ),
                     const SizedBox(width: Gap.md),
@@ -262,6 +280,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
             ],
           );
         },
+      ),
       ),
       ),
     );
@@ -376,16 +395,15 @@ class _ShopCard extends ConsumerWidget {
               borderRadius: BorderRadius.circular(16),
             ),
             clipBehavior: Clip.antiAlias,
-            child: lessonIconFor(item.icon) != null
-                ? Icon(lessonIconFor(item.icon), color: AppColors.primary)
-                : item.iconUrl == null
+            child: lessonGlyph(item.icon, color: AppColors.primary) ??
+                (item.iconUrl == null
                 ? Icon(Icons.card_giftcard_rounded, color: tokens.faint)
                 : CachedNetworkImage(
                     imageUrl: item.iconUrl!,
                     fit: BoxFit.contain,
                     errorWidget: (_, __, ___) =>
                         Icon(Icons.card_giftcard_rounded, color: tokens.faint),
-                  ),
+                  )),
           ),
           const SizedBox(width: Gap.md),
           Expanded(
@@ -477,11 +495,16 @@ class _PartnerCard extends StatelessWidget {
               clipBehavior: Clip.antiAlias,
               child: partner.logoUrl == null
                   ? Icon(Icons.storefront_rounded, color: tokens.faint)
-                  : CachedNetworkImage(
+                  : ZoomableImage(
                       imageUrl: partner.logoUrl!,
-                      fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) =>
-                          Icon(Icons.storefront_rounded, color: tokens.faint),
+                      tag: 'partner-card-${partner.id}',
+                      caption: localizedContent(partner.name, locale),
+                      child: CachedNetworkImage(
+                        imageUrl: partner.logoUrl!,
+                        fit: BoxFit.contain,
+                        errorWidget: (_, __, ___) =>
+                            Icon(Icons.storefront_rounded, color: tokens.faint),
+                      ),
                     ),
             ),
             const SizedBox(height: Gap.sm),
@@ -524,9 +547,14 @@ class _PrizeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = StringsScope.of(context);
     final tokens = context.tokens;
     final title = localizedContent(prize.title, locale);
     final description = localizedContent(prize.description, locale);
+    // Two states, and no third: it is either on sale or it is gone. A
+    // running count ("4 left") was a nudge nobody asked for — it rushes the
+    // learner and tells anyone looking how much stock a partner has left.
+    final soldOut = prize.soldOut;
 
     return Container(
       decoration: BoxDecoration(
@@ -539,12 +567,29 @@ class _PrizeCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (prize.photoUrl != null)
-            CachedNetworkImage(
-              imageUrl: prize.photoUrl!,
+            // `contain`, not `cover`: the photo IS the prize, and cropping it
+            // hid the half of the product the learner is choosing by. The
+            // letterboxing sits on the card's own alt surface, so the gap
+            // reads as framing rather than as a hole.
+            Opacity(
+              opacity: soldOut ? 0.45 : 1,
+              child: Container(
               height: 120,
               width: double.infinity,
-              fit: BoxFit.cover,
-              errorWidget: (_, __, ___) => const SizedBox.shrink(),
+              color: tokens.cardAlt,
+              alignment: Alignment.center,
+              child: ZoomableImage(
+                imageUrl: prize.photoUrl!,
+                tag: 'prize-${prize.id}',
+                caption: localizedContent(prize.description, locale),
+                child: CachedNetworkImage(
+                  imageUrl: prize.photoUrl!,
+                  fit: BoxFit.contain,
+                  errorWidget: (_, __, ___) =>
+                      Icon(Icons.card_giftcard_rounded, color: tokens.faint, size: 32),
+                ),
+              ),
+              ),
             )
           else
             Container(
@@ -573,7 +618,7 @@ class _PrizeCard extends StatelessWidget {
                 ),
                 const SizedBox(width: Gap.md),
                 FilledButton(
-                  onPressed: (affordable && !busy) ? onRedeem : null,
+                  onPressed: (affordable && !soldOut && !busy) ? onRedeem : null,
                   style: FilledButton.styleFrom(
                     // The theme's minimumSize is Size.fromHeight(52) —
                     // infinite WIDTH, which is fine in a stretch Column but
@@ -582,9 +627,20 @@ class _PrizeCard extends StatelessWidget {
                     // price button uses.
                     minimumSize: const Size(88, 44),
                     padding: const EdgeInsets.symmetric(horizontal: Gap.md),
-                    backgroundColor:
-                        affordable ? AppColors.success : tokens.cardAlt,
-                    foregroundColor: affordable ? Colors.white : tokens.faint,
+                    // Sold out reads differently from can't-afford: one is
+                    // a wait for the partner, the other for the learner's
+                    // own coins, so a price they cannot spend is the wrong
+                    // prompt to show.
+                    backgroundColor: soldOut
+                        ? const Color(0x1FEF4444)
+                        : affordable
+                            ? AppColors.success
+                            : tokens.cardAlt,
+                    foregroundColor: soldOut
+                        ? const Color(0xFFF87171)
+                        : affordable
+                            ? Colors.white
+                            : tokens.faint,
                   ),
                   child: busy
                       ? const SizedBox(
@@ -596,10 +652,19 @@ class _PrizeCard extends StatelessWidget {
                       : Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.monetization_on_rounded, size: 16),
+                            Icon(
+                              soldOut
+                                  ? Icons.inventory_2_outlined
+                                  : Icons.monetization_on_rounded,
+                              size: 16,
+                            ),
                             const SizedBox(width: 4),
-                            Text('${prize.priceCoins}',
-                                style: const TextStyle(fontWeight: FontWeight.w800)),
+                            Text(
+                              soldOut
+                                  ? s.t('shop.soldOut')
+                                  : '${prize.priceCoins}',
+                              style: const TextStyle(fontWeight: FontWeight.w800),
+                            ),
                           ],
                         ),
                 ),
@@ -613,8 +678,16 @@ class _PrizeCard extends StatelessWidget {
 }
 
 class _RedeemedCodeDialog extends StatefulWidget {
-  const _RedeemedCodeDialog({required this.code});
+  const _RedeemedCodeDialog({required this.code, this.promoCode});
+
+  /// Ours — the coupon id, for support and reconciliation.
   final String code;
+
+  /// The partner's own, when the prize carries one. This is what the learner
+  /// types at the till, so it is the one shown big and the one copied.
+  final String? promoCode;
+
+  String get shown => promoCode ?? code;
 
   @override
   State<_RedeemedCodeDialog> createState() => _RedeemedCodeDialogState();
@@ -623,7 +696,7 @@ class _RedeemedCodeDialog extends StatefulWidget {
 class _RedeemedCodeDialogState extends State<_RedeemedCodeDialog> {
   Future<void> _copy() async {
     Haptics.tap();
-    await Clipboard.setData(ClipboardData(text: widget.code));
+    await Clipboard.setData(ClipboardData(text: widget.shown));
     if (!mounted) return;
     final s = StringsScope.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -685,14 +758,18 @@ class _RedeemedCodeDialogState extends State<_RedeemedCodeDialog> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      widget.code,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.w800,
-                        fontSize: 18,
-                        letterSpacing: 1.2,
-                        color: AppColors.primary,
+                    Flexible(
+                      child: Text(
+                        widget.shown,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                          letterSpacing: 1.2,
+                          color: AppColors.primary,
+                        ),
                       ),
                     ),
                     const SizedBox(width: Gap.sm),
@@ -701,6 +778,17 @@ class _RedeemedCodeDialogState extends State<_RedeemedCodeDialog> {
                 ),
               ),
             ),
+            if (widget.promoCode != null) ...[
+              const SizedBox(height: Gap.sm),
+              Text(
+                // Not JashMen's own number: the learner has no use for it,
+                // and printing both under one big code only raised the
+                // question of which to show at the till.
+                s.t('shop.showAtTill'),
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11, color: tokens.muted),
+              ),
+            ],
             const SizedBox(height: Gap.lg),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(),

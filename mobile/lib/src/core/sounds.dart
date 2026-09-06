@@ -26,11 +26,17 @@ class Sounds {
   static Future<void> wrong() =>
       _playOnce('sounds/wrong.wav', mode: PlayerMode.lowLatency);
 
-  /// The coin/XP clip that plays over the reward burst, layered just
-  /// behind [correct] rather than replacing it — the two are meant to be
-  /// heard together, which is why the caller staggers them.
-  static Future<void> coinXp() =>
-      _playOnce('sounds/coin_xp.mp3', mode: PlayerMode.lowLatency);
+  /// The reward clip that plays over the burst, right behind [correct] —
+  /// the two are meant to be heard together, which is why the caller
+  /// staggers them.
+  ///
+  /// 2.69 seconds long: a loud throw over its first 300ms, then a shimmer
+  /// that decays all the way out. Every part of the burst is timed against
+  /// that shape (lesson_screen.dart), so the sound and the picture finish
+  /// together. Same clip and same choreography as the web
+  /// (public/sounds/reward.mp3, LessonPage.jsx).
+  static Future<void> reward() =>
+      _playOnce('sounds/reward.mp3', mode: PlayerMode.lowLatency);
 
   /// A lesson finished — the same moment lesson_screen.dart fires
   /// Haptics.celebrate() and the confetti overlay (a review completion

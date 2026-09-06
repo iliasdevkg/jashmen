@@ -17,10 +17,12 @@ import '../core/theme.dart';
 import '../models/content.dart';
 import '../models/user_state.dart';
 import '../state/providers.dart';
+import '../widgets/streak_calendar.dart';
 import '../widgets/app_header.dart';
 import '../widgets/count_up.dart';
 import '../widgets/press_scale.dart';
 import '../widgets/states.dart';
+import '../widgets/zoomable_image.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -43,10 +45,26 @@ class ProfileScreen extends ConsumerWidget {
         ? getCurrentLeague(state.xp, content.value!.leagues)
         : null;
 
+    // A run that a missed day ended today can be bought back with energy.
+    // The offer, its price and the balance it is paid from all come from the
+    // same state the rest of the app reads, so nothing here can disagree
+    // with what the server will decide (logic.dart#streakRepairOffer).
+    final limits = content.valueOrNull?.limits;
+    final repair =
+        streakRepairOffer(state, limits?.streakRepairEnergy ?? 1);
+    final energy = computeLiveEnergy(
+      state,
+      dailyFreeLessons: limits?.dailyFreeLessons ?? 3,
+      energyRefillHours: limits?.energyRefillHours ?? 24,
+    ).remaining;
+
     return Scaffold(
       appBar: const AppHeader(),
       body: RefreshIndicator(
-        onRefresh: () => ref.read(authProvider.notifier).refreshMe(),
+        // The whole screen, not just the session: the coupon list and the
+        // achievement set both come from elsewhere.
+        onRefresh: () =>
+            ref.read(refresherProvider).tab(HomeTab.profile, force: true),
         child: ListView(
           padding: const EdgeInsets.all(Gap.lg),
           children: [
@@ -138,7 +156,7 @@ class ProfileScreen extends ConsumerWidget {
                 ),
                 _StatCard(
                   icon: Icons.local_fire_department_rounded,
-                  color: AppColors.warning,
+                  color: AppColors.streakSoft,
                   label: s.t('profile.streak'),
                   count: state.streak,
                   delay: const Duration(milliseconds: 80),
@@ -162,6 +180,17 @@ class ProfileScreen extends ConsumerWidget {
             ),
 
             const SizedBox(height: Gap.xl),
+            // Directly under the stat tiles, because the "streak: 12 days"
+            // tile above is the number and this is the story behind it —
+            // which days those twelve actually were.
+            StreakCalendar(
+              streak: state.streak,
+              activeDays: state.activeDays,
+              repair: repair,
+              energy: energy,
+              onRepair: () => ref.read(authProvider.notifier).repairStreak(),
+            ),
+
             Text(s.t('profile.achievements'),
                 style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: Gap.md),
@@ -228,7 +257,7 @@ class ProfileScreen extends ConsumerWidget {
                 return Column(
                   children: [
                     for (final r in items)
-                      _CouponRow(redemption: r, locale: locale),
+                      CouponRow(redemption: r, locale: locale),
                   ],
                 );
               },
@@ -243,8 +272,13 @@ class ProfileScreen extends ConsumerWidget {
 /// One claimed coupon. Tapping anywhere on the card copies the code — the
 /// row keeps standing even if the admin has since deleted the prize (title
 /// falls back to the bare code, the proof that matters).
-class _CouponRow extends StatelessWidget {
-  const _CouponRow({required this.redemption, required this.locale});
+///
+/// Public so it can be pumped on its own: [Redemption.prizeTitle] is
+/// `dynamic` (a trilingual map, or a bare string on older rows), and a
+/// dynamic satisfies any parameter at compile time — the one way to catch
+/// a wrong hand-off is to actually build the row.
+class CouponRow extends StatelessWidget {
+  const CouponRow({super.key, required this.redemption, required this.locale});
 
   final Redemption redemption;
   final AppLocale locale;
@@ -255,8 +289,8 @@ class _CouponRow extends StatelessWidget {
     return p.length == 3 ? '${p[2]}.${p[1]}.${p[0]}' : iso;
   }
 
-  Future<void> _copy(BuildContext context) async {
-    await Clipboard.setData(ClipboardData(text: redemption.code));
+  Future<void> _copy(BuildContext context, String value) async {
+    await Clipboard.setData(ClipboardData(text: value));
     if (!context.mounted) return;
     final s = StringsScope.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -270,6 +304,9 @@ class _CouponRow extends StatelessWidget {
     final tokens = context.tokens;
     final title = localizedContent(redemption.prizeTitle, locale);
     final partner = localizedContent(redemption.partnerName, locale);
+    final promo = redemption.promoCode;
+    final hasPromo = promo != null && promo.isNotEmpty;
+    final shownCode = hasPromo ? promo : redemption.code;
     final subtitle = [
       if (partner.isNotEmpty) partner,
       if (redemption.date.isNotEmpty) _dotDate(redemption.date),
@@ -282,7 +319,9 @@ class _CouponRow extends StatelessWidget {
         label: '${title.isEmpty ? redemption.code : title}. '
             '${s.t('profile.couponTapToCopy')}',
         child: PressScale(
-          onTap: () => _copy(context),
+          // Tapping the card still copies the code the learner is most
+          // likely to want — the partner's when there is one.
+          onTap: () => _copy(context, shownCode),
           haptic: true,
           child: Container(
             padding: const EdgeInsets.all(Gap.md),
@@ -307,16 +346,25 @@ class _CouponRow extends StatelessWidget {
                       child: redemption.partnerLogoUrl == null
                           ? Icon(Icons.confirmation_number_rounded,
                               size: 20, color: tokens.faint)
-                          : ClipOval(
-                              child: CachedNetworkImage(
-                                imageUrl: redemption.partnerLogoUrl!,
-                                fit: BoxFit.cover,
-                                width: 40,
-                                height: 40,
-                                errorWidget: (_, __, ___) => Icon(
-                                    Icons.confirmation_number_rounded,
-                                    size: 20,
-                                    color: tokens.faint),
+                          : ZoomableImage(
+                              imageUrl: redemption.partnerLogoUrl!,
+                              tag: 'coupon-${redemption.code}',
+                              // The localised STRING, not the trilingual
+                              // map: `prizeTitle` is dynamic, so a map here
+                              // type-checks at compile time and throws when
+                              // the row is built.
+                              caption: title,
+                              child: ClipOval(
+                                child: CachedNetworkImage(
+                                  imageUrl: redemption.partnerLogoUrl!,
+                                  fit: BoxFit.cover,
+                                  width: 40,
+                                  height: 40,
+                                  errorWidget: (_, __, ___) => Icon(
+                                      Icons.confirmation_number_rounded,
+                                      size: 20,
+                                      color: tokens.faint),
+                                ),
                               ),
                             ),
                     ),
@@ -337,29 +385,30 @@ class _CouponRow extends StatelessWidget {
                         ],
                       ),
                     ),
-                    const SizedBox(width: Gap.sm),
-                    Icon(Icons.copy_rounded, size: 16, color: tokens.faint),
                   ],
                 ),
-                const SizedBox(height: Gap.sm),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: Gap.sm + 2),
-                  decoration: BoxDecoration(
-                    color: tokens.cardAlt,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    redemption.code,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.w800,
-                      fontSize: 14,
-                      letterSpacing: 1.1,
-                      color: AppColors.primary,
-                    ),
-                  ),
+                // Only the partner's code. JashMen's own number is the
+                // operator's reconciliation key, not something a learner has
+                // any use for — showing both only made them wonder which one
+                // to hand over. It still exists on the record and still
+                // appears in the admin's coupon list. The fallback below is
+                // for a prize with no partner code at all: something has to
+                // stand as proof of the claim.
+                const SizedBox(height: Gap.sm + 2),
+                Text(
+                  hasPromo
+                      ? s.t('profile.couponPartnerCode')
+                      : s.t('profile.couponTapToCopy'),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 4),
+                _CodeChip(
+                  code: shownCode,
+                  color: hasPromo ? AppColors.success : AppColors.primary,
+                  background:
+                      hasPromo ? const Color(0x1F58CC02) : tokens.cardAlt,
+                  border: hasPromo ? const Color(0x6658CC02) : null,
+                  onTap: () => _copy(context, shownCode),
                 ),
               ],
             ),
@@ -512,17 +561,21 @@ class _AchievementRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(14),
               ),
               clipBehavior: Clip.antiAlias,
-              child: lessonIconFor(achievement.icon) != null
-                  ? Icon(lessonIconFor(achievement.icon),
-                      color: earned ? AppColors.gold : tokens.faint as Color)
-                  : achievement.iconUrl == null
+              child: lessonGlyph(achievement.icon,
+                      color: earned ? AppColors.gold : tokens.faint as Color) ??
+                  (achievement.iconUrl == null
                   ? Icon(Icons.military_tech_rounded, color: tokens.faint as Color)
-                  : CachedNetworkImage(
+                  : ZoomableImage(
                       imageUrl: achievement.iconUrl!,
-                      fit: BoxFit.contain,
-                      errorWidget: (_, __, ___) =>
-                          Icon(Icons.military_tech_rounded, color: tokens.faint as Color),
-                    ),
+                      tag: 'achievement-${achievement.id}',
+                      caption: localizedContent(achievement.title, locale),
+                      child: CachedNetworkImage(
+                        imageUrl: achievement.iconUrl!,
+                        fit: BoxFit.contain,
+                        errorWidget: (_, __, ___) =>
+                            Icon(Icons.military_tech_rounded, color: tokens.faint as Color),
+                      ),
+                    )),
             ),
           ),
           const SizedBox(width: Gap.md),
@@ -776,6 +829,70 @@ class _EditNameDialogState extends ConsumerState<_EditNameDialog> {
               : Text(s.t('common.confirm')),
         ),
       ],
+    );
+  }
+}
+
+/// One code on a coupon, in a tappable block. Two of these stack up on a
+/// row when the prize carries a partner code: the partner's, which is what
+/// gets shown at the till, and JashMen's own, which is what an operator
+/// reconciles against.
+class _CodeChip extends StatelessWidget {
+  const _CodeChip({
+    required this.code,
+    required this.color,
+    required this.background,
+    required this.onTap,
+    this.border,
+  });
+
+  final String code;
+  final Color color;
+  final Color background;
+  final Color? border;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: background,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: Gap.sm + 2),
+          decoration: border == null
+              ? null
+              : BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: border!, width: 1.5),
+                ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Flexible(
+                child: Text(
+                  code,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    letterSpacing: 1.1,
+                    color: color,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Icon(Icons.copy_rounded, size: 14, color: color.withValues(alpha: 0.6)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

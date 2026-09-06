@@ -9,12 +9,24 @@ library;
 import '../core/config.dart';
 import 'university.dart';
 
-enum CardType { theory, media, quiz, unknown }
+enum CardType { theory, media, quiz, match, build, unknown }
+
+/// The card types the server grades and pays XP for — the mirror of
+/// admin-api/contentStore.js#GRADED_CARD_TYPES. Kept as one set so the
+/// player's re-queue rule, the mistake count and logic.dart's XP preview can
+/// never drift from what the server actually counts.
+const gradedCardTypes = <CardType>{
+  CardType.quiz,
+  CardType.match,
+  CardType.build,
+};
 
 CardType _cardType(String? raw) => switch (raw) {
       'theory' => CardType.theory,
       'media' => CardType.media,
       'quiz' => CardType.quiz,
+      'match' => CardType.match,
+      'build' => CardType.build,
       _ => CardType.unknown,
     };
 
@@ -40,6 +52,23 @@ List<T> _asList<T>(dynamic v, T Function(Map<String, dynamic>) fromJson) {
       .toList(growable: false);
 }
 
+/// One row of a `match` card: a block for the left column and the block on
+/// the right it belongs with. Both sides are `{ky, ru, en}` maps (or a
+/// legacy bare string), so they stay `dynamic` and resolve at render time
+/// like every other authored text.
+///
+/// The authored order is the answer key — widgets/match_pairs_card.dart
+/// shuffles the right column before drawing it.
+class MatchPair {
+  const MatchPair({this.left, this.right});
+
+  final dynamic left;
+  final dynamic right;
+
+  factory MatchPair.fromJson(Map<String, dynamic> json) =>
+      MatchPair(left: json['left'], right: json['right']);
+}
+
 /// A lesson card. Text fields stay `dynamic` on purpose — they are either a
 /// `{ky, ru}` map or a legacy bare string, resolved at render time by
 /// i18n.dart#localizedContent against the user's chosen locale.
@@ -53,6 +82,12 @@ class LessonCard {
     this.answerIndex = 0,
     this.explanation,
     this.imageUrl,
+    this.mediaType,
+    this.url,
+    this.caption,
+    this.pairs = const [],
+    this.sentence,
+    this.distractors,
   });
 
   final CardType type;
@@ -68,6 +103,40 @@ class LessonCard {
   final dynamic explanation;
   final String? imageUrl;
 
+  /// The three fields a `media` card carries, authored in the admin panel's
+  /// "Медиа" card (admin-src/pages/LessonsModule.jsx). They used to be
+  /// dropped here, which left every media card blank in the app while the
+  /// web rendered it fine.
+  ///
+  /// [mediaType] is 'image' or 'video'; [caption] is `{ky, ru, en}` (or a
+  /// legacy bare string) and resolves with localizedContent like every other
+  /// authored text.
+  final String? mediaType;
+  final String? url;
+  final dynamic caption;
+
+  /// `match` — the two-column pairs the learner taps together. Empty for
+  /// every other card type, and empty too for a `match` card whose pairs are
+  /// still being authored: the player treats a card with nothing playable as
+  /// read-through rather than trapping the learner on it.
+  final List<MatchPair> pairs;
+
+  /// `build` — the sentence to assemble, `{ky, ru, en}` or a legacy bare
+  /// string. The word tiles for a locale are this string split on
+  /// whitespace, plus [distractors].
+  final dynamic sentence;
+
+  /// `build` — the extra words mixed into the word bank. One
+  /// whitespace-separated string per locale, not a list, exactly as the
+  /// admin authors it.
+  final dynamic distractors;
+
+  bool get isVideo => mediaType == 'video';
+
+  /// Whether a wrong answer is possible here — the client-side mirror of the
+  /// server's GRADED_CARD_TYPES. Theory and media are read-through.
+  bool get isGraded => gradedCardTypes.contains(type);
+
   factory LessonCard.fromJson(Map<String, dynamic> json) => LessonCard(
         type: _cardType(json['type'] as String?),
         title: json['title'],
@@ -77,6 +146,12 @@ class LessonCard {
         answerIndex: _asInt(json['a']),
         explanation: json['explanation'],
         imageUrl: _asIconUrl(json['imageUrl']),
+        mediaType: json['mediaType'] as String?,
+        url: _asIconUrl(json['url']),
+        caption: json['caption'],
+        pairs: _asList(json['pairs'], MatchPair.fromJson),
+        sentence: json['sentence'],
+        distractors: json['distractors'],
       );
 }
 
@@ -143,6 +218,7 @@ class Module {
     this.iconUrl,
     this.icon,
     this.partnerId,
+    this.artSide = 'left',
   });
 
   final String id;
@@ -162,6 +238,11 @@ class Module {
   final String? icon;
   final String? partnerId;
 
+  /// Which edge of the lesson path [iconUrl] stands on: 'left' or 'right',
+  /// chosen per module in the admin panel. Defaults to 'left', which is
+  /// where every tile sat before the field existed.
+  final String artSide;
+
   factory Module.fromJson(Map<String, dynamic> json) => Module(
         id: _asString(json['id']),
         title: json['title'],
@@ -170,6 +251,10 @@ class Module {
         iconUrl: _asIconUrl(json['iconUrl']),
         icon: _asIconSlug(json['icon']),
         partnerId: json['partnerId']?.toString(),
+        // Anything the server has not backfilled, or a value from a newer
+        // panel this build does not know, falls back to the side every tile
+        // used to sit on rather than to an empty string nothing can place.
+        artSide: json['artSide'] == 'right' ? 'right' : 'left',
       );
 }
 
@@ -317,6 +402,8 @@ class Prize {
     required this.description,
     required this.priceCoins,
     this.photoUrl,
+    this.stockLeft,
+    this.soldOut = false,
   });
 
   final String id;
@@ -326,6 +413,15 @@ class Prize {
   final int priceCoins;
   final String? photoUrl;
 
+  /// Promo codes still unsold, or null when this prize has no code
+  /// programme at all and so nothing to run out of. The codes themselves
+  /// never leave the admin (admin-api/routes.js#/public/content).
+  final int? stockLeft;
+
+  /// The stock existed and is now empty. Not the same as [stockLeft] == 0
+  /// on a prize that never had codes — that one is still on sale.
+  final bool soldOut;
+
   factory Prize.fromJson(Map<String, dynamic> json) => Prize(
         id: _asString(json['id']),
         partnerId: _asString(json['partnerId']),
@@ -333,21 +429,28 @@ class Prize {
         description: json['description'],
         priceCoins: _asInt(json['priceCoins']),
         photoUrl: _asIconUrl(json['photoUrl']),
+        stockLeft:
+            json['stockLeft'] is num ? (json['stockLeft'] as num).toInt() : null,
+        soldOut: json['soldOut'] == true,
       );
 }
 
 class ContentLimits {
   const ContentLimits({
     this.dailyFreeLessons = 3,
-    this.dailyPrizeCap = 5,
     this.energyRefillHours = 24,
     this.supportEnergyAmount = 5,
     this.xpPerQuestion = 10,
+    this.xpMistakePenalty = 3,
+    this.xpMinFloorPct = 40,
+    this.xpPerfectBonusPct = 20,
+    this.xpBoostMultiplierPct = 125,
+    this.maxBonusEnergyPerDay = 0,
     this.coinsPerfectLesson = 10,
     this.coinsNormalLesson = 5,
+    this.streakRepairEnergy = 1,
   });
   final int dailyFreeLessons;
-  final int dailyPrizeCap;
 
   /// How often the energy allowance refills, in hours. Admin-editable
   /// (Module В); 24 means the original UTC-midnight behaviour. See
@@ -357,20 +460,44 @@ class ContentLimits {
   /// University league: how much energy one viewer hands a student.
   final int supportEnergyAmount;
 
-  /// Only used to drive the lesson HUD's optimistic counters — the server
-  /// stays the authority on what is actually awarded.
+  /// The reward formula, every term of it, exactly as the Лимиттер tab
+  /// defines it (admin-api/adminRoutes.js#LIMIT_FIELDS). Five of these used
+  /// to be dropped on parse, so raising the XP per question in the admin
+  /// panel changed what the server paid but not what the app promised.
+  ///
+  /// These drive the optimistic HUD counters and the "up to +N XP" preview
+  /// only — the server stays the authority on what is actually awarded
+  /// (admin-api/routes.js#completeLesson).
   final int xpPerQuestion;
+  final int xpMistakePenalty;
+  final int xpMinFloorPct;
+  final int xpPerfectBonusPct;
+  final int xpBoostMultiplierPct;
+
+  /// Ceiling on energy a student may receive as gifts in one day.
+  final int maxBonusEnergyPerDay;
+
   final int coinsPerfectLesson;
   final int coinsNormalLesson;
 
+  /// Energy it costs to buy a broken streak back on the day it breaks
+  /// (admin-api/routes.js#/u/me/streak/repair). 0 means the admin has
+  /// switched the offer off and a missed day simply ends the run.
+  final int streakRepairEnergy;
+
   factory ContentLimits.fromJson(Map<String, dynamic> json) => ContentLimits(
         dailyFreeLessons: _asInt(json['dailyFreeLessons'], 3),
-        dailyPrizeCap: _asInt(json['dailyPrizeCap'], 5),
         energyRefillHours: _asInt(json['energyRefillHours'], 24),
         supportEnergyAmount: _asInt(json['supportEnergyAmount'], 5),
         xpPerQuestion: _asInt(json['xpPerQuestion'], 10),
+        xpMistakePenalty: _asInt(json['xpMistakePenalty'], 3),
+        xpMinFloorPct: _asInt(json['xpMinFloorPct'], 40),
+        xpPerfectBonusPct: _asInt(json['xpPerfectBonusPct'], 20),
+        xpBoostMultiplierPct: _asInt(json['xpBoostMultiplierPct'], 125),
+        maxBonusEnergyPerDay: _asInt(json['maxBonusEnergyPerDay'], 0),
         coinsPerfectLesson: _asInt(json['coinsPerfectLesson'], 10),
         coinsNormalLesson: _asInt(json['coinsNormalLesson'], 5),
+        streakRepairEnergy: _asInt(json['streakRepairEnergy'], 1),
       );
 }
 

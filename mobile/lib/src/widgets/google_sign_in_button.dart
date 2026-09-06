@@ -66,10 +66,30 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
           ref.read(publicConfigProvider).valueOrNull?.googleClientIdIos)
       : null;
 
+  /// Whether the SDK can safely be started on this platform.
+  ///
+  /// On iOS the Google SDK reads its configuration from GIDClientID in
+  /// Info.plist or from the clientId handed to it here. This app ships
+  /// neither yet — ios/Runner/Info.plist still carries the placeholder URL
+  /// scheme, and the server answers googleClientIdIos: null. Calling the
+  /// SDK in that state raises an Objective-C exception ("No active
+  /// configuration") that NO Dart catch can hold: the process dies.
+  ///
+  /// So the button stays on screen — taking a sign-in method away is worse
+  /// than one that is not ready yet — and this is the check that keeps the
+  /// tap from reaching the SDK. Set GOOGLE_CLIENT_ID_IOS on the server and
+  /// the id arrives through /public/config at runtime: the flow starts
+  /// working with no new build.
+  ///
+  /// Android is unaffected: it resolves itself from the package name and
+  /// signing certificate and needs no id from us.
+  bool get _canStartSdk =>
+      _serverClientId != null && (!Platform.isIOS || _iosClientId != null);
+
   Future<void> _signIn() async {
     final s = StringsScope.of(context);
     final serverClientId = _serverClientId;
-    if (serverClientId == null) {
+    if (!_canStartSdk || serverClientId == null) {
       // No client id yet: say why rather than letting the plugin throw a
       // generic failure the user can do nothing about.
       widget.onError?.call(s.t('auth.googleUnavailable'));
@@ -129,6 +149,7 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
     ref.watch(publicConfigProvider);
 
     final s = StringsScope.of(context);
+
     final disabled = _busy || !widget.enabled;
 
     return Column(
@@ -187,7 +208,7 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const _GoogleGlyph(size: 22),
+                        : const _GoogleGlyph(size: 26),
                   ),
                   Expanded(
                     child: Padding(
@@ -215,8 +236,15 @@ class _GoogleSignInButtonState extends ConsumerState<GoogleSignInButton> {
   }
 }
 
-/// Google's four-colour "G", drawn rather than shipped as an asset so the
-/// button has no network or bundle dependency.
+/// Google's mark, as the real artwork (assets/medals/googlelogo.png) rather
+/// than the four arcs this used to draw by hand. A brand mark should be the
+/// brand's own file; the drawn version was close but not Google's geometry,
+/// and it is the one image on the sign-in screen a person recognises before
+/// they read anything.
+///
+/// The painted version stays as the fallback: a bundle that somehow ships
+/// without the asset shows a G rather than a broken-image box on the button
+/// people use to get into the app.
 class _GoogleGlyph extends StatelessWidget {
   const _GoogleGlyph({this.size = 20});
   final double size;
@@ -225,7 +253,15 @@ class _GoogleGlyph extends StatelessWidget {
   Widget build(BuildContext context) => SizedBox(
         width: size,
         height: size,
-        child: CustomPaint(painter: _GoogleGlyphPainter()),
+        child: Image.asset(
+          'assets/medals/googlelogo.png',
+          width: size,
+          height: size,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.medium,
+          errorBuilder: (_, __, ___) =>
+              CustomPaint(painter: _GoogleGlyphPainter()),
+        ),
       );
 }
 

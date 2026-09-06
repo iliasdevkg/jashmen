@@ -18,8 +18,10 @@ class TickingNumber extends StatefulWidget {
     super.key,
     required this.value,
     required this.builder,
-    this.delay = const Duration(milliseconds: 810),
-    this.step = const Duration(milliseconds: 95),
+    this.delay = const Duration(milliseconds: 950),
+    this.window = const Duration(milliseconds: 1730),
+    this.minStep = const Duration(milliseconds: 70),
+    this.maxStep = const Duration(milliseconds: 240),
     this.enabled = true,
   });
 
@@ -30,8 +32,15 @@ class TickingNumber extends StatefulWidget {
   /// time, so the first step lands with the first coin.
   final Duration delay;
 
-  /// Time between two consecutive units.
-  final Duration step;
+  /// How long the whole climb may take. One unit per step, spread across
+  /// this — so a +1 coin and a +10 XP run finish at the same moment instead
+  /// of the short one being over while the long one is still counting.
+  final Duration window;
+
+  /// Floor and ceiling on a single step: too fast is a blur, too slow
+  /// outlives the sound.
+  final Duration minStep;
+  final Duration maxStep;
 
   /// False (animations switched off) snaps straight to the value.
   final bool enabled;
@@ -62,9 +71,14 @@ class _TickingNumberState extends State<TickingNumber> {
       return;
     }
 
+    final stepMs = (widget.window.inMilliseconds / delta)
+        .clamp(widget.minStep.inMilliseconds.toDouble(),
+            widget.maxStep.inMilliseconds.toDouble())
+        .round();
+
     var i = 0;
     _start = Timer(widget.delay, () {
-      _ticker = Timer.periodic(widget.step, (t) {
+      _ticker = Timer.periodic(Duration(milliseconds: stepMs), (t) {
         i += 1;
         if (!mounted) {
           t.cancel();

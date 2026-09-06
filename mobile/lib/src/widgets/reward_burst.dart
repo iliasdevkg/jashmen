@@ -15,7 +15,10 @@ import '../state/providers.dart';
 
 const int _coinCount = 9;
 const int _xpCount = 8;
-const Duration _burstDuration = Duration(milliseconds: 950);
+// The coins are in the air while the reward clip is still loud, and land as
+// it settles into its tail. Matches BURST_MS in LessonPage.jsx exactly, so a
+// coin takes the same time to arrive on both clients.
+const Duration _burstDuration = Duration(milliseconds: 1100);
 
 /// Fired by the lesson screen; the overlay listens.
 class RewardBurstController extends ChangeNotifier {
@@ -80,8 +83,15 @@ class RewardBurstOverlay extends ConsumerStatefulWidget {
 
 class _RewardBurstOverlayState extends ConsumerState<RewardBurstOverlay>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: _burstDuration);
+  // Built in initState, not lazily.
+  //
+  // As a `late final` initialiser this was only constructed the first time
+  // something touched it — and on a lesson where no answer was ever right,
+  // the first touch was dispose()'s own `_c.dispose()`. Creating a ticker
+  // there means asking a already-deactivated element for its TickerMode
+  // ancestor, which throws "Looking up a deactivated widget's ancestor is
+  // unsafe" every time such a lesson is closed.
+  late final AnimationController _c;
   final _boxKey = GlobalKey();
   List<_Particle> _particles = const [];
   int _lastSeq = 0;
@@ -89,6 +99,7 @@ class _RewardBurstOverlayState extends ConsumerState<RewardBurstOverlay>
   @override
   void initState() {
     super.initState();
+    _c = AnimationController(vsync: this, duration: _burstDuration);
     widget.controller.addListener(_onPlay);
   }
 

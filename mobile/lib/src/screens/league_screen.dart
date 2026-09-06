@@ -21,7 +21,6 @@
 /// intentional — a light podium would lose the glow the design is built on.
 library;
 
-import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -195,16 +194,36 @@ class _Pal {
 }
 
 /// clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%)
+/// The badge silhouette, traced from the web's GEM_PATH
+/// (src/components/icons/LeagueBadges.jsx) point for point.
+///
+/// It used to be a sharp hexagon standing on a vertex while the web drew a
+/// rounded one resting on a flat edge — the same league, two different
+/// shapes, ninety degrees apart. The coordinates below are the web's own, in
+/// its 0–100 viewBox, scaled to whatever box the widget is given.
 class _HexClipper extends CustomClipper<Path> {
   @override
-  Path getClip(Size s) => Path()
-    ..moveTo(s.width * 0.50, 0)
-    ..lineTo(s.width * 0.93, s.height * 0.25)
-    ..lineTo(s.width * 0.93, s.height * 0.75)
-    ..lineTo(s.width * 0.50, s.height)
-    ..lineTo(s.width * 0.07, s.height * 0.75)
-    ..lineTo(s.width * 0.07, s.height * 0.25)
-    ..close();
+  Path getClip(Size s) {
+    final kx = s.width / 100, ky = s.height / 100;
+    double x(double v) => v * kx;
+    double y(double v) => v * ky;
+
+    return Path()
+      ..moveTo(x(20.59), y(21))
+      ..lineTo(x(39.61), y(10))
+      ..quadraticBezierTo(x(50), y(4), x(60.39), y(10))
+      ..lineTo(x(79.41), y(21))
+      ..quadraticBezierTo(x(89.8), y(27), x(89.8), y(39))
+      ..lineTo(x(89.8), y(61))
+      ..quadraticBezierTo(x(89.8), y(73), x(79.41), y(79))
+      ..lineTo(x(60.39), y(90))
+      ..quadraticBezierTo(x(50), y(96), x(39.61), y(90))
+      ..lineTo(x(20.59), y(79))
+      ..quadraticBezierTo(x(10.2), y(73), x(10.2), y(61))
+      ..lineTo(x(10.2), y(39))
+      ..quadraticBezierTo(x(10.2), y(27), x(20.59), y(21))
+      ..close();
+  }
 
   @override
   bool shouldReclip(_HexClipper oldClipper) => false;
@@ -317,6 +336,13 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
         }
       }
 
+      // Only write when something actually changed. The server treats an
+      // enrolment write as a join, and this runs on every tap of the
+      // university tab — re-sending an unchanged enrolment used to reset the
+      // campus score. The server guards this too (routes.js), but not
+      // spending a round-trip on a no-op is the better behaviour anyway.
+      if (enrolment.universityId == id && enrolment.role == role) return;
+
       await _commitEnrolment(role, id!);
     } finally {
       _asking = false;
@@ -372,6 +398,59 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
     }
   }
 
+  /// Leaves the campus entirely and goes back to the general league.
+  ///
+  /// Destructive in a way changing campus is not: the server zeroes `uniXp`
+  /// on the way out (routes.js#/u/me/university), so a student forfeits
+  /// everything they built here. Hence the confirm.
+  Future<void> _leaveUniversity() async {
+    if (_asking) return;
+    _asking = true;
+    try {
+      final s = StringsScope.of(context);
+      final messenger = ScaffoldMessenger.of(context);
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(s.t('uni.leave')),
+          content: Text(s.t('uni.leaveConfirm')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(s.t('common.cancel')),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              style: TextButton.styleFrom(foregroundColor: const Color(0xFFEF4444)),
+              child: Text(s.t('uni.leave')),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || ok != true) return;
+
+      setState(() => _enrolling = true);
+      try {
+        await ref.read(authProvider.notifier).setUniversity(role: null, universityId: null);
+        if (!mounted) return;
+        setState(() => _tab = _LeagueTab.general);
+      } on ApiException catch (e) {
+        if (!mounted) return;
+        messenger.showSnackBar(SnackBar(
+          content: Text(switch (e.kind) {
+            ApiErrorKind.offline => s.t('common.offline'),
+            ApiErrorKind.timeout || ApiErrorKind.server => s.t('common.serverError'),
+            _ => e.message,
+          }),
+        ));
+      } finally {
+        if (mounted) setState(() => _enrolling = false);
+      }
+    } finally {
+      _asking = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = StringsScope.of(context);
@@ -411,6 +490,7 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
                       ? UniLeagueView(
                           university: university,
                           onChange: _changeEnrolment,
+                          onLeave: _leaveUniversity,
                         )
                       : _buildGeneralLeague(context),
             ),
@@ -431,10 +511,8 @@ class _LeagueScreenState extends ConsumerState<LeagueScreen> {
     return RefreshIndicator(
       backgroundColor: p.card,
       color: _C.blue,
-      onRefresh: () async {
-        ref.invalidate(leaderboardProvider);
-        await ref.read(leaderboardProvider.future);
-      },
+      onRefresh: () =>
+          ref.read(refresherProvider).tab(HomeTab.league, force: true),
       child: board.when(
         loading: () => const _LeagueSkeleton(),
         error: (err, _) => ListView(
@@ -842,10 +920,9 @@ class _RankCard extends ConsumerWidget {
             ? Icon(Icons.lock_rounded, size: 26, color: p.lockIcon)
             // An icon picked from the built-in set outranks an upload — the
             // same order the server stores the two fields in.
-            : lessonIconFor(league.icon) != null
-                ? Icon(lessonIconFor(league.icon),
-                    size: isCurrent ? 40 : 30, color: Colors.white)
-            : league.iconUrl != null
+            : lessonGlyph(league.icon,
+                    size: isCurrent ? 40 : 30, color: Colors.white) ??
+                (league.iconUrl != null
                 ? Padding(
                     padding: const EdgeInsets.all(22),
                     child: CachedNetworkImage(
@@ -856,7 +933,7 @@ class _RankCard extends ConsumerWidget {
                     ),
                   )
                 : Icon(Icons.school_rounded,
-                    size: isCurrent ? 40 : 30, color: Colors.white),
+                    size: isCurrent ? 40 : 30, color: Colors.white)),
       ),
     );
 
@@ -988,21 +1065,36 @@ class _Podium extends ConsumerWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Expanded(flex: 100, child: _PodiumSlot(entry: at(1), place: 2)),
+          Expanded(flex: 100, child: _PodiumColumn(entry: at(1), place: 2)),
           const SizedBox(width: 10),
-          Expanded(flex: 115, child: _PodiumSlot(entry: at(0), place: 1)),
+          Expanded(flex: 115, child: _PodiumColumn(entry: at(0), place: 1)),
           const SizedBox(width: 10),
-          Expanded(flex: 100, child: _PodiumSlot(entry: at(2), place: 3)),
+          Expanded(flex: 100, child: _PodiumColumn(entry: at(2), place: 3)),
         ],
       ),
     );
   }
 }
 
-class _PodiumSlot extends ConsumerWidget {
-  const _PodiumSlot({required this.entry, required this.place});
+/// One place on a podium — the same on every board in the app.
+///
+/// The campus board used to draw its own version: a flat tinted card, no
+/// metal block, no rank number. Same three places, visibly smaller occasion.
+/// Both boards render this now, so a campus win looks exactly like a
+/// general-league win. Anything a particular board wants to add underneath
+/// (the campus backer count) comes in through [footer].
+class _PodiumColumn extends ConsumerWidget {
+  const _PodiumColumn({
+    required this.entry,
+    required this.place,
+    this.footer,
+    this.onTap,
+  });
+
   final LeaderboardEntry? entry;
   final int place;
+  final Widget? footer;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1033,10 +1125,10 @@ class _PodiumSlot extends ConsumerWidget {
       );
     }
 
-    return Column(
+    final head = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        MedalWreath(place: place, size: place == 1 ? 50 : 38),
+        MedalWreath(place: place, size: place == 1 ? 50 : 38, bright: p.bright),
         const SizedBox(height: 4),
         _Avatar(
           entry: entry!,
@@ -1057,14 +1149,27 @@ class _PodiumSlot extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 6),
-        Text(
-          '${entry!.xp} XP',
-          style: TextStyle(
-            fontSize: place == 1 ? 14 : 13,
-            fontWeight: place == 1 ? FontWeight.w800 : FontWeight.w700,
-            color: xpColor,
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            '${formatGrouped(entry!.xp)} XP',
+            style: TextStyle(
+              fontSize: place == 1 ? 14 : 13,
+              fontWeight: place == 1 ? FontWeight.w800 : FontWeight.w700,
+              color: xpColor,
+            ),
           ),
         ),
+        if (footer != null) ...[const SizedBox(height: 5), footer!],
+      ],
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        onTap == null
+            ? head
+            : PressScale(onTap: onTap!, scale: 0.96, child: head),
         const SizedBox(height: 6),
         Container(
           width: double.infinity,
@@ -1309,7 +1414,7 @@ class _LeaderRow extends ConsumerWidget {
                   Row(
                     children: [
                       const Icon(Icons.local_fire_department_rounded,
-                          size: 13, color: _C.fire),
+                          size: 13, color: AppColors.streakSoft),
                       const SizedBox(width: 3),
                       Text(
                         s.t('league.days', params: {'n': entry.streak}),
@@ -1397,10 +1502,19 @@ class _LeagueSkeleton extends StatelessWidget {
 /// densest layout in the app, and the one most likely to overflow when a
 /// translation grows.
 class UniLeagueView extends ConsumerWidget {
-  const UniLeagueView({super.key, required this.university, required this.onChange});
+  const UniLeagueView({
+    super.key,
+    required this.university,
+    required this.onChange,
+    this.onLeave,
+  });
 
   final University university;
   final VoidCallback onChange;
+
+  /// Leaves the campus entirely and goes back to the general league. Null in
+  /// tests and previews, where there is no enrolment to leave.
+  final VoidCallback? onLeave;
 
   /// Who a tap on the board belongs to. A viewer taps anyone — that is the
   /// gift. A student taps only their own row, which is how they open "who
@@ -1437,9 +1551,40 @@ class UniLeagueView extends ConsumerWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 0, 16, 8),
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: PressScale(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                // Leaving is destructive in a way changing campus is not: a
+                // student forfeits the campus score they built. Red, and
+                // behind a confirm, because there is no undo.
+                if (onLeave != null)
+                  PressScale(
+                    onTap: onLeave!,
+                    scale: 0.94,
+                    child: Semantics(
+                      button: true,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              s.t('uni.leave'),
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFEF4444),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            const Icon(Icons.logout_rounded, size: 15, color: Color(0xFFEF4444)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                if (onLeave != null) const SizedBox(width: 14),
+                PressScale(
                 onTap: onChange,
                 scale: 0.94,
                 child: Semantics(
@@ -1465,7 +1610,8 @@ class UniLeagueView extends ConsumerWidget {
                     ),
                   ),
                 ),
-              ),
+                ),
+              ],
             ),
           ),
           if (contest == null)
@@ -1816,10 +1962,10 @@ class _UniContestCard extends ConsumerWidget {
                       title: s.t('uni.prizePool'),
                       headline: formatSom(contest.prizePool, locale),
                       rows: [
-                        (s.t('uni.organizer'), contest.organizerPhone),
-                        (s.t('uni.address'), localizedContent(contest.address, locale)),
+                        (s.t('uni.organizer'), contest.organizerPhone, null),
+                        (s.t('uni.address'), localizedContent(contest.address, locale), null),
                         if (contest.sponsorName != null)
-                          (s.t('uni.sponsor'), contest.sponsorName!),
+                          (s.t('uni.sponsor'), contest.sponsorName!, null),
                       ],
                     ),
                   ),
@@ -1839,8 +1985,8 @@ class _UniContestCard extends ConsumerWidget {
                           ? '\u2014'
                           : '${formatGrouped(totalXp!)} XP',
                       rows: [
-                        (s.t('uni.studentsCount'), '${studentCount ?? 0}'),
-                        (s.t('uni.viewersCount'), '${viewerCount ?? 0}'),
+                        (s.t('uni.studentsCount'), '${studentCount ?? 0}', null),
+                        (s.t('uni.viewersCount'), '${viewerCount ?? 0}', null),
                       ],
                       note: s.t('uni.totalCollectedNote'),
                     ),
@@ -1858,12 +2004,13 @@ class _UniContestCard extends ConsumerWidget {
                       color: _C.fire,
                       title: s.t('uni.prizes'),
                       rows: [
-                        (s.t('uni.place1'), formatSom(contest.firstPrize, locale)),
-                        (s.t('uni.place2'), formatSom(contest.secondPrize, locale)),
-                        (s.t('uni.place3'), formatSom(contest.thirdPrize, locale)),
+                        (s.t('uni.place1'), formatSom(contest.firstPrize, locale), 1),
+                        (s.t('uni.place2'), formatSom(contest.secondPrize, locale), 2),
+                        (s.t('uni.place3'), formatSom(contest.thirdPrize, locale), 3),
                         (
                           s.t('uni.gifts'),
-                          s.t('uni.giftsTop', params: {'n': contest.giftsTopN})
+                          s.t('uni.giftsTop', params: {'n': contest.giftsTopN}),
+                          null,
                         ),
                       ],
                     ),
@@ -1881,8 +2028,8 @@ class _UniContestCard extends ConsumerWidget {
                       color: _C.rules,
                       title: s.t('uni.rulesValue'),
                       rows: [
-                        (s.t('uni.start'), formatLongDate(contest.startsAt, locale)),
-                        (s.t('uni.end'), formatLongDate(contest.endsAt, locale)),
+                        (s.t('uni.start'), formatLongDate(contest.startsAt, locale), null),
+                        (s.t('uni.end'), formatLongDate(contest.endsAt, locale), null),
                       ],
                       note: localizedContent(contest.rules, locale),
                     ),
@@ -2035,7 +2182,9 @@ class _ContestFactPanel extends ConsumerWidget {
   final Color color;
   final String title;
   final String? headline;
-  final List<(String, String)> rows;
+  /// label, value, and the podium place the row is about — 1/2/3 draw their
+  /// medal beside the label, null draws nothing.
+  final List<(String, String, int?)> rows;
   final String? note;
 
   @override
@@ -2103,8 +2252,12 @@ class _ContestFactPanel extends ConsumerWidget {
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 9),
                       child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
+                          if (rows[i].$3 != null) ...[
+                            MedalWreath(place: rows[i].$3!, size: 30, bright: p.bright),
+                            const SizedBox(width: 8),
+                          ],
                           Expanded(
                             child: Text(
                               rows[i].$1,
@@ -2438,210 +2591,35 @@ class _UniPodiumSlot extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final p = _Pal.of(ref);
+    final e = entry;
 
-    // A contest with fewer than three students leaves the slot blank rather
-    // than promoting someone into a place they haven't earned.
-    if (entry == null) return const SizedBox.shrink();
-
-    final (border, fill) = switch (place) {
-      1 => (
-          _C.gold,
-          p.bright
-              ? [const Color(0xFFFEF9C3), const Color(0xFFFDE68A)]
-              : [const Color(0xFF2A1E06), const Color(0xFF15100A)],
-        ),
-      2 => (
-          p.bright ? const Color(0xFFCBD5E1) : const Color(0xFF2A3142),
-          p.bright
-              ? [const Color(0xFFFFFFFF), const Color(0xFFF1F5F9)]
-              : [const Color(0xFF141B2A), const Color(0xFF0D1220)],
-        ),
-      _ => (
-          p.bright ? const Color(0xFFFDBA74) : const Color(0xFF6D3617),
-          p.bright
-              ? [const Color(0xFFFFF7ED), const Color(0xFFFFEDD5)]
-              : [const Color(0xFF1F1108), const Color(0xFF130C08)],
-        ),
-    };
-
-    final ring = switch (place) {
-      1 => _C.gold,
-      2 => const Color(0xFF9AA3B2),
-      _ => const Color(0xFFC2703A),
-    };
-
-    final xpColor = switch (place) {
-      1 => _C.gold,
-      2 => p.bright ? const Color(0xFF64748B) : const Color(0xFFC3C9D4),
-      _ => const Color(0xFFF59E0B),
-    };
-
-    final card = Container(
-      margin: const EdgeInsets.only(top: 15),
-      padding: EdgeInsets.fromLTRB(6, place == 1 ? 26 : 22, 6, place == 1 ? 16 : 12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: border, width: place == 1 ? 1.5 : 1),
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: fill,
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _Avatar(
-            entry: entry!.asLeaderboardEntry,
-            size: place == 1 ? 50 : 44,
-            ring: ring,
-            ringWidth: 2.5,
-            glow: place == 1,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            entry!.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: p.text,
-            ),
-          ),
-          const SizedBox(height: 4),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              '${formatGrouped(entry!.xp)} XP',
-              style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w800,
-                color: xpColor,
-              ),
-            ),
-          ),
-          if (entry!.supporters > 0) ...[
-            const SizedBox(height: 5),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.favorite_rounded, size: 10, color: _C.supportTint),
-                const SizedBox(width: 3),
-                Text(
-                  '${entry!.supporters}',
-                  style: const TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                    color: _C.supportTint,
-                  ),
+    // The general board has no use for a backer count, so it rides in as the
+    // footer rather than forking the column.
+    final footer = (e != null && e.supporters > 0)
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.favorite_rounded, size: 10, color: _C.supportTint),
+              const SizedBox(width: 3),
+              Text(
+                '${e.supporters}',
+                style: const TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: _C.supportTint,
                 ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-
-    return Stack(
-      clipBehavior: Clip.none,
-      alignment: Alignment.topCenter,
-      children: [
-        onPick == null
-            ? card
-            : PressScale(onTap: () => onPick!(entry!), scale: 0.96, child: card),
-        _WreathBadge(place: place),
-      ],
-    );
-  }
-}
-
-/// The laurel medal that straddles the top edge of a podium card. Drawn
-/// rather than shipped as three images: it has to sit on a gold, a silver
-/// and a bronze card and pick up each one's tint.
-class _WreathBadge extends StatelessWidget {
-  const _WreathBadge({required this.place});
-  final int place;
-
-  @override
-  Widget build(BuildContext context) {
-    final (tint, deep) = switch (place) {
-      1 => (_C.goldLight, _C.gold),
-      2 => (const Color(0xFFE2E6EC), const Color(0xFF9AA3B2)),
-      _ => (const Color(0xFFE9A87C), const Color(0xFFC2703A)),
-    };
-
-    return SizedBox(
-      width: 40,
-      height: 30,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          CustomPaint(size: const Size(40, 30), painter: _WreathPainter(tint)),
-          Container(
-            width: 19,
-            height: 19,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(shape: BoxShape.circle, color: deep),
-            child: Text(
-              '$place',
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
-                color: Colors.white,
               ),
-            ),
-          ),
-          Positioned(
-            top: 0,
-            child: Icon(Icons.star_rounded, size: 11, color: tint),
-          ),
-        ],
-      ),
+            ],
+          )
+        : null;
+
+    return _PodiumColumn(
+      entry: e?.asLeaderboardEntry,
+      place: place,
+      footer: footer,
+      onTap: (e != null && onPick != null) ? () => onPick!(e) : null,
     );
   }
-}
-
-class _WreathPainter extends CustomPainter {
-  const _WreathPainter(this.color);
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = color;
-    final centre = Offset(size.width / 2, size.height / 2 + 1);
-    const leaves = 5;
-    const radius = 13.0;
-
-    // Two mirrored arcs sweeping up from the bottom, leaves tilting outward
-    // and shrinking towards the tips — the shape a real wreath makes.
-    for (final side in [-1, 1]) {
-      for (var i = 0; i < leaves; i++) {
-        final t = i / (leaves - 1);
-        final angle = math.pi / 2 - side * (0.35 + t * 1.55);
-        final at = centre +
-            Offset(math.cos(angle) * radius * side.abs() * (side < 0 ? -1 : 1),
-                math.sin(angle) * radius);
-
-        canvas.save();
-        canvas.translate(at.dx, at.dy);
-        canvas.rotate(side * (0.9 - t * 0.7));
-        canvas.drawOval(
-          Rect.fromCenter(
-            center: Offset.zero,
-            width: 7.5 - t * 2.5,
-            height: 3.6 - t * 1.1,
-          ),
-          paint,
-        );
-        canvas.restore();
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_WreathPainter old) => old.color != color;
 }
 
 /// Ranks four and down, in one panel — the standings read as a single list,
@@ -2880,7 +2858,39 @@ class _DialogPanel extends ConsumerWidget {
               ),
             ],
           ),
-          child: child,
+          // An explicit way out. Tapping outside already closes the dialog,
+          // but that is invisible: someone who does not know the gesture is
+          // simply stuck, and a modal with no exit anyone can see is a trap.
+          child: Stack(
+            children: [
+              child,
+              Positioned(
+                top: 6,
+                right: 6,
+                child: Semantics(
+                  button: true,
+                  label: StringsScope.of(context).t('common.close'),
+                  child: InkWell(
+                    onTap: () => Navigator.of(context).maybePop(),
+                    customBorder: const CircleBorder(),
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: p.bright
+                            ? const Color(0x0F0F172A)
+                            : Colors.white.withValues(alpha: 0.08),
+                      ),
+                      child: Icon(Icons.close_rounded,
+                          size: 17, color: p.bright ? const Color(0xFF475569) : const Color(0xFF94A3B8)),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -3096,17 +3106,9 @@ class _UniversityPickerDialogState
                     ],
                   ),
                 ),
-                Positioned(
-                  top: -6,
-                  right: -6,
-                  child: IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: Icon(Icons.close_rounded, size: 20, color: p.muted),
-                    tooltip: MaterialLocalizations.of(context)
-                        .modalBarrierDismissLabel,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
+                // The close button used to live here, on this one dialog.
+                // _DialogPanel carries it for every dialog now, so keeping a
+                // second would put two of them in this corner.
               ],
             ),
           ),
@@ -3388,15 +3390,25 @@ class _UniSupportSheetState extends ConsumerState<_UniSupportSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      widget.student.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w900,
-                        color: p.text,
-                      ),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            widget.student.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 19,
+                              fontWeight: FontWeight.w900,
+                              color: p.text,
+                            ),
+                          ),
+                        ),
+                        if (widget.student.rank <= 3) ...[
+                          const SizedBox(width: 8),
+                          MedalWreath(place: widget.student.rank, size: 32, bright: p.bright),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 2),
                     Text(

@@ -22,6 +22,7 @@ import 'screens/settings_screen.dart';
 import 'screens/streak_screen.dart';
 import 'screens/shop_screen.dart';
 import 'state/providers.dart';
+import 'widgets/lucide_icon.dart';
 
 class JashMenApp extends ConsumerWidget {
   const JashMenApp({super.key});
@@ -150,20 +151,25 @@ class _HomeShell extends ConsumerStatefulWidget {
 }
 
 class _Destination {
-  const _Destination(this.icon, this.labelKey);
-  final IconData icon;
+  const _Destination(this.glyph, this.labelKey);
+
+  /// A key of `kLucideSvg` — the same drawing the web's bottom bar uses.
+  /// Material Rounded was here before and read as a different product beside
+  /// it: filled and heavy against lucide's thin geometry.
+  final String glyph;
   final String labelKey;
 }
 
 const _destinations = [
-  _Destination(Icons.home_rounded, 'nav.learn'),
-  _Destination(Icons.emoji_events_rounded, 'nav.league'),
-  _Destination(Icons.shopping_bag_rounded, 'nav.shop'),
-  _Destination(Icons.person_rounded, 'nav.profile'),
-  _Destination(Icons.settings_rounded, 'nav.settings'),
+  _Destination('nav-learn', 'nav.learn'),
+  _Destination('nav-league', 'nav.league'),
+  _Destination('nav-shop', 'nav.shop'),
+  _Destination('nav-profile', 'nav.profile'),
+  _Destination('nav-settings', 'nav.settings'),
 ];
 
-class _HomeShellState extends ConsumerState<_HomeShell> {
+class _HomeShellState extends ConsumerState<_HomeShell>
+    with WidgetsBindingObserver {
   static const _tabs = [
     LearnScreen(),
     LeagueScreen(),
@@ -173,10 +179,40 @@ class _HomeShellState extends ConsumerState<_HomeShell> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Back from the background, however long it was away — refresh the lot.
+  /// This is the case that used to bite hardest: a phone left in a pocket
+  /// came back showing an hour-old shop.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(refresherProvider).everything();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final s = StringsScope.of(context);
     final tokens = context.tokens;
     final index = ref.watch(homeTabIndexProvider);
+
+    // Switching tabs refreshes what that tab draws — but only when it has
+    // had time to go stale, so flicking back and forth costs nothing.
+    ref.listen<int>(homeTabIndexProvider, (_, next) {
+      if (next >= 0 && next < HomeTab.values.length) {
+        ref.read(refresherProvider).tab(HomeTab.values[next]);
+      }
+    });
 
     return Scaffold(
       // IndexedStack rather than swapping children: tab state (scroll
@@ -209,7 +245,7 @@ class _HomeShellState extends ConsumerState<_HomeShell> {
                   for (var i = 0; i < _destinations.length; i++)
                     Expanded(
                       child: _NavTab(
-                        icon: _destinations[i].icon,
+                        glyph: _destinations[i].glyph,
                         label: s.t(_destinations[i].labelKey),
                         active: index == i,
                         bright: tokens.bright,
@@ -229,14 +265,14 @@ class _HomeShellState extends ConsumerState<_HomeShell> {
 
 class _NavTab extends StatelessWidget {
   const _NavTab({
-    required this.icon,
+    required this.glyph,
     required this.label,
     required this.active,
     required this.bright,
     required this.onTap,
   });
 
-  final IconData icon;
+  final String glyph;
   final String label;
   final bool active, bright;
   final VoidCallback onTap;
@@ -258,7 +294,10 @@ class _NavTab extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 22, color: color),
+              // 2.4 rather than lucide's default 2: at 22px the web renders
+              // its 24-box glyph slightly scaled down, and matching the
+              // apparent weight matters more than matching the number.
+              LucideIcon(glyph, size: 22, color: color, strokeWidth: active ? 2.4 : 2),
               const SizedBox(height: 2),
               Text(
                 label,

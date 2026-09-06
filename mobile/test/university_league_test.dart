@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:jashmen/src/core/i18n.dart';
 import 'package:jashmen/src/models/university.dart';
 import 'package:jashmen/src/screens/league_screen.dart';
+import 'package:jashmen/src/widgets/medal_wreath.dart';
 import 'package:jashmen/src/state/providers.dart';
 
 /// The campuses are admin content now (Module Г), delivered inside
@@ -289,6 +290,23 @@ void main() {
       expect(find.text('Асан'), findsOneWidget);
       expect(find.text('Үсөн'), findsOneWidget);
       expect(find.text('Саян'), findsOneWidget);
+
+      // The podium wears the same laurel medal as the general league's —
+      // one per place, so first place looks like first place everywhere.
+      expect(find.byType(MedalWreath), findsNWidgets(3));
+
+      // And it wears nothing behind it. The light theme used to add a drop
+      // shadow so the silver medal would not vanish into a white card; it
+      // read as a grey smudge under every place and was removed.
+      for (final medal in tester.widgetList<MedalWreath>(find.byType(MedalWreath))) {
+        final shadows = tester
+            .widgetList<DecoratedBox>(find.descendant(
+              of: find.byWidget(medal),
+              matching: find.byType(DecoratedBox),
+            ))
+            .expand((d) => (d.decoration as BoxDecoration).boxShadow ?? const []);
+        expect(shadows, isEmpty, reason: 'place ${medal.place} draws a shadow');
+      }
 
       // Ranks four and down sit below the fold on a 360x800 phone.
       await tester.drag(find.byType(ListView), const Offset(0, -420));

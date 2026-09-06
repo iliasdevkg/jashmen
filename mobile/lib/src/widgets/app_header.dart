@@ -20,7 +20,8 @@ import '../state/providers.dart';
 /// from the accent so they read correctly on a dark bar and a white one.
 class _Accent {
   const _Accent._();
-  static const fire = Color(0xFFF97316);
+  // The streak chip — blue, matching AppColors.streakSoft.
+  static const fire = Color(0xFF4C8DFF);
   static const coin = Color(0xFFD4A72C);
   static const energy = Color(0xFF38BDF8);
 }

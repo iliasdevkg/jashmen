@@ -49,6 +49,7 @@ class UserState {
     this.bonusEnergyToday = 0,
     this.energyGivenToday = 0,
     this.supportEnergyToday = 0,
+    this.energySpentToday = 0,
     this.uniId,
     this.uniRole,
     this.completedLessons = const [],
@@ -60,6 +61,8 @@ class UserState {
     this.hasStreakShield = false,
     this.hasXpBoost = false,
     this.vipBadge = false,
+    this.streakLost,
+    this.streakLostAt,
   });
 
   /// The general league's score. Frozen while the learner is competing as
@@ -95,6 +98,11 @@ class UserState {
   final int energyGivenToday;
   final int supportEnergyToday;
 
+  /// Energy spent on something that is not a lesson and not a gift — today,
+  /// only a streak repair. Tracked apart from [lessonsToday] so that number
+  /// stays an honest count of finished lessons.
+  final int energySpentToday;
+
   /// University-league enrolment, server-owned so a viewer's gift and a
   /// student's supporter list can be resolved across two accounts.
   final String? uniId;
@@ -112,6 +120,12 @@ class UserState {
   final bool hasXpBoost;
   final bool vipBadge;
 
+  /// What a run was worth when a missed day ended it, and the UTC day that
+  /// happened on. Both null unless a repair is pending — see
+  /// logic.dart#streakRepairOffer.
+  final int? streakLost;
+  final String? streakLostAt;
+
   Set<String> get completedSet => completedLessons.toSet();
 
   factory UserState.fromJson(Map<String, dynamic> json) => UserState(
@@ -126,6 +140,7 @@ class UserState {
         bonusEnergyToday: _asInt(json['bonusEnergyToday']),
         energyGivenToday: _asInt(json['energyGivenToday']),
         supportEnergyToday: _asInt(json['supportEnergyToday']),
+        energySpentToday: _asInt(json['energySpentToday']),
         uniId: json['uniId']?.toString(),
         uniRole: json['uniRole']?.toString(),
         completedLessons: _asStringList(json['completedLessons']),
@@ -139,6 +154,8 @@ class UserState {
         hasStreakShield: _asBool(json['hasStreakShield']),
         hasXpBoost: _asBool(json['hasXpBoost']),
         vipBadge: _asBool(json['vipBadge']),
+        streakLost: json['streakLost'] is num ? (json['streakLost'] as num).toInt() : null,
+        streakLostAt: json['streakLostAt']?.toString(),
       );
 
   UserState copyWith({UserSettings? settings}) => UserState(
@@ -153,6 +170,7 @@ class UserState {
         bonusEnergyToday: bonusEnergyToday,
         energyGivenToday: energyGivenToday,
         supportEnergyToday: supportEnergyToday,
+        energySpentToday: energySpentToday,
         uniId: uniId,
         uniRole: uniRole,
         completedLessons: completedLessons,
@@ -164,6 +182,8 @@ class UserState {
         hasStreakShield: hasStreakShield,
         hasXpBoost: hasXpBoost,
         vipBadge: vipBadge,
+        streakLost: streakLost,
+        streakLostAt: streakLostAt,
       );
 }
 
@@ -270,6 +290,7 @@ class Redemption {
     required this.code,
     required this.date,
     this.ts,
+    this.promoCode,
     this.prizeTitle,
     this.prizePhotoUrl,
     this.priceCoins,
@@ -283,6 +304,11 @@ class Redemption {
   /// YYYY-MM-DD (UTC) — the same string the daily cap is keyed on.
   final String date;
   final int? ts;
+
+  /// The partner's own code — the string the learner hands over at the till,
+  /// snapshotted onto the record the day it was issued. Null on a prize with
+  /// no code programme. [code] is JashMen's own number, for reconciling.
+  final String? promoCode;
 
   /// {ky, ru, en} map or legacy bare string — render via localizedContent.
   final dynamic prizeTitle;
@@ -299,6 +325,7 @@ class Redemption {
       code: json['code']?.toString() ?? '',
       date: json['date']?.toString() ?? '',
       ts: json['ts'] is num ? (json['ts'] as num).toInt() : null,
+      promoCode: json['promoCode']?.toString(),
       prizeTitle: prize?['title'],
       prizePhotoUrl: resolveMediaUrl(prize?['photoUrl']),
       priceCoins: prize == null ? null : _asInt(prize['priceCoins']),

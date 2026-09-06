@@ -22,6 +22,9 @@ Future<void> showLessonPreviewSheet(
   required bool isCheckpoint,
   required bool isGated,
   required Color moduleColor,
+  /// The reward formula's terms, straight from the Лимиттер tab, so the
+  /// "up to +N XP" line promises what the server will actually pay.
+  ContentLimits? limits,
   required VoidCallback onStart,
   required VoidCallback onReview,
   required VoidCallback onGoShop,
@@ -37,6 +40,7 @@ Future<void> showLessonPreviewSheet(
       isGated: isGated,
       moduleColor: moduleColor,
       locale: locale,
+      limits: limits,
       onStart: onStart,
       onReview: onReview,
       onGoShop: onGoShop,
@@ -52,6 +56,7 @@ class _LessonPreviewSheet extends StatelessWidget {
     required this.isGated,
     required this.moduleColor,
     required this.locale,
+    required this.limits,
     required this.onStart,
     required this.onReview,
     required this.onGoShop,
@@ -63,6 +68,7 @@ class _LessonPreviewSheet extends StatelessWidget {
   final bool isGated;
   final Color moduleColor;
   final AppLocale locale;
+  final ContentLimits? limits;
   final VoidCallback onStart;
   final VoidCallback onReview;
   final VoidCallback onGoShop;
@@ -73,7 +79,7 @@ class _LessonPreviewSheet extends StatelessWidget {
     final tokens = context.tokens;
     final isCompleted = status == LessonStatus.completed;
     final quizCount = quizCountOf(lesson);
-    final maxXp = maxLessonXp(lesson);
+    final maxXp = maxLessonXp(lesson, limits);
     final title = localizedContent(lesson.title, locale);
 
     final description = isCompleted
@@ -124,8 +130,10 @@ class _LessonPreviewSheet extends StatelessWidget {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
+                    // A circle, like the web sheet's rounded-full — the two
+                    // are the same screen and were drawing different shapes.
                     color: moduleColor,
-                    borderRadius: BorderRadius.circular(12),
+                    shape: BoxShape.circle,
                   ),
                   alignment: Alignment.center,
                   child: Icon(
@@ -200,9 +208,14 @@ class _LessonPreviewSheet extends StatelessWidget {
               },
               style: FilledButton.styleFrom(
                 minimumSize: const Size(double.infinity, 52),
-                backgroundColor: isCompleted
-                    ? AppColors.primary
-                    : (isGated ? AppColors.primary : AppColors.success),
+                // The module's own colour, the same as the web sheet
+                // (LessonPreviewSheet.jsx): the icon and the eyebrow above
+                // already wear it, and a green button under a purple module
+                // read as a different product's control. The one exception
+                // is the gated state, where the button is not "start this
+                // lesson" at all — it goes to the shop, and takes the
+                // shop's blue with it.
+                backgroundColor: isGated ? AppColors.primary : moduleColor,
               ),
               child: Text(ctaLabel,
                   style: const TextStyle(fontWeight: FontWeight.w800)),

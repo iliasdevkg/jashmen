@@ -230,9 +230,20 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                               ),
                             ),
                           ),
-                          validator: (v) => (v == null || v.length < 8)
-                              ? s.t('auth.passwordShort')
-                              : null,
+                          // Signup enforces the server's own minimum (6 —
+                          // routes.js#/u/signup); login enforces nothing but
+                          // "not empty". A stricter client rule on login is
+                          // not a safety net, it is a lockout: accounts made
+                          // on the web with a 6- or 7-character password
+                          // could not get past this form at all.
+                          validator: (v) {
+                            final value = v ?? '';
+                            if (value.isEmpty) return s.t('auth.passwordShort');
+                            if (isSignup && value.length < 6) {
+                              return s.t('auth.passwordShort');
+                            }
+                            return null;
+                          },
                         ),
 
                         if (_error != null) ...[

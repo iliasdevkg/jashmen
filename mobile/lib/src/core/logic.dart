@@ -57,9 +57,12 @@ EnergyState computeLiveEnergy(
   // energy this user gifted away is spent from it.
   final supportToday = samePeriod ? state.supportEnergyToday : 0;
   final givenToday = samePeriod ? state.energyGivenToday : 0;
+  // Energy spent on something that is not a lesson — today, a streak repair.
+  final spentToday = samePeriod ? state.energySpentToday : 0;
 
   final cap = dailyFreeLessons + bonusToday + supportToday;
-  final remaining = (cap - lessonsToday - givenToday).clamp(0, cap);
+  final remaining =
+      (cap - lessonsToday - givenToday - spentToday).clamp(0, cap);
 
   if (remaining > 0) return EnergyState(remaining: remaining);
 
@@ -124,14 +127,30 @@ LessonStatus getLessonStatus(
       : LessonStatus.locked;
 }
 
-/// utils.js#quizCountOf — how many of a lesson's cards are quizzes.
+/// utils.js#quizCountOf — how many of a lesson's cards are graded.
+///
+/// Every graded type counts, not just multiple choice: the server pays per
+/// graded card (admin-api/contentStore.js#gradedCountOf), so counting only
+/// `quiz` made the "up to +N XP" preview under-promise on any lesson holding
+/// a match or build card, and the lesson sheet's question count under-report
+/// it. The name is kept — the web twin (utils.js) still calls it this, and
+/// so do the call sites here.
 int quizCountOf(Lesson lesson) =>
-    lesson.cards.where((c) => c.type == CardType.quiz).length;
+    lesson.cards.where((c) => c.isGraded).length;
 
 /// utils.js#maxLessonXp — the ceiling reward (zero mistakes, perfect bonus),
 /// shown as "up to +N XP" before a lesson starts. The server stays the sole
 /// authority on the actual reward.
-int maxLessonXp(Lesson lesson) => (quizCountOf(lesson) * 10 * 1.2).round();
+///
+/// Both terms come from the Лимиттер tab. They used to be written into this
+/// line as 10 and 1.2, so raising the XP per question in the admin panel
+/// changed what the server paid without changing what the app promised.
+int maxLessonXp(Lesson lesson, [ContentLimits? limits]) {
+  final perQuestion = limits?.xpPerQuestion ?? 10;
+  final perfectPct = limits?.xpPerfectBonusPct ?? 20;
+  final base = quizCountOf(lesson) * perQuestion;
+  return base + (base * perfectPct / 100).round();
+}
 
 /// utils.js#evaluateAchievementRule — mirrors
 /// admin-api/contentStore.js#evaluateAchievementRule. Unlock conditions are
@@ -199,4 +218,20 @@ List<String> checkNewAchievements({
     for (final a in all)
       if (!earned.contains(a.id) && evaluateAchievementRule(a.rule, ctx)) a.id,
   ];
+}
+
+/// The pending streak-repair offer, or null — the Dart mirror of
+/// admin-api/routes.js#streakRepairOffer and utils.js#streakRepairOffer.
+///
+/// A broken run can be bought back with energy on the day it broke and no
+/// later, so this compares [UserState.streakLostAt] against today's UTC
+/// date rather than trusting a flag the server set hours ago. A cost of 0
+/// means the admin switched the offer off entirely.
+({int lost, int cost})? streakRepairOffer(UserState? state, int cost) {
+  if (cost <= 0) return null;
+  final lost = state?.streakLost ?? 0;
+  if (lost <= 0) return null;
+  final today = DateTime.now().toUtc().toIso8601String().substring(0, 10);
+  if (state?.streakLostAt != today) return null;
+  return (lost: lost, cost: cost);
 }

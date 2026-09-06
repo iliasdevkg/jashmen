@@ -30,11 +30,29 @@ import '../widgets/states.dart';
 // inside the page gutters.
 const double _node = 72;
 const double _r = _node / 2;
+
+/// Alias of [_r], exported for the placement test.
+const double kNodeRadius = _r;
 const double _canvasW = 288;
 const double _centerX = _canvasW / 2;
 const double _amplitude = 56;
 const double _rowGap = 128;
 const double _topPad = 16;
+
+/// Alias of [_topPad], exported for the placement test.
+const double kPathTopPad = _topPad;
+
+/// Where the module's artwork tile hangs beside the path, matching the web
+/// (LearnPage.jsx#TILE_TOP): its middle lines up with the first node's
+/// circle, a few pixels low so it sits against that node's label rather
+/// than dead level with it. 20 from the screen's left edge, like the web's
+/// left-5 — anchored to the edge and not to the 288px canvas, so it stays
+/// on screen on a narrow phone where the canvas leaves little margin.
+/// Public so a test can assert the placement without reaching into the
+/// widget tree — these three numbers ARE the design decision.
+const double kModuleTileSize = 112;
+const double kModuleTileTop = kPathTopPad + kNodeRadius - kModuleTileSize / 2 + 17;
+const double kModuleTileLeft = 20;
 
 Color _parseHex(String hex, {Color fallback = AppColors.primary}) {
   var value = hex.replaceFirst('#', '').trim();
@@ -46,7 +64,7 @@ Color _parseHex(String hex, {Color fallback = AppColors.primary}) {
 /// LearnPage.jsx#nodePositions — a sine zig-zag, except the last lesson of
 /// each module (the checkpoint), which is pinned to the centre because it
 /// renders as a wide card rather than a node.
-List<Offset> _nodePositions(int count) => List.generate(count, (i) {
+List<Offset> nodePositionsFor(int count) => List.generate(count, (i) {
       final isLast = i == count - 1;
       return Offset(
         isLast ? _centerX : _centerX + _amplitude * math.sin(i * 1.4),
@@ -56,7 +74,7 @@ List<Offset> _nodePositions(int count) => List.generate(count, (i) {
 
 /// LearnPage.jsx#smoothPath — Catmull-Rom converted to cubic Béziers so the
 /// road reads as one continuous line instead of straight segments.
-Path _smoothPath(List<Offset> points) {
+Path smoothLearnPath(List<Offset> points) {
   final path = Path();
   if (points.length < 2) return path;
 
@@ -79,17 +97,67 @@ Path _smoothPath(List<Offset> points) {
   return path;
 }
 
-class _PathPainter extends CustomPainter {
-  const _PathPainter({required this.points, required this.color, required this.bright});
+/// Breathing room between the header bar and the first thing on the learn
+/// screen. The list used to start flush against the header's divider, which
+/// read as the module card being stuck to it; the web has carried the
+/// equivalent (`py-4` on LearnPage.jsx's column) since it shipped.
+const double kLearnTopGap = 20;
+
+/// How much of the road the travelling light covers, as a fraction of its
+/// total length. Matches the web's `stroke-dasharray: 6 94`
+/// (src/index.css .learn-spark) so the two clients read as one product.
+const double kSparkFraction = 0.06;
+
+/// Whether a module's road should carry the travelling light: there is still
+/// somewhere on it to go.
+///
+/// This started out narrower — only the module already part-finished — and
+/// that was wrong in the case that matters most: a learner who has not yet
+/// started anything saw a page of dead roads and reasonably concluded the
+/// animation was missing. A road with lessons left is a road worth pointing
+/// down, whether or not it has been walked yet.
+///
+/// A finished module goes dark: it has nowhere left to point, and it is the
+/// one state where stillness says something.
+///
+/// Same rule as the web (LearnPage.jsx#hasRoadLeft), so the two clients never
+/// disagree about which road is lit.
+bool moduleInProgress(Module module, Set<String> completed) {
+  final total = module.lessons.length;
+  // Under two nodes there is no road between them to travel down.
+  if (total < 2) return false;
+  final done = module.lessons.where((l) => completed.contains(l.id)).length;
+  return done < total;
+}
+
+/// One lap of the travelling light, scaled to the module's length so a long
+/// road and a short one move at the same apparent speed.
+int sparkSeconds(int lessonCount) => math.max(4, (lessonCount * 1.1).round());
+
+/// Public so a test can paint it twice and prove the light actually
+/// moves — see test/learn_path_spark_test.dart.
+class LearnPathPainter extends CustomPainter {
+  const LearnPathPainter({
+    required this.points,
+    required this.color,
+    required this.bright,
+    this.sparkAt,
+  });
 
   final List<Offset> points;
   final Color color;
   final bool bright;
 
+  /// Where the travelling light sits, 0..1 along the road. Null draws no
+  /// light at all — which is every module the learner is not in the middle
+  /// of, because a page of roads all glowing at once is a light show rather
+  /// than a signpost.
+  final double? sparkAt;
+
   @override
   void paint(Canvas canvas, Size size) {
     if (points.length < 2) return;
-    final path = _smoothPath(points);
+    final path = smoothLearnPath(points);
 
     canvas.drawPath(
       path,
@@ -107,11 +175,121 @@ class _PathPainter extends CustomPainter {
         ..strokeCap = StrokeCap.round
         ..color = color.withValues(alpha: 0.35),
     );
+
+    final at = sparkAt;
+    if (at == null) return;
+
+    // The light rides exactly on the road — same width and cap as the track
+    // beneath it — and wraps with no seam: when the head runs off the end,
+    // the tail that is left over is drawn again from the start.
+    for (final metric in path.computeMetrics()) {
+      final len = metric.length;
+      if (len <= 0) continue;
+      final head = at * len;
+      final tail = head - kSparkFraction * len;
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 14
+        ..strokeCap = StrokeCap.round
+        ..color = (bright ? color : Colors.white).withValues(alpha: bright ? 0.5 : 0.45);
+
+      canvas.drawPath(metric.extractPath(math.max(0, tail), head), paint);
+      if (tail < 0) canvas.drawPath(metric.extractPath(len + tail, len), paint);
+    }
   }
 
   @override
-  bool shouldRepaint(_PathPainter old) =>
-      old.points != points || old.color != color || old.bright != bright;
+  bool shouldRepaint(LearnPathPainter old) =>
+      old.points != points ||
+      old.color != color ||
+      old.bright != bright ||
+      old.sparkAt != sparkAt;
+}
+
+/// The road, with a light travelling down it while the learner is partway
+/// through this module. Its own widget because it owns a ticker, and the
+/// module block that draws it is a plain build method.
+///
+/// The controller only runs when there is something to animate, so a page of
+/// finished and untouched modules costs no frames at all.
+class _LearnPath extends ConsumerStatefulWidget {
+  const _LearnPath({
+    required this.points,
+    required this.color,
+    required this.bright,
+    required this.spark,
+    required this.seconds,
+  });
+
+  final List<Offset> points;
+  final Color color;
+  final bool bright;
+
+  /// Whether this module is the one being walked: started, not finished.
+  final bool spark;
+
+  /// One lap, scaled to the module's length so a long road and a short one
+  /// move at the same apparent speed.
+  final int seconds;
+
+  @override
+  ConsumerState<_LearnPath> createState() => _LearnPathState();
+}
+
+class _LearnPathState extends ConsumerState<_LearnPath>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: Duration(seconds: widget.seconds),
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _sync(bool run) {
+    if (run && !_controller.isAnimating) {
+      _controller.repeat();
+    } else if (!run && _controller.isAnimating) {
+      _controller.stop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Somebody who turned animations off in settings gets a still road, not
+    // a slower one.
+    final allowed = ref.watch(userStateProvider)?.settings.animations ?? true;
+    final run = widget.spark && allowed;
+    // Starting a ticker during build is not allowed, so defer by a frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _sync(run);
+    });
+
+    if (!run) {
+      return CustomPaint(
+        painter: LearnPathPainter(
+          points: widget.points,
+          color: widget.color,
+          bright: widget.bright,
+        ),
+      );
+    }
+
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) => CustomPaint(
+        painter: LearnPathPainter(
+          points: widget.points,
+          color: widget.color,
+          bright: widget.bright,
+          sparkAt: _controller.value,
+        ),
+      ),
+    );
+  }
 }
 
 /// Glossy sphere fill, ported from LearnPage.jsx#sphereStyle.
@@ -166,10 +344,8 @@ class _LessonGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final picked = lessonIconFor(icon);
-    if (picked != null) {
-      return Icon(picked, size: size, color: Colors.white);
-    }
+    final picked = lessonGlyph(icon, size: size, color: Colors.white);
+    if (picked != null) return picked;
     if (iconUrl == null) {
       return Icon(fallback, size: size, color: Colors.white);
     }
@@ -262,12 +438,13 @@ class _PathViewState extends ConsumerState<_PathView> {
     );
 
     return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(contentProvider);
-        await ref.read(authProvider.notifier).refreshMe();
-      },
+      onRefresh: () =>
+          ref.read(refresherProvider).tab(HomeTab.learn, force: true),
       child: CustomScrollView(
         slivers: [
+          // Ahead of everything, so it applies whether the first thing on
+          // screen is the out-of-energy banner or the first module.
+          const SliverToBoxAdapter(child: SizedBox(height: kLearnTopGap)),
 
           if (energy.remaining <= 0)
             SliverToBoxAdapter(
@@ -343,25 +520,13 @@ class _ModuleSection extends StatelessWidget {
     final s = StringsScope.of(context);
     final color = _parseHex(module.color);
     final tokens = context.tokens;
-    final positions = _nodePositions(module.lessons.length);
+    final positions = nodePositionsFor(module.lessons.length);
     final height = module.lessons.isEmpty
         ? 0.0
         : positions.last.dy + _r + Gap.xxl;
 
     return Column(
       children: [
-        // Module image, then the title card. The image sits directly above
-        // the module — the "Сабак жолу" design's glass-framed tile: a light
-        // bevelled frame around an inner square tinted with the module's own
-        // colour. It is whatever the admin uploaded for this module
-        // (iconUrl); with nothing uploaded the frame is skipped entirely
-        // rather than showing an empty plinth.
-        if (module.iconUrl != null)
-          Padding(
-            padding: const EdgeInsets.only(top: Gap.sm, bottom: Gap.md),
-            child: Center(child: _ModuleTile(module: module, tint: color)),
-          ),
-
         Container(
           margin: const EdgeInsets.fromLTRB(Gap.lg, 0, Gap.lg, Gap.lg),
           padding: const EdgeInsets.all(Gap.lg),
@@ -387,10 +552,10 @@ class _ModuleSection extends StatelessWidget {
                         borderRadius: BorderRadius.circular(14),
                       ),
                       alignment: Alignment.center,
-                      child: Icon(
-                          lessonIconFor(module.icon) ?? Icons.school_rounded,
+                      child: lessonGlyph(module.icon,
+                          size: 22,
                           color: Colors.white,
-                          size: 22),
+                          fallback: Icons.school_rounded)!,
                     ),
                     const SizedBox(width: Gap.md),
                   ],
@@ -409,14 +574,14 @@ class _ModuleSection extends StatelessWidget {
                 Row(
                   children: [
                     if (partner!.logoUrl != null) ...[
-                      ClipOval(
-                        child: CachedNetworkImage(
-                          imageUrl: partner!.logoUrl!,
-                          width: 16,
-                          height: 16,
-                          fit: BoxFit.cover,
-                          errorWidget: (_, __, ___) => const SizedBox.shrink(),
-                        ),
+                      // Shown whole, not cropped into a circle — see the
+                      // node badge above.
+                      CachedNetworkImage(
+                        imageUrl: partner!.logoUrl!,
+                        width: 16,
+                        height: 16,
+                        fit: BoxFit.contain,
+                        errorWidget: (_, __, ___) => const SizedBox.shrink(),
                       ),
                       const SizedBox(width: 6),
                     ],
@@ -445,10 +610,31 @@ class _ModuleSection extends StatelessWidget {
           ),
         ),
 
+        // The module's artwork stands beside its first lesson rather than
+        // centred over the card — the same placement the web uses. The tile
+        // is a sibling of the centred canvas inside one full-width Stack, so
+        // it can be anchored to the screen edge while the path stays
+        // centred. Whatever the admin uploaded; nothing uploaded, no tile.
         if (module.lessons.isNotEmpty)
           SizedBox(
             height: height,
-            child: Center(
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                if (module.iconUrl != null)
+                  // Left or right edge, per module (the panel's Сабактар
+                  // tab). Anchored to the column edge rather than to the
+                  // path canvas, so it stays on screen on a narrow phone
+                  // where the canvas leaves little margin to hang off.
+                  Positioned(
+                    left: module.artSide == 'right' ? null : kModuleTileLeft,
+                    right: module.artSide == 'right' ? kModuleTileLeft : null,
+                    top: kModuleTileTop,
+                    child: IgnorePointer(
+                      child: _ModuleTile(module: module),
+                    ),
+                  ),
+                Center(
               child: SizedBox(
                 width: _canvasW,
                 height: height,
@@ -456,12 +642,12 @@ class _ModuleSection extends StatelessWidget {
                   clipBehavior: Clip.none,
                   children: [
                     Positioned.fill(
-                      child: CustomPaint(
-                        painter: _PathPainter(
-                          points: positions,
-                          color: color,
-                          bright: tokens.bright,
-                        ),
+                      child: _LearnPath(
+                        points: positions,
+                        color: color,
+                        bright: tokens.bright,
+                        spark: moduleInProgress(module, completed),
+                        seconds: sparkSeconds(module.lessons.length),
                       ),
                     ),
                     for (var i = 0; i < module.lessons.length; i++)
@@ -475,6 +661,8 @@ class _ModuleSection extends StatelessWidget {
                   ],
                 ),
               ),
+            ),
+              ],
             ),
           ),
       ],
@@ -599,20 +787,17 @@ class _LessonNode extends ConsumerWidget {
                   Positioned(
                     right: -4,
                     top: -4,
-                    child: Container(
+                    // No ring, no rounding, no crop: whatever the partner
+                    // uploaded is shown whole, square logos included. The
+                    // circle and the page-coloured border used to force
+                    // every mark into the same shape and cut the corners off
+                    // the ones that did not fit. Matches LearnPage.jsx.
+                    child: SizedBox(
                       width: 24,
                       height: 24,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: tokens.bright ? Colors.white : const Color(0xFF0B1220),
-                          width: 2,
-                        ),
-                      ),
-                      clipBehavior: Clip.antiAlias,
                       child: CachedNetworkImage(
                         imageUrl: partnerLogoUrl!,
-                        fit: BoxFit.cover,
+                        fit: BoxFit.contain,
                         errorWidget: (_, __, ___) => const SizedBox.shrink(),
                       ),
                     ),
@@ -656,6 +841,7 @@ class _LessonNode extends ConsumerWidget {
       isCheckpoint: false,
       isGated: isGated,
       moduleColor: color,
+      limits: ref.read(limitsProvider),
       onStart: push,
       onReview: push,
       onGoShop: () => ref.read(homeTabIndexProvider.notifier).state = 2,
@@ -709,6 +895,7 @@ class _CheckpointNode extends ConsumerWidget {
                   isCheckpoint: true,
                   isGated: isGated,
                   moduleColor: color,
+                  limits: ref.read(limitsProvider),
                   onStart: push,
                   onReview: push,
                   onGoShop: () =>
@@ -830,10 +1017,9 @@ class _BobState extends ConsumerState<_Bob> with SingleTickerProviderStateMixin 
 /// The "Сабак жолу" tile: a 132px bevelled frame around a 16px-inset inner
 /// square carrying the module's uploaded artwork.
 class _ModuleTile extends StatefulWidget {
-  const _ModuleTile({required this.module, required this.tint});
+  const _ModuleTile({required this.module});
 
   final Module module;
-  final Color tint;
 
   @override
   State<_ModuleTile> createState() => _ModuleTileState();
@@ -858,19 +1044,15 @@ class _ModuleTileState extends State<_ModuleTile> {
     // bevelled plinth on the page.
     if (url == null || _failed) return const SizedBox.shrink();
 
+    // The artwork alone: the bevelled frame and the module-tinted backing
+    // plate are gone, so what the admin uploaded is what shows. The drop
+    // shadow stays — it is what keeps the image from floating flat against
+    // the page. Same treatment as the web (LearnPage.jsx).
     return Container(
-      width: 132,
-      height: 132,
-      padding: const EdgeInsets.all(16),
+      width: kModuleTileSize,
+      height: kModuleTileSize,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: tokens.bright
-              ? const [Color(0xFFFFFFFF), Color(0xFFDDE3EC)]
-              : const [Color(0xFFEEF2F7), Color(0xFFC3CCD9)],
-        ),
+        borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: tokens.bright ? 0.12 : 0.45),
@@ -879,19 +1061,8 @@ class _ModuleTileState extends State<_ModuleTile> {
           ),
         ],
       ),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color.lerp(widget.tint, Colors.white, 0.15)!,
-              Color.lerp(widget.tint, Colors.black, 0.18)!,
-            ],
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
         child: CachedNetworkImage(
           imageUrl: url,
           fit: BoxFit.contain,

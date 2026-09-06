@@ -273,9 +273,18 @@ class ApiClient {
         (res) => PublicConfig.fromJson(_asMap(res)),
       );
 
+  /// The last body /u/me answered with, kept verbatim so the session can be
+  /// cached to disk without the models needing to serialise themselves —
+  /// see providers.dart#_cacheUser. Null until the first successful call.
+  Map<String, dynamic>? lastMeBody;
+
   Future<AppUser> fetchMe() => _run(
         () => _dio.get('/u/me'),
-        (res) => AppUser.fromJson(_asMap(res)),
+        (res) {
+          final body = _asMap(res);
+          lastMeBody = body;
+          return AppUser.fromJson(body);
+        },
       );
 
   Future<List<LeaderboardEntry>> fetchLeaderboard() => _run(
@@ -324,6 +333,17 @@ class ApiClient {
         (res) => DailyClaim.fromJson(_asMap(res)),
       );
 
+  /// Buys a broken streak back with energy, on the day it broke. Throws an
+  /// [ApiException] once the day is over or the energy is gone — the button
+  /// is hidden in both cases, so that only happens to an app left open past
+  /// midnight, and the message says which.
+  Future<AppUser> repairStreak() => _run(
+        () => _dio.post('/u/me/streak/repair'),
+        (res) => AppUser.fromJson(
+          (_asMap(res)['user'] as Map).cast<String, dynamic>(),
+        ),
+      );
+
   Future<UserState> buyItem(String itemId) => _run(
         () => _dio.post('/u/me/buy', data: {'itemId': itemId}),
         (res) {
@@ -366,15 +386,20 @@ class ApiClient {
   /// POST /u/me/redeem — Task 11's partner→coupon flow. Response shape is
   /// `{user: {...state}, code: "JASHMEN-XXXX"}` (routes.js:
   /// `res.status(201).json({ user: toPublicUser(user), code })`).
-  Future<({UserState state, String code})> redeemPrize(String prizeId) => _run(
+  /// `code` is ours — the coupon id the admin reconciles against. `promoCode`
+  /// is the partner's own, set on the prize, and is the string the learner
+  /// actually redeems at the till. Null when the prize has none.
+  Future<({UserState state, String code, String? promoCode})> redeemPrize(String prizeId) => _run(
         () => _dio.post('/u/me/redeem', data: {'prizeId': prizeId}),
         (res) {
           final data = _asMap(res);
           final user = (data['user'] as Map?)?.cast<String, dynamic>() ?? const {};
+          final promo = data['promoCode']?.toString();
           return (
             state: UserState.fromJson(
                 (user['state'] as Map?)?.cast<String, dynamic>() ?? const {}),
             code: data['code']?.toString() ?? '',
+            promoCode: (promo == null || promo.isEmpty) ? null : promo,
           );
         },
       );
@@ -467,7 +492,11 @@ class ApiClient {
   void logEvent(String event, [Map<String, dynamic>? payload]) {
     unawaited(
       _dio
-          .post('/u/log-event', data: {'event': event, ...?payload})
+          // The server reads `type` (routes.js#/u/log-event), not `event` —
+          // under the old key every field arrived undefined and events.js
+          // dropped the write, so the admin's funnel and heatmap counted web
+          // learners only.
+          .post('/u/log-event', data: {'type': event, ...?payload})
           .catchError((_) => Response(requestOptions: RequestOptions(path: ''))),
     );
   }

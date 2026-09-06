@@ -12,7 +12,12 @@ class AppColors {
   static const primary = Color(0xFF1CB0F6); // blue: primary action, active nav
   static const success = Color(0xFF58CC02); // green: correct, completed
   static const danger = Color(0xFFFF4B4B); // red: wrong, destructive
-  static const warning = Color(0xFFFF9600); // orange: streak / fire
+  static const warning = Color(0xFFFF9600); // orange: genuine warnings
+  /// The streak burns blue. Deliberately NOT [primary] (#1CB0F6): that blue
+  /// already means energy and lessons, and a streak wearing it is
+  /// unreadable beside them. Mirrors src/utils.js#STREAK on the web.
+  static const streak = Color(0xFF2E6BFF);
+  static const streakSoft = Color(0xFF4C8DFF);
   static const purple = Color(0xFFCE82FF);
   static const gold = Color(0xFFFFD700); // coins
 
