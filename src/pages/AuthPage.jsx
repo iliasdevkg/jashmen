@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff } from 'lucide-react';
 import GoogleSignInButton from '../components/GoogleSignInButton.jsx';
@@ -13,6 +13,13 @@ import { useI18n } from '../i18n.jsx';
 export default function AuthPage({ initialMode = 'login' }) {
   const { login, signup } = useAuth();
   const { t } = useI18n();
+
+  // index.html's <title> describes the business site at `/`. Without this the
+  // sign-in tab wears the partner pitch, which is the wrong page's name in
+  // front of a student typing their password.
+  useEffect(() => {
+    document.title = `JashMen — ${t(initialMode === 'login' ? 'auth.login' : 'auth.createAccount')}`;
+  }, [initialMode, t]);
   const [mode, setMode] = useState(initialMode === 'signup' ? 'signup' : 'login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');

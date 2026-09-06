@@ -29,7 +29,7 @@ body {
 
   /* ...except the landing page, which is a marketing site, not the app.
      Capping it at 480px would leave a tablet showing a phone-width column
-     floating in the middle of the screen. LandingPage adds/removes this
+     floating in the middle of the screen. BusinessPage adds/removes this
      class on mount so nothing else on the site is affected. */
   #root.landing {
     max-width: none;
@@ -61,3 +61,29 @@ input, button, select {
   80%  { transform: translateX(4px); }
 }
 .shake { animation: shake 0.4s ease; }
+
+/* ── The learn path's travelling light ────────────────────────────────────
+ * A short bright capsule that slides down the module's road, so the path
+ * reads as a route being walked rather than as a drawn line. It is one
+ * dash in a mostly-empty dasharray: `pathLength` is normalised to 100 in
+ * the SVG (LearnPage.jsx), so "6 94" is a 6%-long segment and animating
+ * the offset by exactly -100 carries it from one end to the other and
+ * wraps with no seam.
+ *
+ * Duration comes from --spark-duration, set per module so a long path and
+ * a short one move at the same apparent speed.
+ *
+ * It runs only on the module a learner is actually in the middle of — every
+ * module animating at once turns a page of roads into a light show.
+ */
+@keyframes learn-spark {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: -100; }
+}
+.learn-spark {
+  animation: learn-spark var(--spark-duration, 6s) linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .learn-spark { animation: none; opacity: 0; }
+}

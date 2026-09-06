@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { Trophy, Flame } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
 import { useI18n, localizedText } from '../i18n.jsx';
-import { getCurrentLeague } from '../utils.js';
+import { getCurrentLeague, STREAK } from '../utils.js';
 import * as api from '../api.js';
+import MedalWreath from './icons/MedalWreath.jsx';
 import Avatar from './Avatar.jsx';
 import LeagueBadge from './icons/LeagueBadges.jsx';
 
@@ -76,9 +77,9 @@ export default function RightPanel() {
       {streak > 0 && (
         <div
           className="rounded-2xl px-4 py-3 flex items-center gap-3"
-          style={{ background: 'rgba(251,146,60,0.08)', border: '1.5px solid rgba(251,146,60,0.2)' }}
+          style={{ background: 'rgba(76,141,255,0.08)', border: '1.5px solid rgba(76,141,255,0.2)' }}
         >
-          <Flame size={26} color="#fb923c" fill="#fb923c" />
+          <Flame size={26} color={STREAK.soft} fill={STREAK.soft} />
           <div>
             <p className="font-bold text-sm" style={{ color: textPri }}>{t('league.streakBadge', { n: streak })}</p>
             <p className="text-xs" style={{ color: textMut }}>{t('league.streakDesc')}</p>
@@ -102,6 +103,9 @@ export default function RightPanel() {
               const isMe = u.id === user?.id;
               const podColors = { 0: '#FFD700', 1: '#C0C0C0', 2: '#CD7F32' };
               const rc = podColors[i] || '#64748b';
+              // The top three wear the same medal the podium gives them, so
+              // the rank reads identically wherever it is shown.
+              const medal = i < 3 ? i + 1 : null;
               return (
                 <div
                   key={u.id}
@@ -111,9 +115,13 @@ export default function RightPanel() {
                     borderBottom: i < 6 ? `1px solid ${rowDivider}` : 'none',
                   }}
                 >
-                  <span className="w-5 text-center text-xs font-bold shrink-0" style={{ color: rc }}>
-                    {i + 1}
-                  </span>
+                  {medal ? (
+                    <MedalWreath rank={medal} size={22} glow={false} bright={bright} className="shrink-0" />
+                  ) : (
+                    <span className="w-[22px] text-center text-xs font-bold shrink-0" style={{ color: rc }}>
+                      {i + 1}
+                    </span>
+                  )}
                   <Avatar name={u.name} photoUrl={u.avatar} size={28} />
                   <p className="text-xs font-medium flex-1 truncate" style={{ color: textPri }}>
                     {u.name}

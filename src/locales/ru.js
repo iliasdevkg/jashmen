@@ -10,6 +10,8 @@ export const ru = {
   'common.error': 'Произошла ошибка',
   'common.cancel': 'Отмена',
   'common.close': 'Закрыть',
+  'common.zoomImage': 'Увеличить фото',
+  'common.zoomHint': 'Нажмите на фото, чтобы увеличить ещё',
   'common.back': 'Назад',
   'common.save': 'Сохранить',
 
@@ -77,14 +79,23 @@ export const ru = {
   'lesson.share': 'Поделиться успехом',
   'lesson.shareText': 'Я закрыл урок "{{lesson}}" в JashMen и получил {{xp}} XP! 🏆',
 
+  // ── карточки match / build ──
+  // Показываются, когда у карточки не задан собственный заголовок (title/q).
+  'lesson.matchTitle': 'Найди пары',
+  'lesson.matchProgress': '{{done}}/{{total}} пар',
+  'lesson.matchWrong': 'Некоторые пары оказались неверными',
+  'lesson.buildTitle': 'Составь предложение',
+  'lesson.buildPlaceholder': 'Нажимай на слова по порядку, чтобы составить предложение',
+  'lesson.check': 'Проверить',
+
   // ── lesson preview sheet (тап по узлу пути) ──
   'lesson.previewLesson': 'Урок',
   'lesson.previewCheckpoint': 'Проверка',
-  'lesson.previewAvailableDesc': 'Состоит из {{n}} вопросов. Заверши урок, чтобы получить до {{xp}} XP и монеты!',
+  'lesson.previewAvailableDesc': 'Состоит из {{n}} заданий. Заверши урок, чтобы получить до {{xp}} XP и монеты!',
   'lesson.previewCompletedDesc': 'Ты уже прошёл этот урок. Повтори его ещё раз, чтобы закрепить материал.',
   'lesson.previewGatedDesc': 'Бесплатные уроки на сегодня закончились. Купи энергию в магазине или подожди до завтра.',
   'lesson.previewNoEnergyBadge': 'Нет энергии',
-  'lesson.previewQuestions': '{{n}} вопросов',
+  'lesson.previewQuestions': '{{n}} заданий',
   'lesson.previewXpUpTo': 'до +{{xp}} XP',
   'lesson.previewCompletedBadge': 'Завершено',
   'lesson.previewStart': 'Начать',
@@ -98,9 +109,12 @@ export const ru = {
   'shop.partnerPrizes': 'Призы от партнёров',
   'shop.buySuccess': '{{title}} куплено!',
   'shop.redeemInstructions': 'Покажи этот код и получи приз:',
+  'shop.yourReceipt': 'Код проверки: {{code}}',
+  'shop.showAtTill': 'Покажите этот код в магазине',
   'shop.partnersTitle': 'Партнёры',
   'shop.prizeCount': '{{n}} призов',
   'shop.noPrizesForPartner': 'У этого партнёра пока нет призов',
+  'shop.soldOut': 'Закончилось',
 
   // ── profile ──
   'profile.leagueBadge': 'Лига «{{name}}»',
@@ -114,6 +128,8 @@ export const ru = {
   'profile.coupons': 'Мои купоны',
   'profile.couponsEmpty': 'Пока нет купонов. Обменяй монеты на приз партнёра в магазине — код сохранится здесь.',
   'profile.couponTapToCopy': 'Нажми, чтобы скопировать',
+  'profile.couponPartnerCode': 'Код партнёра — покажите его в магазине',
+  'profile.couponOwnCode': 'Код JashMen',
 
   // ── settings ──
   'settings.title': 'Настройки',
@@ -171,6 +187,8 @@ export const ru = {
   'uni.ok': 'OK',
   'uni.close': 'Закрыть',
   'uni.change': 'Изменить',
+  'uni.leave': 'Выйти',
+  'uni.leaveConfirm': 'Выйти из университетской лиги? Все XP, набранные в этом кампусе, обнулятся, и ты вернёшься в общую лигу. Это необратимо.',
   'uni.organizer': 'Организатор:',
   'uni.address': 'Адрес:',
   'uni.prizePool': 'ПРИЗОВОЙ ФОНД',
@@ -233,4 +251,20 @@ export const ru = {
 
   // ── Landing (the public marketing page) ──────────────────────────────
   'landing.privacy': 'Конфиденциальность',
+  'landing.forBusiness': 'Для бизнеса',
+  'lesson.nextLesson': 'Следующий урок',
+  'lesson.backToPath': 'Вернуться к обучению',
+  'profile.streakSub': 'Ежедневная серия',
+  'profile.streakWeek': 'Неделя',
+  'profile.streakMonth': 'Месяц',
+  'profile.streakNoData': 'нет данных',
+  'profile.streakPrevMonth': 'Предыдущий месяц',
+  'profile.streakNextMonth': 'Следующий месяц',
+  'profile.streakStudied': 'Учился {{n}} из {{total}} дней',
+  'profile.streakLostTitle': 'Серия из {{n}} дней прервана',
+  'profile.streakLostDesc': 'Вернуть её можно только сегодня — за {{cost}} энергии.',
+  'profile.streakRepairCta': 'Вернуть за {{cost}} энергии',
+  'profile.streakRepairBusy': 'Восстанавливаем…',
+  'profile.streakRepairNoEnergy': 'Не хватает энергии — вернитесь, когда она восстановится',
+  'profile.streakRepairDone': 'Серия восстановлена!',
 };

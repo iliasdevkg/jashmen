@@ -9,6 +9,7 @@ import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Check, Star } from 'lucide-react';
 import { useI18n } from '../i18n.jsx';
+import { STREAK } from '../utils.js';
 
 const SPRING = { type: 'spring', stiffness: 300, damping: 30 };
 const DAYS_IN_WEEK = 7;
@@ -50,12 +51,12 @@ function Flame() {
     <svg viewBox="0 0 100 110" width="152" height="167" aria-hidden="true">
       <defs>
         <linearGradient id="streak-flame-outer" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#FFA000" />
-          <stop offset="100%" stopColor="#FF8A00" />
+          <stop offset="0%" stopColor={STREAK.flameTop} />
+          <stop offset="100%" stopColor={STREAK.flameBottom} />
         </linearGradient>
         <linearGradient id="streak-flame-core" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#FFE083" />
-          <stop offset="100%" stopColor="#FFC400" />
+          <stop offset="0%" stopColor={STREAK.coreTop} />
+          <stop offset="100%" stopColor={STREAK.coreBottom} />
         </linearGradient>
       </defs>
       <path
@@ -129,7 +130,7 @@ export default function StreakCelebration({ streak, activeDays = [], bright, onD
           animate={{ y: 0, opacity: 1 }}
           transition={{ ...SPRING, delay: 0.24 }}
           className="mt-1.5 text-[22px] font-black"
-          style={{ color: '#FF9600' }}
+          style={{ color: STREAK.main }}
         >
           {t('streak.dayStreak')}
         </motion.p>
@@ -147,7 +148,7 @@ export default function StreakCelebration({ streak, activeDays = [], bright, onD
                 <span
                   key={iso}
                   className="text-center text-[13px] font-bold"
-                  style={{ color: i === todayIndex ? '#FF9600' : textMut }}
+                  style={{ color: i === todayIndex ? STREAK.main : textMut }}
                 >
                   {t(`streak.dow${i}`)}
                 </span>
@@ -165,7 +166,7 @@ export default function StreakCelebration({ streak, activeDays = [], bright, onD
                     height: 34,
                     left: `${(from / DAYS_IN_WEEK) * 100}%`,
                     width: `${((to - from + 1) / DAYS_IN_WEEK) * 100}%`,
-                    background: 'linear-gradient(90deg,#FFC800 0%,#FFD84D 100%)',
+                    background: `linear-gradient(90deg,${STREAK.barFrom} 0%,${STREAK.barTo} 100%)`,
                   }}
                 />
               ))}
@@ -178,7 +179,7 @@ export default function StreakCelebration({ streak, activeDays = [], bright, onD
                       {on ? (
                         <Check size={18} strokeWidth={4} color={bright ? '#8A6400' : '#3B2C00'} />
                       ) : isLast ? (
-                        <Star size={22} strokeWidth={2.5} color="#FFC800" />
+                        <Star size={22} strokeWidth={2.5} color={STREAK.barFrom} />
                       ) : (
                         <span
                           className="rounded-full"

@@ -3,8 +3,12 @@ import { motion } from 'framer-motion';
 import { Flame, Star, BookOpen, Award, Camera, Pencil, Check, X, Loader2, Coins, Ticket, Copy } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
 import { useI18n, formatDays, localizedText } from '../i18n.jsx';
-import { getCurrentLeague } from '../utils.js';
+import {
+  getCurrentLeague, STREAK, streakRepairOffer, computeLiveEnergy, energySettings,
+} from '../utils.js';
 import * as api from '../api.js';
+import StreakCalendar from '../components/StreakCalendar.jsx';
+import ZoomableImage from '../components/ZoomableImage.jsx';
 import Avatar from '../components/Avatar.jsx';
 import LeagueBadge from '../components/icons/LeagueBadges.jsx';
 import { lessonIconFor } from '../../shared/lessonIconComponents.jsx';
@@ -30,7 +34,7 @@ function StatCard({ icon: Icon, label, value, color, bright }) {
 function AchievementGlyph({ ach }) {
   const Picked = lessonIconFor(ach.icon);
   if (Picked) return <Picked size={26} color="#FFD700" strokeWidth={2.3} />;
-  if (ach.iconUrl) return <img src={ach.iconUrl} alt="" className="w-8 h-8 rounded-lg object-cover" />;
+  if (ach.iconUrl) return <ZoomableImage src={ach.iconUrl} alt="" className="w-8 h-8 rounded-lg object-cover" />;
   return <Award size={24} color="#FFD700" />;
 }
 
@@ -57,7 +61,12 @@ function AchievementBadge({ ach, earned, bright, locale }) {
 // standing even if the admin has since deleted the prize (title falls back
 // to the bare code).
 function CouponRow({ r, bright, locale, t }) {
-  const [copied, setCopied] = useState(false);
+  // Two codes, two jobs: `code` is JashMen's own, for reconciling with the
+  // partner; `promoCode` is the partner's, and is the string the learner
+  // actually hands over at the till. It used to be shown once, in the
+  // redemption dialog, and then never again — which made the coupon history
+  // useless for the one thing it exists for.
+  const [copied, setCopied] = useState('');
   const title = localizedText(r.prize?.title, locale) || r.code;
   const partner = localizedText(r.partner?.name, locale);
   const date = r.date ? r.date.split('-').reverse().join('.') : '';
@@ -67,27 +76,23 @@ function CouponRow({ r, bright, locale, t }) {
   const textPri  = bright ? '#0f172a' : 'white';
   const textMut  = bright ? '#64748b' : '#94a3b8';
 
-  const copy = async () => {
+  const copy = async (value, which) => {
     try {
-      await navigator.clipboard.writeText(r.code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch (_) {}
+      await navigator.clipboard.writeText(value);
+      setCopied(which);
+      setTimeout(() => setCopied(''), 1800);
+    } catch (_) { /* clipboard denied — the code is still on screen to read */ }
   };
 
   return (
-    <motion.button
+    <motion.div
       layout
-      whileTap={{ scale: 0.98 }}
-      type="button"
-      onClick={copy}
-      aria-label={`${title}. ${t('profile.couponTapToCopy')}`}
       className="w-full rounded-2xl p-3 text-left"
       style={{ background: cardBg, border: `1.5px solid ${cardBord}` }}
     >
       <div className="flex items-center gap-3">
         {r.partner?.logoUrl
-          ? <img src={r.partner.logoUrl} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />
+          ? <ZoomableImage src={r.partner.logoUrl} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />
           : (
             <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: bright ? '#f1f5f9' : '#0b1220' }}>
               <Ticket size={18} color={textMut} />
@@ -97,15 +102,33 @@ function CouponRow({ r, bright, locale, t }) {
           <p className="font-bold text-sm truncate" style={{ color: textPri }}>{title}</p>
           {subtitle && <p className="text-xs mt-0.5" style={{ color: textMut }}>{subtitle}</p>}
         </div>
-        {copied ? <Check size={15} color="#58CC02" className="shrink-0" /> : <Copy size={15} color={textMut} className="shrink-0" />}
       </div>
-      <div
-        className="mt-2 rounded-xl py-2.5 text-center font-mono font-extrabold text-sm tracking-wider"
-        style={{ background: bright ? '#f1f5f9' : '#0b1220', color: '#1CB0F6' }}
+
+      {/* Only the partner's code. JashMen's own number is the operator's
+          reconciliation key, not something a learner has any use for — it
+          only made them wonder which of two codes to show at the till. It
+          still exists on the record, and still appears in the admin's
+          coupon list. The fallback is for a prize with no partner code at
+          all: something has to stand as proof of the claim. */}
+      <p className="mt-2.5 mb-1 text-[11px] font-semibold" style={{ color: textMut }}>
+        {r.promoCode ? t('profile.couponPartnerCode') : t('profile.couponTapToCopy')}
+      </p>
+      <motion.button
+        whileTap={{ scale: 0.98 }}
+        type="button"
+        onClick={() => copy(r.promoCode || r.code, 'code')}
+        aria-label={`${r.promoCode || r.code}. ${t('profile.couponTapToCopy')}`}
+        className="w-full rounded-xl py-2.5 flex items-center justify-center gap-2 font-mono font-extrabold text-sm tracking-wider"
+        style={r.promoCode
+          ? { background: 'rgba(88,204,2,0.12)', border: '1.5px solid rgba(88,204,2,0.4)', color: '#58CC02' }
+          : { background: bright ? '#f1f5f9' : '#0b1220', color: '#1CB0F6' }}
       >
-        {r.code}
-      </div>
-    </motion.button>
+        {r.promoCode || r.code}
+        {copied === 'code'
+          ? <Check size={14} className="shrink-0" color="#58CC02" />
+          : <Copy size={14} className="shrink-0 opacity-60" />}
+      </motion.button>
+    </motion.div>
   );
 }
 
@@ -134,6 +157,29 @@ export default function ProfilePage() {
   const cardBorder = bright ? '#e2e8f0' : '#334155';
   const textPri    = bright ? '#0f172a' : 'white';
   const textMuted  = bright ? '#64748b' : '#94a3b8';
+
+  // A run that a missed day ended today can be bought back with energy — the
+  // offer, its price and the balance it is paid from all come from the same
+  // state the rest of the app reads, so nothing here can disagree with what
+  // the server will decide (utils.js#streakRepairOffer).
+  const repair = streakRepairOffer(state, content);
+  const { dailyFreeLessons, energyRefillHours } = energySettings(content);
+  const { remaining: energy } = computeLiveEnergy(state, dailyFreeLessons, energyRefillHours);
+  const [repairBusy, setRepairBusy] = useState(false);
+  const [repairError, setRepairError] = useState('');
+
+  async function handleRepair() {
+    setRepairBusy(true);
+    setRepairError('');
+    try {
+      const { user: fresh } = await api.repairStreak(token);
+      updateUser(fresh);
+    } catch (e) {
+      setRepairError(e.message || t('profile.streakRepairNoEnergy'));
+    } finally {
+      setRepairBusy(false);
+    }
+  }
 
   // Task 6 — avatar upload (tap the camera badge on the profile photo).
   const fileInputRef = useRef(null);
@@ -263,9 +309,23 @@ export default function ProfilePage() {
 
       <div className="flex gap-2 mb-4">
         <StatCard icon={Star}     label={t('profile.totalXp')} value={lifetimeXp.toLocaleString()}                     color="#FFD700" bright={bright} />
-        <StatCard icon={Flame}    label={t('profile.streak')}  value={formatDays(streak, locale)}              color="#fb923c" bright={bright} />
+        <StatCard icon={Flame}    label={t('profile.streak')}  value={formatDays(streak, locale)}              color={STREAK.soft} bright={bright} />
         <StatCard icon={BookOpen} label={t('profile.lessons')} value={`${completedLessons.length}/${totalLessons}`} color="#1CB0F6" bright={bright} />
       </div>
+
+      {/* The streak card sits directly under the three stat tiles, because
+          the "streak: 12 days" tile above is the number and this is the
+          story behind it — which days those twelve actually were. */}
+      <StreakCalendar
+        streak={streak}
+        activeDays={state?.activeDays || []}
+        bright={bright}
+        repair={repair}
+        energy={energy}
+        repairBusy={repairBusy}
+        repairError={repairError}
+        onRepair={handleRepair}
+      />
 
       <div
         className="flex items-center justify-between px-4 py-3 rounded-2xl mb-5"

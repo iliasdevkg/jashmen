@@ -11,6 +11,8 @@ export const ky = {
   'common.error': 'Ката болду',
   'common.cancel': 'Жокко чыгаруу',
   'common.close': 'Жабуу',
+  'common.zoomImage': 'Сүрөттү чоңойтуу',
+  'common.zoomHint': 'Дагы чоңойтуу үчүн сүрөттү басыңыз',
   'common.back': 'Артка',
   'common.save': 'Сактоо',
 
@@ -78,14 +80,23 @@ export const ky = {
   'lesson.share': 'Жетишкендикти бөлүшүү',
   'lesson.shareText': 'Мен JashMen\'де "{{lesson}}" сабагын аяктадым жана {{xp}} XP таптым! 🏆',
 
+  // ── match / build карталары ──
+  // Карталардын өз аталышы (title/q) жазылбаса, ушулар көрсөтүлөт.
+  'lesson.matchTitle': 'Жуптарды тап',
+  'lesson.matchProgress': '{{done}}/{{total}} жуп',
+  'lesson.matchWrong': 'Кээ бир жуптар туура эмес болду',
+  'lesson.buildTitle': 'Сүйлөмдү түз',
+  'lesson.buildPlaceholder': 'Төмөнкү сөздөрдү ырааты менен тандап, сүйлөм түз',
+  'lesson.check': 'Текшерүү',
+
   // ── lesson preview sheet (path node tap) ──
   'lesson.previewLesson': 'Сабак',
   'lesson.previewCheckpoint': 'Текшерүү',
-  'lesson.previewAvailableDesc': '{{n}} суроодон турат. Аякта да, {{xp}} XPге чейин жана монета тап!',
+  'lesson.previewAvailableDesc': '{{n}} тапшырмадан турат. Аякта да, {{xp}} XPге чейин жана монета тап!',
   'lesson.previewCompletedDesc': 'Бул сабакты мурда аяктагансың. Кайра өтүп, билимиңди чыңда.',
   'lesson.previewGatedDesc': 'Бүгүнкү акысыз сабактарың бүттү. Дүкөндөн кошумча энергия сатып ал же эртеңге чейин күт.',
   'lesson.previewNoEnergyBadge': 'Энергия жок',
-  'lesson.previewQuestions': '{{n}} суроо',
+  'lesson.previewQuestions': '{{n}} тапшырма',
   'lesson.previewXpUpTo': '+{{xp}} XPге чейин',
   'lesson.previewCompletedBadge': 'Аякталды',
   'lesson.previewStart': 'Баштоо',
@@ -99,9 +110,12 @@ export const ky = {
   'shop.partnerPrizes': 'Өнөктөштөрдөн сыйлык',
   'shop.buySuccess': '{{title}} сатып алынды!',
   'shop.redeemInstructions': 'Бул кодду көрсөтүп сыйлыгыңды ал:',
+  'shop.yourReceipt': 'Текшерүү коду: {{code}}',
+  'shop.showAtTill': 'Ушул кодду дүкөндө көрсөтүңүз',
   'shop.partnersTitle': 'Өнөктөштөр',
   'shop.prizeCount': '{{n}} сыйлык',
   'shop.noPrizesForPartner': 'Бул өнөктөштүн азырынча сыйлыгы жок',
+  'shop.soldOut': 'Бүттү',
 
   // ── profile ──
   'profile.leagueBadge': '{{name}} лигасы',
@@ -115,6 +129,8 @@ export const ky = {
   'profile.coupons': 'Купондорум',
   'profile.couponsEmpty': 'Азырынча купон жок. Дүкөндөгү өнөктөштөрдөн сыйлык алмаштырсаң, коду ушул жерде сакталат.',
   'profile.couponTapToCopy': 'Көчүрүү үчүн бас',
+  'profile.couponPartnerCode': 'Өнөктөштүн коду — дүкөндө ушуну көрсөтүңүз',
+  'profile.couponOwnCode': 'JashMen коду',
 
   // ── settings ──
   'settings.title': 'Орнотуулар',
@@ -172,6 +188,8 @@ export const ky = {
   'uni.ok': 'OK',
   'uni.close': 'Жабуу',
   'uni.change': 'Өзгөртүү',
+  'uni.leave': 'Чыгуу',
+  'uni.leaveConfirm': 'Университет лигасынан чыгасыңбы? Ушул кампуста чогулткан бардык XP жоголот жана сен жалпы лигага кайтасың. Артка кайтарылгыс.',
   'uni.organizer': 'Уюштуруучу:',
   'uni.address': 'Дареги:',
   'uni.prizePool': 'БАЙГЕ ФОНДУ',
@@ -236,6 +254,22 @@ export const ky = {
   // Only the page's own chrome lives here — every marketing sentence on it
   // is admin-authored content (admin-api/landing.seed.js), not a locale key.
   'landing.privacy': 'Купуялык',
+  'landing.forBusiness': 'Бизнес үчүн',
   // The device mock-up in the hero. Its module and lesson names come from
   // the real curriculum; these are the labels around them.
+  'lesson.nextLesson': 'Кийинки сабак',
+  'lesson.backToPath': 'Үйрөнүүгө кайтуу',
+  'profile.streakSub': 'Күнүмдүк серия',
+  'profile.streakWeek': 'Жума',
+  'profile.streakMonth': 'Ай',
+  'profile.streakNoData': 'маалымат жок',
+  'profile.streakPrevMonth': 'Мурунку ай',
+  'profile.streakNextMonth': 'Кийинки ай',
+  'profile.streakStudied': '{{total}} күндүн {{n}} күнү окудуң',
+  'profile.streakLostTitle': '{{n}} күндүк серия үзүлдү',
+  'profile.streakLostDesc': 'Бүгүн эле {{cost}} энергия менен кайтарып ала аласың — эртең кеч болот.',
+  'profile.streakRepairCta': '{{cost}} энергия менен кайтаруу',
+  'profile.streakRepairBusy': 'Кайтарылып жатат…',
+  'profile.streakRepairNoEnergy': 'Энергия жетишсиз — энергия толгондо кайтара аласың',
+  'profile.streakRepairDone': 'Серия кайтарылды!',
 };

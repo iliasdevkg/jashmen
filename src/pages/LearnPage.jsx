@@ -52,6 +52,14 @@ const AMPLITUDE = 56;
 const ROW_GAP = 128;
 const TOP_PAD = 16;
 
+// Where the module's artwork tile hangs beside the path. Its 112px box is
+// placed so its middle lines up with the first node's circle: the node's
+// centre sits at TOP_PAD + R, and the tile is half its own height above
+// that. A few pixels lower than dead-centre reads better against the
+// node's label, which is why this is a measured constant and not the
+// formula.
+const TILE_TOP = TOP_PAD + R - 112 / 2 + 17;
+
 function nodePositions(count) {
   // The last lesson in every module is the checkpoint, rendered as a wide
   // centered "pit-stop" card rather than a node on the zig-zag — so its x
@@ -178,9 +186,15 @@ function LessonNode({ lesson, status, moduleColor, x, y, bright, partnerLogoUrl,
           <img
             src={partnerLogoUrl}
             alt=""
-            className="absolute -top-1 -right-1 w-6 h-6 rounded-full object-cover"
+            // No ring, no rounding, no crop: whatever the partner uploaded
+            // is shown whole, square logos included. The circle and the
+            // page-coloured border used to force every mark into the same
+            // shape and cut the corners off the ones that did not fit.
+            className="absolute -top-1 -right-1 w-6 h-6 object-contain"
+            // A 10% radius, not a circle: it takes the sharpness off the
+            // corners of a square logo without cropping anything away.
             style={{
-              border: `2px solid ${bright ? '#ffffff' : '#0b1220'}`,
+              borderRadius: '10%',
               boxShadow: bright ? '0 2px 6px rgba(15,23,42,0.3)' : '0 2px 6px rgba(0,0,0,0.6)',
             }}
           />
@@ -251,9 +265,10 @@ function NextLessonNode({ lesson, moduleColor, x, y, energyEmpty, bright, partne
           <img
             src={partnerLogoUrl}
             alt=""
-            className="absolute -top-1.5 -right-1.5 w-7 h-7 rounded-full object-cover"
+            // Same as LessonNode's badge — the logo is shown whole.
+            className="absolute -top-1.5 -right-1.5 w-7 h-7 object-contain"
             style={{
-              border: `2px solid ${bright ? '#ffffff' : '#0b1220'}`,
+              borderRadius: '10%',
               boxShadow: bright ? '0 2px 6px rgba(15,23,42,0.3)' : '0 2px 6px rgba(0,0,0,0.6)',
             }}
           />
@@ -371,6 +386,10 @@ function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleI
   const [iconError, setIconError] = useState(false);
   useEffect(() => { setIconError(false); }, [module.iconUrl]);
   const showIcon = module.iconUrl && !iconError;
+  // Which edge the artwork stands on, chosen per module in the panel. The
+  // store backfills it, but an older cached content payload may not carry
+  // it, so default here too.
+  const artSide = module.artSide === 'right' ? 'right' : 'left';
 
   const statuses = module.lessons.map(l => getLessonStatus(l.id, lessonOrder, completedLessons));
   const points   = nodePositions(module.lessons.length);
@@ -383,48 +402,30 @@ function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleI
   const canvasHeight = points.length ? points[points.length - 1].y + 76 : 0;
   const trackColor = bright ? '#e2e8f0' : '#1b2436';
 
+  // The travelling light runs on every road that still has somewhere to go.
+  //
+  // It started out narrower — only a module already part-finished — and that
+  // was wrong in the case that matters most: a learner who has not started
+  // anything saw a page of dead roads. A finished module goes dark, because
+  // it has nowhere left to point.
+  //
+  // Same rule as the app (learn_screen.dart#moduleInProgress); under two
+  // nodes there is no road between them to travel down.
+  const hasRoadLeft = total > 1 && completedCount < total;
+  // Longer roads take proportionally longer, so the light moves at the
+  // same apparent speed whatever the module's length.
+  const sparkSeconds = Math.max(4, Math.round(total * 1.1));
+
   return (
     <div className="mb-10">
       <div className="sticky top-14 lg:top-6 z-10 mx-4 mb-6">
-        {/* The module's admin-uploaded artwork, in the "Сабак жолу" design's
-            glass tile: a bevelled frame around an inner square tinted with
-            the module's own colour. Sits directly above the module card. */}
-        {showIcon && (
-          <div className="relative z-10 flex justify-center pointer-events-none -mb-8">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.85, y: -10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="w-[112px] h-[112px] rounded-[24px] p-[13px] box-border select-none"
-              style={{
-                background: bright
-                  ? 'linear-gradient(180deg,#ffffff,#dde3ec)'
-                  : 'linear-gradient(180deg,#eef2f7,#c3ccd9)',
-                boxShadow: bright
-                  ? '0 8px 18px -6px rgba(15,23,42,0.25)'
-                  : '0 8px 18px -4px rgba(0,0,0,0.55)',
-              }}
-            >
-              <div
-                className="w-full h-full rounded-[15px] overflow-hidden flex items-center justify-center"
-                style={{
-                  background: `linear-gradient(180deg, color-mix(in srgb, ${module.color} 85%, white), color-mix(in srgb, ${module.color} 82%, black))`,
-                }}
-              >
-                <img
-                  src={module.iconUrl}
-                  alt=""
-                  draggable={false}
-                  onError={() => setIconError(true)}
-                  className="w-full h-full object-contain"
-                />
-              </div>
-            </motion.div>
-          </div>
-        )}
-
         <div
-          className={`rounded-2xl px-4 pb-4 ${showIcon ? 'pt-12' : 'pt-4'}`}
+          // Even padding all round. This used to be pt-12 when `showIcon`
+          // was true, clearing the 48px the artwork needed back when it
+          // overlapped the card's top edge. The artwork stands beside the
+          // path now, so that clearance was just an empty band above the
+          // module title.
+          className="rounded-2xl px-4 pt-4 pb-4"
           style={{ background: module.color, boxShadow: `0 8px 20px -6px ${module.color}80` }}
         >
           <div className="mb-1">
@@ -435,7 +436,7 @@ function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleI
           </div>
           {partner && (
             <p className="flex items-center gap-1.5 text-white/85 text-[11px] font-semibold mb-2">
-              {partner.logoUrl && <img src={partner.logoUrl} alt="" className="w-4 h-4 rounded-full object-cover" />}
+              {partner.logoUrl && <img src={partner.logoUrl} alt="" className="w-4 h-4 object-contain" style={{ borderRadius: '10%' }} />}
               {t('learn.courseFrom', { partner: localizedText(partner.name, locale) })}
             </p>
           )}
@@ -453,6 +454,46 @@ function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleI
         </div>
       </div>
 
+      {/* The path, with the module's artwork standing beside its first
+          lesson rather than centred over the card. The tile is anchored to
+          the column's left edge instead of to the path canvas, so it stays
+          on screen on a 320px phone where the canvas leaves only 16px of
+          margin to hang off. TILE_TOP lines its middle up with the first
+          node's circle. */}
+      <div className="relative">
+        {showIcon && (
+          <motion.div
+            // Enters from its own edge, so a tile on the right does not
+            // slide in from the left across the path.
+            initial={{ opacity: 0, scale: 0.85, x: artSide === 'right' ? 14 : -14 }}
+            animate={{ opacity: 1, scale: 1, x: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            // The artwork alone: the bevelled frame and the module-tinted
+            // backing plate are gone, so what the admin uploaded is what
+            // shows. The drop shadow stays — it is what keeps the image from
+            // floating flat against the page.
+            // Left or right edge, per module (contentStore.js#sanitizeArtSide).
+            // Anchored to the column edge rather than to the path canvas, so
+            // it stays on screen on a 320px phone where the canvas leaves
+            // only 16px of margin to hang off.
+            className={`absolute ${artSide === 'right' ? 'right-5' : 'left-5'} w-[112px] h-[112px] rounded-[24px] overflow-hidden select-none pointer-events-none`}
+            style={{
+              top: TILE_TOP,
+              boxShadow: bright
+                ? '0 8px 18px -6px rgba(15,23,42,0.25)'
+                : '0 8px 18px -4px rgba(0,0,0,0.55)',
+            }}
+          >
+            <img
+              src={module.iconUrl}
+              alt=""
+              draggable={false}
+              onError={() => setIconError(true)}
+              className="w-full h-full object-contain"
+            />
+          </motion.div>
+        )}
+
       <div className="relative mx-auto" style={{ width: CANVAS_W, height: canvasHeight }}>
         <svg className="absolute inset-0 overflow-visible" width={CANVAS_W} height={canvasHeight}>
           <path d={pathD} fill="none" stroke={trackColor} strokeWidth="12" strokeLinecap="round" />
@@ -460,6 +501,23 @@ function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleI
             <path
               d={pathD} fill="none" stroke={module.color} strokeWidth="12" strokeLinecap="round"
               pathLength={100} strokeDasharray={`${doneFrac * 100} 100`}
+            />
+          )}
+          {/* The travelling light (index.css .learn-spark). Same width and
+              cap as the road so it rides exactly on it rather than beside
+              it, and white on the dark theme / the module's own colour on
+              the light one, because white over a #e2e8f0 track is invisible. */}
+          {hasRoadLeft && (
+            <path
+              className="learn-spark"
+              d={pathD}
+              fill="none"
+              stroke={bright ? module.color : '#ffffff'}
+              strokeWidth="12"
+              strokeLinecap="round"
+              pathLength={100}
+              strokeDasharray="6 94"
+              style={{ opacity: bright ? 0.5 : 0.45, '--spark-duration': `${sparkSeconds}s` }}
             />
           )}
         </svg>
@@ -513,6 +571,7 @@ function ModuleSection({ module, partner, lessonOrder, completedLessons, moduleI
             />
           );
         })}
+      </div>
       </div>
     </div>
   );
@@ -577,6 +636,7 @@ export default function LearnPage() {
             isCheckpoint={preview.isCheckpoint}
             isGated={preview.isGated}
             moduleColor={preview.moduleColor}
+            limits={content?.limits}
             bright={bright}
             onClose={() => setPreview(null)}
             onStart={() => navigate(`/lesson/${preview.lesson.id}`)}

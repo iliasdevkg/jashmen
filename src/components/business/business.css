@@ -1,0 +1,1590 @@
+/* src/components/business/business.css — the B2B site at https://jashmenstudio.com/
+ *
+ * Ported from the approved template, one-to-one, with a single structural
+ * change: everything is scoped under `.jb` (the page's own root class)
+ * instead of `:root` / `body`. The marketing site and the product ship in
+ * one bundle; they must not share a look by accident, and the student
+ * landing at /app keeps its own `.lp` system untouched.
+ *
+ * That scoping is why the tokens sit on `.jb` rather than `:root` — a
+ * variable declared on `:root` would be readable from every screen in the
+ * app, and the first name collision would repaint the product.
+ *
+ * The design in one paragraph: near-black navy ground lit by three fixed
+ * radial pools, frosted surfaces at 3–6% white, one blue→violet gradient
+ * reserved for things that ask to be clicked, and Inter throughout at
+ * tight negative tracking. Nothing here is rounder than 26px and nothing
+ * is squarer than 10px.
+ */
+
+.jb {
+  --bg: #050a18;
+  --bg-deep: #030713;
+  --surface: rgba(255, 255, 255, 0.032);
+  --surface-2: rgba(255, 255, 255, 0.055);
+  --line: rgba(255, 255, 255, 0.075);
+  --line-strong: rgba(255, 255, 255, 0.13);
+
+  --text: #eef2ff;
+  --text-dim: #c3cde6;
+  --muted: #8f9dc0;
+
+  --blue: #2f6bff;
+  --blue-bright: #5b8cff;
+  --violet: #7b5cff;
+  --cyan: #58c6ff;
+
+  --grad-cta: linear-gradient(135deg, #2f6bff 0%, #5b8cff 55%, #7b5cff 100%);
+  --grad-text: linear-gradient(100deg, #6f9dff 0%, #8b6bff 100%);
+
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 26px;
+  --r-pill: 999px;
+
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 18px 40px -24px rgba(0, 0, 0, 0.9);
+  --shadow-cta: 0 10px 30px -10px rgba(47, 107, 255, 0.65);
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --container: 1160px;
+  --gutter: 20px;
+
+  position: relative;
+  isolation: isolate;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: clip;
+}
+
+.jb *,
+.jb *::before,
+.jb *::after {
+  box-sizing: border-box;
+}
+
+/* Беттин фондук жарыгы — fixed, so the pools stay put while the page
+   travels past them and every card picks up a different part of the light. */
+.jb::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(1100px 620px at 78% -6%, rgba(64, 96, 255, 0.22), transparent 62%),
+    radial-gradient(760px 520px at 4% 12%, rgba(96, 62, 220, 0.14), transparent 60%),
+    radial-gradient(900px 700px at 50% 118%, rgba(43, 78, 200, 0.12), transparent 60%);
+}
+
+.jb img,
+.jb svg {
+  display: block;
+  max-width: 100%;
+}
+
+.jb a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.jb button,
+.jb input {
+  font: inherit;
+  color: inherit;
+}
+
+/* The UA button reset.
+ *
+ * `padding: 0` is deliberately NOT here. This selector is element-qualified,
+ * so its specificity (0,1,1) outranks every single-class component below it
+ * — and both `.jb-tab` and `.jb-btn` (0,1,0) had their padding silently
+ * dropped by it, but only on the elements that happen to be <button>. That
+ * is why the hero's <a class="jb-btn"> looked right while the form's
+ * <button class="jb-btn"> had its label against the pill's edge.
+ *
+ * The buttons that genuinely want no padding here are fixed-size and
+ * grid-centred (.jb-round-btn, .jb-play__btn, .jb-nav__burger,
+ * .jb-lightbox__close, .jb-subscribe button), and with border-box sizing the
+ * UA's 1px 6px changes nothing for them. */
+.jb button {
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.jb :focus-visible {
+  outline: 2px solid var(--blue-bright);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+.jb ::selection {
+  background: rgba(91, 140, 255, 0.35);
+}
+
+.jb-page {
+  position: relative;
+  z-index: 1;
+  max-width: calc(var(--container) + var(--gutter) * 2);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+/* ── Жалпы бөлүкчөлөр ───────────────────────────────────────────────── */
+.jb-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.jb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 20px;
+  border-radius: var(--r-pill);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  transition: transform 0.22s var(--ease), box-shadow 0.22s var(--ease),
+    background-color 0.22s var(--ease), border-color 0.22s var(--ease),
+    opacity 0.22s var(--ease);
+}
+.jb-btn:hover {
+  transform: translateY(-1px);
+}
+.jb-btn:active {
+  transform: translateY(0) scale(0.985);
+}
+.jb-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.jb-btn--primary {
+  background: var(--grad-cta);
+  color: #fff;
+  box-shadow: var(--shadow-cta);
+}
+.jb-btn--primary:hover:not(:disabled) {
+  box-shadow: 0 14px 38px -10px rgba(70, 120, 255, 0.8);
+}
+
+.jb-btn--ghost {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+}
+.jb-btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.jb-btn--lg {
+  height: 52px;
+  padding: 0 26px;
+  font-size: 15px;
+}
+
+.jb-btn .ico {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  transition: transform 0.28s var(--ease);
+}
+.jb-btn:hover .ico {
+  transform: translateX(3px);
+}
+.jb-btn--ghost:hover .ico {
+  transform: scale(1.06);
+}
+.jb-btn .ico svg {
+  width: 13px;
+  height: 13px;
+}
+
+.jb-h2 {
+  margin: 0;
+  font-size: clamp(24px, 2.4vw, 31px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+.jb-grad {
+  background: var(--grad-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ── Суюк (fluid) визуал ────────────────────────────────────────────── */
+.jb-fluid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.jb-fluid-wrap {
+  position: absolute;
+  inset: 0;
+  animation: jb-drift 34s var(--ease) infinite alternate;
+  will-change: transform;
+}
+.jb-fluid-wrap--glow {
+  filter: blur(30px);
+  opacity: 0.85;
+  animation-duration: 44s;
+  animation-direction: alternate-reverse;
+}
+.jb-fluid-wrap--front {
+  z-index: 3;
+  opacity: 0.62;
+  filter: blur(1px);
+  animation-duration: 40s;
+}
+@keyframes jb-drift {
+  0% {
+    transform: rotate(-4deg) scale(1) translate3d(0, 0, 0);
+  }
+  50% {
+    transform: rotate(2deg) scale(1.045) translate3d(1.5%, -1.5%, 0);
+  }
+  100% {
+    transform: rotate(6deg) scale(1.02) translate3d(-1%, 1.5%, 0);
+  }
+}
+
+/* ── Навигация ──────────────────────────────────────────────────────── */
+.jb-nav {
+  position: sticky;
+  top: 12px;
+  z-index: 60;
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 66px;
+  padding: 0 10px 0 20px;
+  border-radius: var(--r-pill);
+  background: rgba(9, 15, 32, 0.72);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow: 0 20px 46px -30px rgba(0, 0, 0, 1);
+  transition: background-color 0.3s var(--ease), border-color 0.3s var(--ease),
+    box-shadow 0.3s var(--ease);
+}
+.jb-nav.is-stuck {
+  background: rgba(7, 12, 27, 0.9);
+  border-color: rgba(255, 255, 255, 0.11);
+  box-shadow: 0 24px 54px -34px rgba(0, 0, 0, 1);
+}
+
+.jb-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+.jb-brand__mark {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: radial-gradient(circle at 32% 28%, #26407f, #0a1230 70%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 0 0 4px rgba(47, 107, 255, 0.07);
+}
+.jb-brand__mark img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+/* The real wordmark (public/jashmen_text_white.png), and the numbers here
+   are dictated by the file rather than chosen: it is 729×342 with the ink
+   occupying only x 58–665, y 107–220. So the drawn letters are 33% of the
+   image's height and 83% of its width, and the rest is transparency baked
+   into the asset.
+ *
+ * Two consequences, both handled here rather than by re-exporting the file:
+ *   · the box has to be ~3× the height the letters should read at — 52px
+ *     of image for ~17px of visible wordmark, which sits right beside the
+ *     36px eagle
+ *   · the horizontal padding (~8% a side, about 9px at this size) would
+ *     otherwise double the gap after the eagle, so it is pulled back with
+ *     negative margins
+ *
+ * `flex: 0 0 auto` because .jb img carries max-width:100%, and a flex item
+ * with an intrinsic width that large would otherwise be allowed to shrink
+ * on a narrow nav and squash the letters. */
+.jb-brand__word {
+  height: 52px;
+  width: auto;
+  flex: 0 0 auto;
+  margin-left: -9px;
+  margin-right: -9px;
+  object-fit: contain;
+}
+
+.jb-footer .jb-brand__word {
+  height: 48px;
+  margin-left: -8px;
+  margin-right: -8px;
+}
+
+.jb-nav__links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 26px;
+}
+.jb-nav__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 9px 13px;
+  border-radius: var(--r-sm);
+  font-size: 14px;
+  color: var(--text-dim);
+  transition: color 0.18s var(--ease), background-color 0.18s var(--ease);
+}
+.jb-nav__link:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+}
+.jb-nav__link svg {
+  width: 12px;
+  height: 12px;
+  opacity: 0.75;
+  transition: transform 0.22s var(--ease);
+}
+.jb-nav__item {
+  position: relative;
+}
+.jb-nav__item:hover .jb-nav__link svg,
+.jb-nav__item:focus-within .jb-nav__link svg {
+  transform: rotate(180deg);
+}
+
+.jb-nav__drop {
+  position: absolute;
+  top: calc(100% + 12px);
+  left: -6px;
+  width: 250px;
+  padding: 8px;
+  border-radius: var(--r-md);
+  background: rgba(12, 19, 40, 0.96);
+  border: 1px solid var(--line-strong);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 26px 50px -22px rgba(0, 0, 0, 1);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+  transition: opacity 0.2s var(--ease), transform 0.24s var(--ease), visibility 0.2s;
+}
+.jb-nav__item:hover .jb-nav__drop,
+.jb-nav__item:focus-within .jb-nav__drop {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.jb-nav__drop button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: 9px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+  transition: background-color 0.16s var(--ease), color 0.16s var(--ease);
+}
+.jb-nav__drop button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.jb-nav__cta {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.jb-nav__burger {
+  display: none;
+  width: 44px;
+  height: 44px;
+  margin-left: auto;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  place-items: center;
+}
+.jb-nav__burger svg {
+  width: 18px;
+  height: 18px;
+}
+
+.jb-mobile {
+  display: none;
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: var(--r-lg);
+  background: rgba(9, 15, 32, 0.94);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(18px);
+}
+.jb-mobile.is-open {
+  display: block;
+  animation: jb-fadeUp 0.3s var(--ease-out) both;
+}
+/* `:not(.jb-btn)` matters: without it this rule's higher specificity turns
+   the menu's call to action into a block element, and its arrow badge drops
+   out of the pill onto a second line. */
+.jb-mobile a:not(.jb-btn) {
+  display: block;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  font-size: 15px;
+  color: var(--text-dim);
+}
+.jb-mobile a:not(.jb-btn):hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+}
+.jb-mobile .jb-btn {
+  width: 100%;
+  margin-top: 8px;
+}
+
+@keyframes jb-fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Hero ───────────────────────────────────────────────────────────── */
+.jb-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
+  align-items: center;
+  gap: 20px;
+  padding: 46px 0 34px;
+}
+
+.jb-hero__title {
+  margin: 0 0 22px;
+  font-size: clamp(38px, 4.4vw, 55px);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -0.038em;
+}
+.jb-hero__title span {
+  display: block;
+}
+
+.jb-hero__lead {
+  margin: 0 0 32px;
+  max-width: 400px;
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.jb-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.jb-hero__visual {
+  position: relative;
+  min-height: 430px;
+  border-radius: var(--r-xl);
+  display: grid;
+  place-items: center;
+}
+.jb-hero__visual::after {
+  content: "";
+  position: absolute;
+  inset: -8% -14%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(60, 110, 255, 0.18), transparent 72%);
+  pointer-events: none;
+}
+
+.jb-play {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+}
+.jb-play__btn {
+  position: relative;
+  width: 82px;
+  height: 82px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 16, 34, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 18px 44px -14px rgba(0, 0, 0, 0.85);
+  transition: transform 0.3s var(--ease), background-color 0.3s var(--ease),
+    border-color 0.3s var(--ease);
+}
+.jb-play__btn::before {
+  content: "";
+  position: absolute;
+  width: 82px;
+  height: 82px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  animation: jb-pulse 3s var(--ease) infinite;
+}
+@keyframes jb-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  70%,
+  100% {
+    transform: scale(1.55);
+    opacity: 0;
+  }
+}
+.jb-play__btn:hover {
+  transform: scale(1.07);
+  background: rgba(20, 30, 62, 0.7);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+.jb-play__btn svg {
+  width: 22px;
+  height: 22px;
+  margin-left: 4px;
+}
+.jb-play__label {
+  font-size: 14px;
+  color: var(--text-dim);
+  letter-spacing: -0.01em;
+}
+
+/* ── Видео катмары ──────────────────────────────────────────────────── */
+.jb-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(3, 7, 19, 0.88);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: jb-lightIn 0.28s var(--ease-out) both;
+}
+@keyframes jb-lightIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.jb-lightbox__frame {
+  position: relative;
+  width: min(100%, 1000px);
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 40px 90px -40px rgba(0, 0, 0, 1);
+  animation: jb-lightPop 0.34s var(--ease-out) both;
+}
+@keyframes jb-lightPop {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.jb-lightbox__frame iframe,
+.jb-lightbox__frame video {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+.jb-lightbox__close {
+  position: absolute;
+  top: -46px;
+  right: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--line-strong);
+  color: #fff;
+  transition: background-color 0.2s var(--ease);
+}
+.jb-lightbox__close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.jb-lightbox__close svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ── Өзгөчөлүктөр тилкеси ───────────────────────────────────────────── */
+.jb-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 6px 8px;
+  margin-top: 6px;
+}
+.jb-strip__item {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 20px 22px;
+  font-size: 14.5px;
+  letter-spacing: -0.01em;
+}
+.jb-strip__item + .jb-strip__item {
+  border-left: 1px solid var(--line);
+}
+.jb-tile {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(150deg, rgba(80, 120, 255, 0.22), rgba(120, 92, 255, 0.1));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.jb-tile svg {
+  width: 18px;
+  height: 18px;
+  color: var(--blue-bright);
+}
+
+/* ── Ишеним тилкеси ─────────────────────────────────────────────────── */
+.jb-trust {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-top: 14px;
+  padding: 18px 12px 18px 26px;
+}
+.jb-trust__label {
+  flex: 0 0 auto;
+  font-size: 14px;
+  color: var(--muted);
+}
+.jb-trust__track {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+.jb-trust__track::-webkit-scrollbar {
+  display: none;
+}
+.jb-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  flex: 0 0 auto;
+  color: #dbe4fb;
+  opacity: 0.82;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  transition: opacity 0.24s var(--ease), transform 0.24s var(--ease);
+}
+.jb-logo:hover {
+  opacity: 1;
+  transform: translateY(-1px);
+}
+.jb-logo img {
+  height: 26px;
+  width: auto;
+  max-width: 86px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+.jb-logo svg {
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+}
+.jb-logo small {
+  display: block;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+  opacity: 0.85;
+}
+.jb-round-btn {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line-strong);
+  transition: background-color 0.22s var(--ease), transform 0.22s var(--ease);
+}
+.jb-round-btn:hover {
+  background: rgba(255, 255, 255, 0.11);
+  transform: translateX(2px);
+}
+.jb-round-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── Секциялар ──────────────────────────────────────────────────────── */
+/* The navbar is sticky at top:12px and 66px tall, so an anchor jump would
+   otherwise park the section heading underneath it. Every element the nav,
+   the dropdown or the footer can jump to carries this offset. */
+.jb-section,
+.jb-strip,
+.jb-trust,
+.jb-hero {
+  scroll-margin-top: 94px;
+}
+
+.jb-section {
+  padding: 56px 0 0;
+}
+.jb-section__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 40px;
+  margin-bottom: 22px;
+}
+.jb-section__note {
+  margin: 0;
+  max-width: 420px;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
+.jb-why {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 14px;
+}
+.jb-why__card {
+  position: relative;
+  padding: 22px 20px 24px;
+  overflow: hidden;
+  transition: transform 0.3s var(--ease), border-color 0.3s var(--ease),
+    background-color 0.3s var(--ease);
+}
+.jb-why__card::after {
+  content: "";
+  position: absolute;
+  top: -60px;
+  left: -30px;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(70, 110, 255, 0.16), transparent);
+  opacity: 0;
+  transition: opacity 0.35s var(--ease);
+  pointer-events: none;
+}
+.jb-why__card:hover {
+  transform: translateY(-3px);
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+.jb-why__card:hover::after {
+  opacity: 1;
+}
+.jb-why__icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 26px;
+  background: linear-gradient(150deg, rgba(86, 126, 255, 0.28), rgba(120, 92, 255, 0.12));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 26px -14px rgba(60, 110, 255, 0.9);
+}
+.jb-why__icon svg {
+  width: 22px;
+  height: 22px;
+  color: #a9c4ff;
+}
+.jb-why__card h3 {
+  margin: 0 0 8px;
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.jb-why__card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.62;
+  color: var(--muted);
+}
+
+/* ── Чечимдер / табдар ──────────────────────────────────────────────── */
+.jb-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-bottom: 16px;
+}
+.jb-tab {
+  height: 38px;
+  padding: 0 18px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13.5px;
+  color: var(--text-dim);
+  letter-spacing: -0.01em;
+  transition: background 0.24s var(--ease), color 0.24s var(--ease),
+    border-color 0.24s var(--ease), box-shadow 0.24s var(--ease);
+}
+.jb-tab:hover {
+  color: #fff;
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.07);
+}
+.jb-tab[aria-selected="true"] {
+  background: var(--grad-cta);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: var(--shadow-cta);
+}
+
+.jb-solution {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  overflow: hidden;
+  min-height: 250px;
+  border-radius: var(--r-xl);
+}
+.jb-solution__body {
+  padding: 32px 34px 34px;
+  position: relative;
+  z-index: 2;
+}
+.jb-solution__body h3 {
+  margin: 0 0 10px;
+  font-size: 23px;
+  font-weight: 600;
+  letter-spacing: -0.028em;
+}
+.jb-solution__body > p {
+  margin: 0 0 20px;
+  max-width: 430px;
+  font-size: 13.5px;
+  line-height: 1.68;
+  color: var(--muted);
+}
+.jb-checks {
+  list-style: none;
+  margin: 0 0 26px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.jb-checks li {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+}
+.jb-checks span {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 19px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  background: rgba(47, 107, 255, 0.22);
+  border: 1px solid rgba(91, 140, 255, 0.4);
+}
+.jb-checks svg {
+  width: 11px;
+  height: 11px;
+  color: #8fb4ff;
+}
+.jb-solution__media {
+  position: relative;
+  overflow: hidden;
+  min-height: 280px;
+}
+.jb-solution__media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: linear-gradient(90deg, var(--bg) 0%, rgba(5, 10, 24, 0.55) 26%, transparent 62%);
+  pointer-events: none;
+}
+.jb-scene {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+}
+.jb-fade-in {
+  animation: jb-panelIn 0.4s var(--ease-out) both;
+}
+@keyframes jb-panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Сандар ─────────────────────────────────────────────────────────── */
+.jb-stats {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+.jb-stat {
+  padding: 20px 20px 22px;
+  transition: transform 0.3s var(--ease), border-color 0.3s var(--ease);
+}
+.jb-stat:hover {
+  transform: translateY(-3px);
+  border-color: var(--line-strong);
+}
+.jb-stat__top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.jb-stat__num {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+.jb-stat__skeleton {
+  width: 62px;
+  height: 26px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  animation: jb-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes jb-shimmer {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.jb-stat p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+/* ── CTA тилкеси ────────────────────────────────────────────────────── */
+.jb-cta {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 40px;
+  margin-top: 46px;
+  padding: 40px 44px;
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: linear-gradient(112deg, #0a1130 0%, #101c46 58%, #18215e 100%);
+}
+.jb-cta .jb-fluid-wrap {
+  left: 16%;
+  opacity: 0.85;
+}
+.jb-cta .jb-fluid-wrap--glow {
+  opacity: 0.75;
+}
+.jb-cta__content {
+  position: relative;
+  z-index: 3;
+  max-width: 470px;
+}
+.jb-cta h2 {
+  margin: 0 0 12px;
+  font-size: clamp(25px, 2.8vw, 33px);
+  font-weight: 600;
+  line-height: 1.16;
+  letter-spacing: -0.035em;
+}
+.jb-cta h2 span {
+  display: block;
+}
+.jb-cta p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.68;
+  color: var(--text-dim);
+  max-width: 400px;
+}
+.jb-cta__action {
+  position: relative;
+  z-index: 3;
+}
+.jb-cta__eagle {
+  position: absolute;
+  top: 50%;
+  left: 52%;
+  transform: translate(-50%, -50%);
+  width: 188px;
+  opacity: 0.95;
+  z-index: 2;
+  pointer-events: none;
+  filter: drop-shadow(0 12px 40px rgba(20, 40, 120, 0.8));
+}
+
+/* ── Форма ──────────────────────────────────────────────────────────── */
+.jb-form {
+  padding: 30px 32px 32px;
+}
+.jb-form__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.jb-field {
+  display: block;
+}
+.jb-field__label {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-bottom: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+.jb-field__hint {
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.75;
+}
+.jb-input {
+  width: 100%;
+  height: 46px;
+  padding: 0 15px;
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.22s var(--ease), background-color 0.22s var(--ease);
+}
+textarea.jb-input {
+  height: auto;
+  padding: 13px 15px;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 108px;
+}
+.jb-input::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+.jb-input:focus {
+  border-color: rgba(91, 140, 255, 0.55);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.jb-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.jb-pill {
+  height: 38px;
+  padding: 0 16px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.22s var(--ease), color 0.22s var(--ease),
+    border-color 0.22s var(--ease), box-shadow 0.22s var(--ease);
+  display: inline-flex;
+  align-items: center;
+}
+.jb-pill:hover {
+  color: #fff;
+  border-color: var(--line-strong);
+}
+.jb-pill.is-on {
+  background: var(--grad-cta);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: var(--shadow-cta);
+}
+.jb-pill input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+
+.jb-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.jb-alert {
+  display: flex;
+  gap: 11px;
+  margin-top: 16px;
+  padding: 13px 15px;
+  border-radius: var(--r-md);
+  background: rgba(255, 92, 92, 0.1);
+  border: 1px solid rgba(255, 92, 92, 0.32);
+  font-size: 13px;
+  line-height: 1.6;
+  color: #ffc9c9;
+}
+.jb-alert svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin-top: 2px;
+  color: #ff9d9d;
+}
+.jb-alert a {
+  color: #ffd9d9;
+  text-decoration: underline;
+}
+
+.jb-done {
+  padding: 44px 32px;
+  text-align: center;
+}
+.jb-done__mark {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--grad-cta);
+  box-shadow: var(--shadow-cta);
+}
+.jb-done__mark svg {
+  width: 24px;
+  height: 24px;
+  color: #fff;
+}
+.jb-done h3 {
+  margin: 0 0 9px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.028em;
+}
+.jb-done p {
+  margin: 0 auto;
+  max-width: 400px;
+  font-size: 13.5px;
+  line-height: 1.68;
+  color: var(--muted);
+}
+
+/* ── Футер ──────────────────────────────────────────────────────────── */
+.jb-footer {
+  margin-top: 56px;
+  padding-top: 44px;
+  border-top: 1px solid var(--line);
+}
+.jb-footer .jb-brand {
+  font-size: 19px;
+}
+.jb-footer__grid {
+  display: grid;
+  grid-template-columns: 1.5fr repeat(3, 0.85fr) 1.35fr;
+  gap: 32px;
+  padding-bottom: 40px;
+}
+.jb-footer__brand p {
+  margin: 16px 0 20px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--muted);
+  max-width: 240px;
+}
+.jb-socials {
+  display: flex;
+  gap: 9px;
+}
+.jb-socials a {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  transition: background-color 0.22s var(--ease), transform 0.22s var(--ease),
+    color 0.22s var(--ease);
+}
+.jb-socials a:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  transform: translateY(-2px);
+}
+.jb-socials svg {
+  width: 15px;
+  height: 15px;
+}
+.jb-footer h4 {
+  margin: 0 0 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.jb-footer ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+}
+.jb-footer ul a,
+.jb-footer ul button {
+  font-size: 12.5px;
+  color: var(--muted);
+  text-align: left;
+  transition: color 0.18s var(--ease);
+}
+.jb-footer ul a:hover,
+.jb-footer ul button:hover {
+  color: #fff;
+}
+.jb-footer__note {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.jb-subscribe {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 5px 0 16px;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  transition: border-color 0.22s var(--ease), background-color 0.22s var(--ease);
+}
+.jb-subscribe:focus-within {
+  border-color: rgba(91, 140, 255, 0.55);
+  background: rgba(255, 255, 255, 0.06);
+}
+.jb-subscribe input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  font-size: 13.5px;
+}
+.jb-subscribe input::placeholder {
+  color: var(--muted);
+}
+.jb-subscribe button {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--grad-cta);
+  transition: transform 0.22s var(--ease), opacity 0.22s var(--ease);
+}
+.jb-subscribe button:hover:not(:disabled) {
+  transform: translateX(2px);
+}
+.jb-subscribe button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.jb-subscribe svg {
+  width: 14px;
+  height: 14px;
+  color: #fff;
+}
+.jb-form-msg {
+  margin: 9px 0 0;
+  min-height: 16px;
+  font-size: 12px;
+  color: #8fb4ff;
+  opacity: 0;
+  transform: translateY(-3px);
+  transition: opacity 0.24s var(--ease), transform 0.24s var(--ease);
+}
+.jb-form-msg.is-shown {
+  opacity: 1;
+  transform: translateY(0);
+}
+.jb-form-msg.is-error {
+  color: #ff9d9d;
+}
+
+.jb-footer__bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 0 26px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+.jb-footer__bottom nav {
+  display: flex;
+  gap: 30px;
+}
+.jb-footer__bottom a:hover {
+  color: #fff;
+}
+
+/* ── Көрүнгөндө пайда болуу ─────────────────────────────────────────── */
+.jb-reveal {
+  opacity: 0;
+  transform: translateY(18px);
+}
+.jb-reveal.is-in {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.7s var(--ease-out), transform 0.7s var(--ease-out);
+}
+
+/* ── Адаптив ────────────────────────────────────────────────────────── */
+@media (max-width: 1080px) {
+  .jb-why {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .jb-stats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .jb-footer__grid {
+    grid-template-columns: 1.4fr repeat(2, 1fr);
+    row-gap: 36px;
+  }
+  .jb-footer__brand {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 900px) {
+  .jb-nav__links,
+  .jb-nav__cta {
+    display: none;
+  }
+  .jb-nav__burger {
+    display: grid;
+  }
+  .jb-hero {
+    grid-template-columns: 1fr;
+    padding-top: 34px;
+  }
+  .jb-hero__visual {
+    min-height: 340px;
+    order: -1;
+  }
+  .jb-hero__lead {
+    max-width: 520px;
+  }
+  .jb-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .jb-strip__item:nth-child(odd) {
+    border-left: 0;
+  }
+  .jb-strip__item:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+  .jb-trust {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 18px;
+    gap: 16px;
+  }
+  .jb-trust__track {
+    justify-content: flex-start;
+  }
+  .jb-trust .jb-round-btn {
+    display: none;
+  }
+  .jb-section__head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .jb-solution {
+    grid-template-columns: 1fr;
+  }
+  .jb-solution__media {
+    min-height: 230px;
+    order: -1;
+  }
+  .jb-solution__media::after {
+    background: linear-gradient(180deg, transparent 30%, rgba(5, 10, 24, 0.6) 74%, var(--bg) 100%);
+  }
+  .jb-cta {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 34px 28px;
+    gap: 26px;
+  }
+  .jb-cta__eagle {
+    left: auto;
+    right: -30px;
+    transform: translateY(-50%);
+    opacity: 0.35;
+  }
+}
+
+@media (max-width: 640px) {
+  .jb {
+    --gutter: 14px;
+  }
+  .jb-why,
+  .jb-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+  .jb-footer__grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .jb-footer__news {
+    grid-column: 1 / -1;
+  }
+  .jb-footer__bottom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .jb-footer__bottom nav {
+    gap: 20px;
+  }
+  .jb-solution__body {
+    padding: 26px 20px 28px;
+  }
+  .jb-hero__actions .jb-btn {
+    flex: 1 1 auto;
+  }
+  .jb-form {
+    padding: 22px 18px 24px;
+  }
+  .jb-form__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 420px) {
+  .jb-why,
+  .jb-stats {
+    grid-template-columns: 1fr;
+  }
+  .jb-strip {
+    grid-template-columns: 1fr;
+  }
+  .jb-strip__item {
+    border-left: 0 !important;
+  }
+  .jb-strip__item + .jb-strip__item {
+    border-top: 1px solid var(--line);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jb *,
+  .jb *::before,
+  .jb *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .jb-reveal {
+    opacity: 1;
+    transform: none;
+  }
+}

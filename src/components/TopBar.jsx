@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Flame, Zap, Coins } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
-import { energySettings, computeLiveEnergy, formatCountdown } from '../utils.js';
+import { energySettings, computeLiveEnergy, formatCountdown, STREAK } from '../utils.js';
 
 export default function TopBar() {
   const { state } = useAuth();
@@ -37,9 +37,9 @@ export default function TopBar() {
       <div className="flex items-center gap-2 min-w-0">
         <div
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0"
-          style={{ background: 'rgba(251,146,60,0.15)', border: '1px solid rgba(251,146,60,0.3)' }}
+          style={{ background: 'rgba(76,141,255,0.15)', border: '1px solid rgba(76,141,255,0.32)' }}
         >
-          <Flame size={15} color="#fb923c" fill="#fb923c" />
+          <Flame size={15} color={STREAK.soft} fill={STREAK.soft} />
           <span className="font-bold text-sm leading-none tabular-nums" style={{ color: badgeText }}>{streak}</span>
         </div>
 

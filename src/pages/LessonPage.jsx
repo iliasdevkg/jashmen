@@ -1,16 +1,80 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Check, Star, ShoppingBag, PlayCircle, Share2, Award, Zap, Trophy, CheckCircle2, Coins, Wallet } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
 import { useI18n, localizedText, formatGrouped } from '../i18n.jsx';
-import { energySettings, computeLiveEnergy, formatCountdown, checkNewAchievements, cardsOf } from '../utils.js';
+import { energySettings, computeLiveEnergy, formatCountdown, checkNewAchievements, cardsOf, getLessonOrder, isGradedCard } from '../utils.js';
 import { generateShareCardBlob, shareOrDownload } from '../shareCard.js';
 import * as api from '../api.js';
+import ZoomableImage from '../components/ZoomableImage.jsx';
 
 const OPTION_LABELS = ['A', 'B', 'C', 'D', 'E'];
 const ENERGY_ERROR_HINT = 'акысыз сабактарың бүттү';
+const SPRING = { type: 'spring', stiffness: 300, damping: 30 };
 
+// ── Shuffling, settled once per card ───────────────────────────────────────
+//
+// `match` and `build` both have to present their tiles in an order the
+// author did not write, and that order has to then hold perfectly still: a
+// bare Math.random() in the render body re-rolls on every keystroke of state
+// — every tap, every flash timer — and the tile the finger is already
+// travelling towards moves out from under it.
+//
+// So the order is a pure function of a seed drawn exactly once per mount
+// (mulberry32: small, fast, repeatable), and each card is remounted by its
+// deck slot, which is what makes "once per card" literally true.
+function seededRandom(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// A permutation of 0…n-1 in which nothing keeps its own index — a
+// derangement. For `match` the row a word sits in is the answer key: a right
+// word left on its own row sits directly beside its pair, which hands that
+// row over. Rejecting only the all-in-place deal was not enough, because a
+// single element can stay put while the rest move, and one giveaway row is
+// all it takes for the card to read as random.
+//
+// Sattolo's algorithm — the Fisher-Yates loop with `j < i` rather than
+// `j <= i` — produces a uniformly random single cycle, and a cycle over two
+// or more elements has no fixed point by construction. At n = 2 there is
+// exactly one derangement ([1,0]); that is arithmetic, not a shortcoming.
+function shuffledOrder(n, seed) {
+  const order = Array.from({ length: n }, (_, i) => i);
+  if (n < 2) return order;
+  const rand = seededRandom(seed);
+  for (let i = n - 1; i > 0; i--) {
+    const j = Math.floor(rand() * i);          // 0 … i-1, never i
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
+
+// One seed per mount. A ref rather than useState because nothing ever needs
+// to re-render when it is created.
+function useShuffleSeed() {
+  const seed = useRef(null);
+  if (seed.current === null) seed.current = (Math.random() * 0xFFFFFFFF) >>> 0;
+  return seed.current;
+}
+
+const splitWords = (value) => String(value ?? '').split(/\s+/).filter(Boolean);
+
+// Whitespace collapsed, case ignored, and a trailing . ! ? forgiven — a
+// learner who assembled exactly the right sentence must not be failed
+// because the authored copy ends in a full stop that no tile carried.
+const normalizeSentence = (value) =>
+  splitWords(value).join(' ').replace(/[.!?]+$/, '').trim().toLowerCase();
+
+// The two per-answer cues, synthesised rather than sampled — they fire on
+// every question, and two oscillators cost nothing next to two more network
+// fetches. The lesson-complete fanfare is a real clip; see below.
 function playSound(type) {
   try {
     const AudioCtx = window.AudioContext || (/** @type {any} */ (window)).webkitAudioContext;
@@ -37,32 +101,24 @@ function playSound(type) {
       g.gain.setValueAtTime(0.18, ctx.currentTime);
       g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.32);
       o.start(); o.stop(ctx.currentTime + 0.32);
-    } else if (type === 'complete') {
-      [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
-        const o = ctx.createOscillator();
-        const g = ctx.createGain();
-        o.connect(g); g.connect(ctx.destination);
-        o.frequency.value = freq;
-        const t = i * 0.11;
-        g.gain.setValueAtTime(0.22, ctx.currentTime + t);
-        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.4);
-        o.start(ctx.currentTime + t);
-        o.stop(ctx.currentTime + t + 0.4);
-      });
     }
   } catch (_) {}
 }
 
-// The coin/XP sound that plays over the reward burst, right behind the
-// "correct" chime above (which stays — the two are deliberately layered).
-// Unlike the three synthesised cues this is a real clip, so it gets one
-// lazily-created element reused for every play: constructing an Audio per
-// answer leaks decoders on a long lesson.
+// The reward clip that plays over the burst, right behind the "correct"
+// chime above (which stays — the two are deliberately layered).
+//
+// 2.69 seconds long: a loud throw over the first 300ms, then a shimmer that
+// decays all the way out. Every visual below is timed against that shape —
+// the coins land while it is still loud, and the counter finishes climbing
+// just before it fades. Unlike the synthesised cues this is a real clip, so
+// it gets one lazily-created element reused for every play: constructing an
+// Audio per answer leaks decoders on a long lesson.
 let coinAudio = null;
 function playCoinSound() {
   try {
     if (!coinAudio) {
-      coinAudio = new Audio('/sounds/coin_xp.mp3');
+      coinAudio = new Audio('/sounds/reward.mp3');
       coinAudio.preload = 'auto';
       coinAudio.volume = 0.8;
     }
@@ -71,6 +127,25 @@ function playCoinSound() {
     // with; by the time a question is answered it has been, but a rejected
     // promise still has to be swallowed or it surfaces as an unhandled one.
     coinAudio.play()?.catch?.(() => {});
+  } catch (_) {}
+}
+
+// The lesson-complete fanfare. This used to be a four-note oscillator
+// arpeggio synthesised in playSound() above, which made finishing a lesson on
+// the web sound nothing like finishing one in the app — the two now share the
+// same clip (mobile/assets/sounds/lesson_complete.mp3, copied to
+// public/sounds/). Same lazily-created-and-reused element as the coin above,
+// for the same reason.
+let completeAudio = null;
+function playCompleteSound() {
+  try {
+    if (!completeAudio) {
+      completeAudio = new Audio('/sounds/lesson_complete.mp3');
+      completeAudio.preload = 'auto';
+      completeAudio.volume = 0.85;
+    }
+    completeAudio.currentTime = 0;
+    completeAudio.play()?.catch?.(() => {});
   } catch (_) {}
 }
 
@@ -83,9 +158,26 @@ function playCoinSound() {
 
 const COIN_COUNT = 9;
 const XP_COUNT = 8;
-// Matches mobile's RewardBurstOverlay exactly (reward_burst.dart), so a coin
-// takes the same time to reach the counter on both clients.
-const BURST_MS = 950;
+// The whole reward is choreographed against the clip
+// (public/sounds/reward.mp3), which runs 2.69s: loud for its first ~300ms,
+// then a shimmer that decays all the way out. The timeline, measured from
+// the moment the answer is judged:
+//
+//   0ms     the "correct" chime
+//   190ms   the reward clip starts
+//   1100ms  the coins land            (still inside the clip's loud part)
+//   950ms   the counter starts climbing
+//   2680ms  the counter settles       (~200ms before the clip fades out)
+//   2880ms  the clip ends
+//
+// Anything that changes one of these numbers has to keep that order, or the
+// picture finishes early and the sound is left playing over a still frame.
+const REWARD_DELAY_MS = 190;
+const REWARD_MS = 2690;
+const BURST_MS = 1100;
+const COUNT_START_MS = BURST_MS - 150;
+const COUNT_END_MS = REWARD_DELAY_MS + REWARD_MS - 200;
+const COUNT_WINDOW_MS = COUNT_END_MS - COUNT_START_MS;
 
 function buildBurst(seq, originRect, coinRect, xpRect) {
   if (!originRect) return [];
@@ -190,9 +282,13 @@ function BurstLayer({ particles }) {
 //
 // A decrease (spending energy) or a jump too large to be a reward (the
 // session's state loading in) snaps instead of crawling.
-function useTickUp(target, { delay = 0, stepMs = 62, enabled = true }) {
+function useTickUp(target, { delay = 0, windowMs = 600, minStep = 70, maxStep = 240, enabled = true, onStep }) {
   const [shown, setShown] = useState(target);
   const shownRef = useRef(target);
+  // Held in a ref so a new closure on every render can't restart a run that
+  // is already counting.
+  const stepRef = useRef(onStep);
+  stepRef.current = onStep;
 
   const set = useCallback((v) => { shownRef.current = v; setShown(v); }, []);
 
@@ -202,18 +298,25 @@ function useTickUp(target, { delay = 0, stepMs = 62, enabled = true }) {
     if (delta === 0) return undefined;
     if (!enabled || delta < 0 || delta > 200) { set(target); return undefined; }
 
+    // One unit per step, spread across the window the caller gives — so a
+    // +1 coin and a +10 XP run both finish at the same moment instead of the
+    // short one being over while the long one is still counting. Clamped at
+    // both ends: too fast is a blur, too slow outlives the sound.
+    const step = Math.min(maxStep, Math.max(minStep, windowMs / delta));
+
     let i = 0;
     let interval = null;
     const start = setTimeout(() => {
       interval = setInterval(() => {
         i += 1;
         set(from + i);
+        stepRef.current?.(i, delta);
         if (i >= delta) clearInterval(interval);
-      }, stepMs);
+      }, step);
     }, delay);
 
     return () => { clearTimeout(start); if (interval) clearInterval(interval); };
-  }, [target, delay, stepMs, enabled, set]);
+  }, [target, delay, windowMs, minStep, maxStep, enabled, set]);
 
   return shown;
 }
@@ -340,7 +443,13 @@ function TheoryCard({ card, moduleColor, bright, onContinue, isLast, submitting 
     <div className="flex-1 flex flex-col">
       <div className="rounded-2xl p-5 mb-5 flex-1" style={{ background: bg, border: `2px solid ${border}` }}>
         {card.imageUrl && (
-          <img src={card.imageUrl} alt="" className="w-full rounded-xl mb-4 object-cover" style={{ maxHeight: '40dvh' }} />
+          <ZoomableImage
+            src={card.imageUrl}
+            alt={title}
+            caption={localizedText(card.body, locale)}
+            className="w-full rounded-xl mb-4 object-cover"
+            style={{ maxHeight: '40dvh' }}
+          />
         )}
         {title && (
           <p className="font-extrabold text-lg mb-2" style={{ color: moduleColor }}>{title}</p>
@@ -373,7 +482,13 @@ function MediaCard({ card, moduleColor, bright, onContinue, isLast, submitting }
         {card.mediaType === 'video' ? (
           <video src={card.url} controls playsInline className="w-full aspect-video bg-black" />
         ) : card.url ? (
-          <img src={card.url} alt={caption} className="w-full object-cover" style={{ maxHeight: '55dvh' }} />
+          <ZoomableImage
+            src={card.url}
+            alt={caption}
+            caption={caption}
+            className="w-full object-cover"
+            style={{ maxHeight: '55dvh' }}
+          />
         ) : (
           <div className="w-full aspect-video flex items-center justify-center" style={{ color: muted }}>
             <PlayCircle size={40} />
@@ -396,8 +511,340 @@ function MediaCard({ card, moduleColor, bright, onContinue, isLast, submitting }
   );
 }
 
+// ── Prompt block ─────────────────────────────────────────────────────────────
+// The same tinted block the quiz asks its question in, reused by both graded
+// card types so a lesson never changes its visual grammar from card to card.
+// It doubles as the reward-burst origin: the coins have to fly out of the
+// thing the learner was actually looking at.
+function PromptBlock({ innerRef, text, moduleColor, bright, shake }) {
+  return (
+    <div
+      ref={innerRef}
+      className={`rounded-2xl p-5 mb-4 ${shake ? 'shake' : ''}`}
+      style={{
+        background: bright ? '#eff6ff' : '#0d1626',
+        border: `2px solid ${bright ? `${moduleColor}60` : `${moduleColor}35`}`,
+      }}
+    >
+      <p className="font-semibold text-base leading-relaxed" style={{ color: bright ? '#0f172a' : 'white' }}>
+        {text}
+      </p>
+    </div>
+  );
+}
+
+// ── Match card ───────────────────────────────────────────────────────────────
+// Duolingo's "Tap the pairs". Tap a block on the left, then its partner on
+// the right: a correct pair locks, a wrong one flashes red and deselects.
+//
+// A locked pair is dimmed and checked rather than removed. Removing it would
+// re-flow every tile below it a fraction of a second before the next tap
+// lands, which is how a learner ends up hitting a tile they never aimed at.
+const MATCH_PALETTE = {
+  dark: {
+    idle:   { bg: '#1e293b', border: 'rgba(255,255,255,0.12)', color: '#ffffff' },
+    picked: { bg: '#0d1626', border: '#1CB0F6',                color: '#ffffff' },
+    locked: { bg: '#16301d', border: '#58CC02',                color: '#58CC02' },
+    wrong:  { bg: '#2d1515', border: '#FF4B4B',                color: '#FF4B4B' },
+  },
+  light: {
+    idle:   { bg: '#ffffff', border: '#e2e8f0', color: '#0f172a' },
+    picked: { bg: '#eff6ff', border: '#1CB0F6', color: '#0f172a' },
+    locked: { bg: '#f0fdf4', border: '#58CC02', color: '#15803d' },
+    wrong:  { bg: '#fef2f2', border: '#FF4B4B', color: '#dc2626' },
+  },
+};
+
+function MatchTile({ text, state, moduleColor, bright, onClick }) {
+  const st = (bright ? MATCH_PALETTE.light : MATCH_PALETTE.dark)[state];
+  // The picked state wears the module's own colour, so which module you are
+  // in stays legible even mid-interaction.
+  const border = state === 'picked' ? moduleColor : st.border;
+  const live = state === 'idle' || state === 'picked';
+  return (
+    <motion.button
+      type="button"
+      onClick={live ? onClick : undefined}
+      disabled={!live}
+      aria-pressed={state === 'picked'}
+      whileTap={live ? { scale: 0.95 } : undefined}
+      // The wrong pair does not just recolour — it shakes, the same 400ms
+      // gesture the quiz block uses, so "no" is felt before it is read.
+      animate={state === 'wrong'
+        ? { x: [0, -5, 5, -4, 4, 0], scale: 1, opacity: 1 }
+        : { x: 0, scale: state === 'picked' ? 1.03 : 1, opacity: state === 'locked' ? 0.6 : 1 }}
+      transition={state === 'wrong' ? { duration: 0.4, ease: 'easeInOut' } : SPRING}
+      className="relative w-full min-h-[58px] px-3 py-3 rounded-2xl text-sm font-semibold leading-snug flex items-center justify-center text-center break-words"
+      style={{
+        background: st.bg,
+        border: `2px solid ${border}`,
+        color: st.color,
+        cursor: live ? 'pointer' : 'default',
+      }}
+    >
+      {state === 'locked' && (
+        <Check size={13} strokeWidth={3} color="#58CC02" className="absolute top-1.5 right-1.5" />
+      )}
+      <span>{text}</span>
+    </motion.button>
+  );
+}
+
+function MatchCard({ card, moduleColor, bright, answered, shake, originRef, onCommit }) {
+  const { t, locale } = useI18n();
+  const pairs = Array.isArray(card.pairs) ? card.pairs : [];
+  const seed = useShuffleSeed();
+  // Keyed on the pair COUNT, not on the words: switching the interface
+  // language re-labels the tiles but must not re-deal them.
+  const rightOrder = useMemo(() => shuffledOrder(pairs.length, seed), [pairs.length, seed]);
+
+  const [pickedLeft,  setPickedLeft]  = useState(null);
+  const [pickedRight, setPickedRight] = useState(null);
+  const [locked,      setLocked]      = useState(() => new Set());
+  const [flash,       setFlash]       = useState(null);   // { left, right }
+  const [hadWrong,    setHadWrong]    = useState(false);
+  const flashTimer = useRef(null);
+  useEffect(() => () => clearTimeout(flashTimer.current), []);
+
+  // A card authored with no pairs can never lock its last pair, so it could
+  // never be answered and the lesson could never be finished. Let it through
+  // rather than trapping the learner behind broken content.
+  const emptyCommitted = useRef(false);
+  useEffect(() => {
+    if (!answered && pairs.length === 0 && !emptyCommitted.current) {
+      emptyCommitted.current = true;
+      onCommit(true, { silent: true });
+    }
+  });
+
+  const resolve = (left, right) => {
+    setPickedLeft(null);
+    setPickedRight(null);
+    if (left === right) {
+      const next = new Set(locked).add(left);
+      setLocked(next);
+      // Answered the moment the last pair locks — and correct only if the
+      // learner got there without a single wrong tap.
+      if (next.size >= pairs.length) onCommit(!hadWrong);
+      return;
+    }
+    setHadWrong(true);
+    setFlash({ left, right });
+    clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(null), 520);
+  };
+
+  // The columns are two halves of one interaction, so a tap is allowed to
+  // start on either side; picking a second tile from the same side just
+  // moves the selection, and re-tapping the picked tile clears it.
+  const tap = (idx, side) => {
+    if (answered || flash || locked.has(idx)) return;
+    if (side === 'left') {
+      if (pickedRight != null) resolve(idx, pickedRight);
+      else setPickedLeft(prev => (prev === idx ? null : idx));
+    } else {
+      if (pickedLeft != null) resolve(pickedLeft, idx);
+      else setPickedRight(prev => (prev === idx ? null : idx));
+    }
+  };
+
+  const stateOf = (idx, side) => {
+    if (locked.has(idx)) return 'locked';
+    if (flash && flash[side] === idx) return 'wrong';
+    if (side === 'left' ? pickedLeft === idx : pickedRight === idx) return 'picked';
+    return 'idle';
+  };
+
+  const title = localizedText(card.title, locale) || t('lesson.matchTitle');
+
+  return (
+    <div>
+      <PromptBlock innerRef={originRef} text={title} moduleColor={moduleColor} bright={bright} shake={shake} />
+
+      <div className="grid grid-cols-2 gap-2.5">
+        {pairs.map((pair, row) => {
+          const rightIdx = rightOrder[row];
+          return (
+            <Fragment key={row}>
+              <MatchTile
+                text={localizedText(pair?.left, locale)}
+                state={stateOf(row, 'left')}
+                moduleColor={moduleColor} bright={bright}
+                onClick={() => tap(row, 'left')}
+              />
+              <MatchTile
+                text={localizedText(pairs[rightIdx]?.right, locale)}
+                state={stateOf(rightIdx, 'right')}
+                moduleColor={moduleColor} bright={bright}
+                onClick={() => tap(rightIdx, 'right')}
+              />
+            </Fragment>
+          );
+        })}
+      </div>
+
+      {pairs.length > 0 && (
+        <p className="text-xs font-semibold text-center mt-3 tabular-nums" style={{ color: bright ? '#64748b' : '#94a3b8' }}>
+          {t('lesson.matchProgress', { done: locked.size, total: pairs.length })}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Build card ───────────────────────────────────────────────────────────────
+// Duolingo's word bank. Tap a tile in the bank to append it to the sentence,
+// tap it in the sentence to send it home. A used tile leaves its slot behind
+// in the bank (hidden, not removed) so the bank never re-flows mid-tap — and
+// framer's shared-layout id makes the tile visibly travel between the two.
+function BuildCard({ card, moduleColor, bright, answered, wasCorrect, shake, originRef, onCommit, uid }) {
+  const { t, locale } = useI18n();
+  const sentence    = localizedText(card.sentence, locale);
+  const distractors = localizedText(card.distractors, locale);
+
+  // The bank for a locale is that locale's sentence plus that locale's
+  // distractors — never a mix, or a Kyrgyz sentence would be salted with
+  // Russian decoys.
+  const tokens = useMemo(
+    () => [...splitWords(sentence), ...splitWords(distractors)],
+    [sentence, distractors],
+  );
+  const seed  = useShuffleSeed();
+  const order = useMemo(() => shuffledOrder(tokens.length, seed), [tokens.length, seed]);
+
+  const [chosen, setChosen] = useState([]);   // indices into `tokens`, in tap order
+  const used = useMemo(() => new Set(chosen), [chosen]);
+
+  // Changing the interface language mid-card swaps the entire tile set for
+  // that locale's words; anything already assembled refers to words that are
+  // no longer on the screen, so it goes back to the bank.
+  const tokenKey = tokens.join('\u0001');
+  useEffect(() => { setChosen(prev => (prev.length ? [] : prev)); }, [tokenKey]);
+
+  // Same dead-end guard as `match`: with no words there is nothing to check
+  // and the check button would stay disabled forever.
+  const emptyCommitted = useRef(false);
+  useEffect(() => {
+    if (!answered && tokens.length === 0 && !emptyCommitted.current) {
+      emptyCommitted.current = true;
+      onCommit(true, { silent: true });
+    }
+  });
+
+  const pick = (i) => { if (!answered && !used.has(i)) setChosen(c => [...c, i]); };
+  const drop = (pos) => { if (!answered) setChosen(c => c.filter((_, k) => k !== pos)); };
+  const check = () => {
+    if (answered || chosen.length === 0) return;
+    onCommit(normalizeSentence(chosen.map(i => tokens[i]).join(' ')) === normalizeSentence(sentence));
+  };
+
+  const instruction = localizedText(card.q, locale) || t('lesson.buildTitle');
+  const tileClass = 'px-3 py-2.5 rounded-xl text-sm font-semibold leading-snug select-none break-words max-w-full';
+  const tileBg     = bright ? '#ffffff' : '#1e293b';
+  const tileBorder = bright ? '#e2e8f0' : 'rgba(255,255,255,0.12)';
+  const tileColor  = bright ? '#0f172a' : '#ffffff';
+  const answerColor = !answered ? (bright ? '#cbd5e1' : '#334155') : wasCorrect ? '#58CC02' : '#FF4B4B';
+
+  return (
+    <div>
+      <PromptBlock innerRef={originRef} text={instruction} moduleColor={moduleColor} bright={bright} shake={shake} />
+
+      {/* The sentence being assembled. Dashed while it is still a drop area,
+          solid green/red once it has been judged. */}
+      <div
+        className="rounded-2xl px-3 py-3 mb-5 flex flex-wrap gap-2 items-start content-start"
+        style={{
+          minHeight: 96,
+          background: bright ? '#f8fafc' : '#0d1626',
+          border: `2px ${answered ? 'solid' : 'dashed'} ${answerColor}`,
+        }}
+      >
+        {chosen.length === 0 ? (
+          <p className="text-sm leading-relaxed px-1 py-1.5" style={{ color: bright ? '#94a3b8' : '#64748b' }}>
+            {t('lesson.buildPlaceholder')}
+          </p>
+        ) : chosen.map((tokenIdx, pos) => (
+          <motion.button
+            key={tokenIdx}
+            layout
+            layoutId={`bw-${uid}-${tokenIdx}`}
+            type="button"
+            onClick={() => drop(pos)}
+            disabled={answered}
+            whileTap={answered ? undefined : { scale: 0.95 }}
+            transition={SPRING}
+            className={tileClass}
+            style={{
+              background: tileBg,
+              border: `2px solid ${answered ? answerColor : tileBorder}`,
+              color: answered ? (wasCorrect ? (bright ? '#15803d' : '#58CC02') : (bright ? '#dc2626' : '#FF4B4B')) : tileColor,
+              cursor: answered ? 'default' : 'pointer',
+            }}
+          >
+            {tokens[tokenIdx]}
+          </motion.button>
+        ))}
+      </div>
+
+      {/* The bank. A used word keeps its slot as an invisible twin, so the
+          rows below never jump while the learner is still tapping. */}
+      <div className="flex flex-wrap gap-2 justify-center">
+        {order.map(tokenIdx => (
+          used.has(tokenIdx) ? (
+            <span
+              key={tokenIdx}
+              aria-hidden="true"
+              className={tileClass}
+              style={{ border: '2px solid transparent', visibility: 'hidden' }}
+            >
+              {tokens[tokenIdx]}
+            </span>
+          ) : (
+            <motion.button
+              key={tokenIdx}
+              layout
+              layoutId={`bw-${uid}-${tokenIdx}`}
+              type="button"
+              onClick={() => pick(tokenIdx)}
+              disabled={answered}
+              whileTap={answered ? undefined : { scale: 0.95 }}
+              transition={SPRING}
+              className={tileClass}
+              style={{
+                background: tileBg,
+                border: `2px solid ${tileBorder}`,
+                color: tileColor,
+                opacity: answered ? 0.45 : 1,
+                cursor: answered ? 'default' : 'pointer',
+                boxShadow: bright ? '0 2px 0 rgba(15,23,42,0.08)' : '0 2px 0 rgba(0,0,0,0.35)',
+              }}
+            >
+              {tokens[tokenIdx]}
+            </motion.button>
+          )
+        ))}
+      </div>
+
+      {/* Its own commit button, because there is nothing to judge until the
+          learner says they are done. Once answered the shared footer below
+          takes over, exactly as it does for a quiz. */}
+      {!answered && (
+        <motion.button
+          whileTap={chosen.length ? { scale: 0.97 } : undefined}
+          onClick={check}
+          disabled={chosen.length === 0}
+          className="w-full mt-6 py-4 rounded-2xl font-bold text-white text-base disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{ background: moduleColor }}
+        >
+          {t('lesson.check')}
+        </motion.button>
+      )}
+    </div>
+  );
+}
+
 // ── Result screen ──────────────────────────────────────────────────────────────
-function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright, userName, lessonTitle, totalQuestions = 0, correctCount = 0 }) {
+function ResultScreen({ reward, earnedAchievements, isReview, onContinue, onNextLesson, bright, userName, lessonTitle, totalQuestions = 0, correctCount = 0 }) {
   const { t, locale } = useI18n();
   const [sharing, setSharing] = useState(false);
   const bg          = bright ? '#f8fafc' : '#0f172a';
@@ -491,22 +938,31 @@ function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright
         </motion.div>
       )}
 
-      {!isReview && (
+      {/* Shown whenever anything was actually earned, rather than "unless
+          this was a review". A review pays a flat XP rate now, and hiding
+          the tile made it look like it had paid nothing. Each tile appears
+          only if its own number is non-zero, so a review shows XP alone
+          instead of a "+0" coins tile beside it. */}
+      {((reward?.xp || 0) > 0 || (reward?.coins || 0) > 0) && (
         <div className="flex gap-4 mb-6">
+          {(reward?.xp || 0) > 0 && (
           <div className="flex flex-col items-center gap-1.5">
             <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
               style={{ background: cardBg, border: `1.5px solid ${cardBorder}` }}>
               <Star size={26} color="#FFD700" fill="#FFD700" />
             </div>
-            <span className="font-bold text-sm" style={{ color: textPrimary }}>+{reward?.xp || 0} XP</span>
+            <span className="font-bold text-sm" style={{ color: textPrimary }}>+{reward.xp} XP</span>
           </div>
+          )}
+          {(reward?.coins || 0) > 0 && (
           <div className="flex flex-col items-center gap-1.5">
             <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
               style={{ background: cardBg, border: `1.5px solid ${cardBorder}` }}>
               <Coins size={26} color="#FFD700" fill="#FFD700" />
             </div>
-            <span className="font-bold text-sm" style={{ color: textPrimary }}>+{reward?.coins || 0}</span>
+            <span className="font-bold text-sm" style={{ color: textPrimary }}>+{reward.coins}</span>
           </div>
+          )}
           {reward?.perfect && (
             <div className="flex flex-col items-center gap-1.5">
               <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
@@ -557,11 +1013,26 @@ function ResultScreen({ reward, earnedAchievements, isReview, onContinue, bright
             {sharing ? t('common.loading') : t('lesson.share')}
           </motion.button>
         )}
+        {/* Straight into the next lesson is what someone on a roll actually
+            wants; going back to the path is the second choice, not the only
+            one. Absent when the course has no next lesson, or when there is
+            no energy left to play it with — a button that lands on the
+            "come back tomorrow" screen is worse than no button. */}
+        {onNextLesson && (
+          <motion.button
+            whileTap={{ scale: 0.97 }} onClick={onNextLesson}
+            className="w-full py-4 rounded-2xl font-bold text-white text-base"
+            style={{ background: '#58CC02' }}>
+            {t('lesson.nextLesson')}
+          </motion.button>
+        )}
         <motion.button
           whileTap={{ scale: 0.97 }} onClick={onContinue}
-          className="w-full py-4 rounded-2xl font-bold text-white text-base"
-          style={{ background: '#58CC02' }}>
-          {t('common.continue')}
+          className="w-full py-4 rounded-2xl font-bold text-base"
+          style={onNextLesson
+            ? { background: 'transparent', border: `1.5px solid ${bright ? '#cbd5e1' : '#334155'}`, color: bright ? '#0f172a' : '#e2e8f0' }
+            : { background: '#58CC02', color: '#fff' }}>
+          {onNextLesson ? t('lesson.backToPath') : t('common.continue')}
         </motion.button>
       </div>
     </motion.div>
@@ -586,7 +1057,11 @@ export default function LessonPage() {
   const found   = content ? findLesson(content.modules, lessonId) : null;
   const { lesson, module: mod } = found || {};
   const cards         = lesson ? cardsOf(lesson) : [];
-  const quizCount     = cards.filter(c => c.type === 'quiz').length;
+  // Every card the learner is scored on — quiz, match and build alike. This
+  // is the denominator of the end-of-lesson accuracy line, so it has to be
+  // the same set the server pays for (contentStore.js#gradedCountOf).
+  const gradedCards   = cards.filter(isGradedCard);
+  const gradedCount   = gradedCards.length;
   const totalLessons  = (content?.modules || []).reduce((a, m) => a + m.lessons.length, 0);
 
   const { resetMs: initResetMs } = computeLiveEnergy(state, dailyFreeLessons, energyRefillHours);
@@ -595,8 +1070,14 @@ export default function LessonPage() {
   const [deck,        setDeck]        = useState(null);
   const [selected,    setSelected]    = useState(null);
   const [answered,    setAnswered]    = useState(false);
+  // How the committed card was judged, for EVERY graded type. A quiz can be
+  // re-derived from `selected`, but match and build cannot — so the verdict
+  // is stored once, at commit time, and the footer, the re-queue and the
+  // "Continue vs Finish" label all read it instead of re-deciding for
+  // themselves per card type.
+  const [wasCorrect,  setWasCorrect]  = useState(null);
   const [mistakes,    setMistakes]    = useState(0);
-  // Distinct quiz cards missed at least once — the end-of-lesson accuracy
+  // Distinct graded cards missed at least once — the end-of-lesson accuracy
   // summary ("N/total correct") is first-try, so re-queued retries (Task 7)
   // don't retroactively count as correct. Keyed by original index in `cards`.
   const [missed,      setMissed]      = useState(() => new Set());
@@ -637,6 +1118,7 @@ export default function LessonPage() {
       setQIdx(0);
       setSelected(null);
       setAnswered(false);
+      setWasCorrect(null);
       setMistakes(0);
       setMissed(new Set());
     }
@@ -645,6 +1127,23 @@ export default function LessonPage() {
     // reset here too.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lessonId, cards.length]);
+
+  // Going straight from the result screen into the next lesson swaps the
+  // route param without remounting, so the finished-lesson state has to be
+  // cleared by hand — otherwise the new lesson opens on the old result.
+  // Declared BEFORE the no-energy check below so that check still wins on
+  // the very first mount.
+  const firstLesson = useRef(true);
+  useEffect(() => {
+    if (firstLesson.current) { firstLesson.current = false; return; }
+    setPhase('quiz');
+    setReward(null);
+    setEarnedAchs([]);
+    setSessionXp(0);
+    setSessionCoins(0);
+    setSubmitting(false);
+    startLogged.current = false;
+  }, [lessonId]);
 
   useEffect(() => {
     if (!isReview && computeLiveEnergy(state, dailyFreeLessons, energyRefillHours).remaining === 0) setPhase('noenergy');
@@ -658,11 +1157,11 @@ export default function LessonPage() {
   }, [lesson, isReview, token, lessonId]);
 
   const currentCard = activeDeck[qIdx];
-  const isQuiz = currentCard?.type === 'quiz';
-  // Analytics index = this question's position among the ORIGINAL quiz cards.
+  const isGraded = isGradedCard(currentCard);
+  // Analytics index = this card's position among the ORIGINAL graded cards.
   // Re-queued cards are the same object reference, so indexOf still resolves
   // to the question's first appearance rather than its retry slot.
-  const quizIndex = isQuiz ? cards.filter(c => c.type === 'quiz').indexOf(currentCard) : -1;
+  const gradedIndex = isGraded ? gradedCards.indexOf(currentCard) : -1;
 
   // Coins fly to the coin chip, XP badges to the XP chip, and the counters
   // tick up as they land. Skipped entirely when animations are off — the
@@ -677,7 +1176,7 @@ export default function LessonPage() {
     if (soundEnabled) {
       // The new clip layers over the "correct" chime rather than replacing
       // it — the short delay is what lets both be heard.
-      const t = setTimeout(playCoinSound, 190);
+      const t = setTimeout(playCoinSound, REWARD_DELAY_MS);
       burstTimers.current.push(t);
     }
     if (!animationsEnabled) return;
@@ -698,19 +1197,34 @@ export default function LessonPage() {
     burstTimers.current.push(timer);
   }, [content, mistakes, soundEnabled, animationsEnabled]);
 
-  const handleSelect = useCallback((idx) => {
+  // Every graded card commits through here — a quiz on its option tap, a
+  // match when its last pair locks, a build on its check button. One path
+  // rather than three means the chime, the reward burst, the mistake tally,
+  // the first-try accuracy set and the analytics event can never drift apart
+  // between card types.
+  //
+  // `silent` is the escape hatch for a card that cannot be played at all —
+  // a match authored with no pairs, a build with no words. It has to be
+  // passable or the learner is trapped behind broken content, but it must
+  // not chime, must not fly coins and must not read as a right answer: the
+  // learner did nothing, and paying for it would let an empty card farm XP.
+  const commitAnswer = useCallback((correct, { silent = false } = {}) => {
     if (answered || !currentCard) return;
-    setSelected(idx);
     setAnswered(true);
-    const correct = idx === currentCard.a;
+    setWasCorrect(correct);
+    if (silent) return;
     if (correct) {
-      if (soundEnabled) playSound('correct');
-      // A review earns nothing, so it gets the chime but no reward burst —
-      // flying coins that credit nobody would be a lie.
-      if (!isReview) rewardBurst();
+      // A review pays nothing per question — the flat rate is settled once,
+      // when the lesson is handed in. Chiming and flying coins at every
+      // right answer promised a reward that never arrived, so a replay is
+      // silent and still: the answer is marked correct and that is all.
+      if (!isReview) {
+        if (soundEnabled) playSound('correct');
+        rewardBurst();
+      }
     } else {
       if (soundEnabled) playSound('wrong');
-      // First-try accuracy: remember this question was missed at least once,
+      // First-try accuracy: remember this card was missed at least once,
       // keyed by its original position so Task 7 re-queues don't erase it.
       const origIdx = cards.indexOf(currentCard);
       setMissed(prev => (prev.has(origIdx) ? prev : new Set(prev).add(origIdx)));
@@ -722,17 +1236,27 @@ export default function LessonPage() {
       }
     }
     if (!isReview) {
-      api.logEvent(token, 'question_answered', { lessonId, questionIndex: quizIndex, correct }).catch(() => {});
+      api.logEvent(token, 'question_answered', { lessonId, questionIndex: gradedIndex, correct }).catch(() => {});
     }
-  }, [answered, currentCard, isReview, soundEnabled, token, lessonId, quizIndex, rewardBurst]);
+    // `cards` is only read to resolve the card's original index; it is listed
+    // so the closure never scores against a previous lesson's array.
+  }, [answered, currentCard, cards, isReview, soundEnabled, token, lessonId, gradedIndex, rewardBurst]);
+
+  const handleSelect = useCallback((idx) => {
+    if (answered || !currentCard) return;
+    setSelected(idx);
+    commitAnswer(idx === currentCard.a);
+  }, [answered, currentCard, commitAnswer]);
 
   const handleContinue = useCallback(async () => {
-    // Re-queue a missed question to the end so it comes back around. Review
-    // mode learns too, but doesn't affect the (unused) reward, so we re-queue
+    // Re-queue a missed card to the end so it comes back around. Review mode
+    // learns too, but doesn't affect the (unused) reward, so we re-queue
     // there as well for the same "answer it right to move on" contract.
-    const wasWrongQuiz = currentCard?.type === 'quiz' && selected !== currentCard.a;
+    // Judged off the stored verdict rather than off `selected`, so a missed
+    // match or build re-queues on exactly the same terms as a missed quiz.
+    const wasWrongGraded = isGradedCard(currentCard) && wasCorrect === false;
     const base = deck ?? cards;
-    const nextDeck = wasWrongQuiz ? [...base, currentCard] : base;
+    const nextDeck = wasWrongGraded ? [...base, currentCard] : base;
     if (nextDeck !== base) setDeck(nextDeck);
     else if (deck === null) setDeck(base);
 
@@ -740,12 +1264,24 @@ export default function LessonPage() {
       setQIdx(i => i + 1);
       setSelected(null);
       setAnswered(false);
+      setWasCorrect(null);
       return;
     }
-    if (soundEnabled) playSound('complete');
+    // The fanfare fires with the result screen, not with the tap that asks
+    // for it — same as the app (lesson_screen.dart#_submit), and a review
+    // earns nothing so it doesn't get the celebration either. It used to
+    // play here, before the request, which meant a slow network left the
+    // sound hanging over a still-visible question.
     setSubmitting(true);
+    // Held outside the try so the catch can tell "the lesson never counted"
+    // from "it counted, and a follow-up call failed". Only the first is a
+    // zero reward; the second used to show 0 XP / 0 coins for a lesson the
+    // server had already paid out.
+    let awarded = null;
     try {
       const { user: u, reward: r } = await api.completeLesson(token, lessonId, mistakes, isReview);
+      awarded = r;
+      if (soundEnabled && !isReview) playCompleteSound();
       const newAchIds = checkNewAchievements(u.state, r, content?.achievements || [], totalLessons);
       let final = u;
       if (newAchIds.length > 0) {
@@ -762,13 +1298,44 @@ export default function LessonPage() {
       if (String(e.message || '').includes(ENERGY_ERROR_HINT)) {
         setPhase('noenergy');
       } else {
-        setReward({ xp: 0, coins: 0, perfect: mistakes === 0, isReview });
+        setReward(awarded || { xp: 0, coins: 0, perfect: mistakes === 0, isReview });
         setPhase('done');
       }
     } finally {
       setSubmitting(false);
     }
-  }, [qIdx, deck, cards, currentCard, selected, token, lessonId, mistakes, isReview, content, totalLessons, updateUser, soundEnabled]);
+  }, [qIdx, deck, cards, currentCard, wasCorrect, token, lessonId, mistakes, isReview, content, totalLessons, updateUser, soundEnabled]);
+
+  // ── Everything above this line is a hook, and everything below is not. ──
+  //
+  // These three used to sit further down, next to the JSX that reads them —
+  // which put them AFTER the three early returns below. That is a Rules of
+  // Hooks violation with teeth: during the lesson `phase` is 'quiz' and all
+  // of them run, then the moment the last answer lands `phase` flips to
+  // 'done', the component returns before reaching them, and React sees
+  // three fewer hooks than the render before. It throws "Rendered fewer
+  // hooks than expected" and unmounts the tree — so finishing a lesson
+  // showed a blank page instead of the result screen, even though the
+  // server had already recorded the completion.
+
+  // Optimistic during the lesson, replaced by the server's numbers the
+  // moment the result screen mounts.
+  const liveCoins  = (state?.coins || 0) + sessionCoins;
+  // The lifetime total, not either league's score: this pill has to climb
+  // whether the points are landing on the general board or a campus one
+  // (admin-api/routes.js#awardXp).
+  const liveXp     = (state?.lifetimeXp || 0) + sessionXp;
+
+  // The displayed counters lag the real ones by exactly the burst's flight
+  // time, then climb one unit per step. Coins go up by one per question, so
+  // that is a single beat; XP arrives ten at a time and gets a faster step so
+  // the whole run still finishes inside a second.
+  // Both counters share one window, so the coin's single beat and the XP's
+  // ten land together — and both are done while the reward clip is still
+  // sounding, never after it.
+  const countOpts = { delay: COUNT_START_MS, windowMs: COUNT_WINDOW_MS, enabled: animationsEnabled };
+  const shownCoins = useTickUp(liveCoins, countOpts);
+  const shownXp    = useTickUp(liveXp,    countOpts);
 
   if (!lesson) return (
     <div className="flex flex-col items-center justify-center h-64 gap-4">
@@ -783,37 +1350,42 @@ export default function LessonPage() {
       onShop={() => navigate('/shop')} />
   );
 
-  if (phase === 'done') return (
-    <ResultScreen reward={reward} earnedAchievements={earnedAchs}
-      isReview={isReview} onContinue={() => navigate('/learn')} bright={bright}
-      userName={user?.name} lessonTitle={localizedText(lesson?.title, locale)}
-      totalQuestions={quizCount} correctCount={Math.max(0, quizCount - missed.size)} />
-  );
+  if (phase === 'done') {
+    // The course is one flat ordered list across every module, the same list
+    // the path is drawn from — so "next" is simply the entry after this one.
+    const order = getLessonOrder(content?.modules);
+    const at = order.indexOf(lessonId);
+    const nextId = at >= 0 ? order[at + 1] : undefined;
+    const energyLeft = computeLiveEnergy(state, dailyFreeLessons, energyRefillHours).remaining;
+    // A review earns nothing and is entered from the path, so it keeps the
+    // single "back" button it always had.
+    const canGoNext = Boolean(nextId) && !isReview && energyLeft > 0;
+
+    return (
+      <ResultScreen reward={reward} earnedAchievements={earnedAchs}
+        isReview={isReview} onContinue={() => navigate('/learn')} bright={bright}
+        onNextLesson={canGoNext ? () => navigate(`/lesson/${nextId}`) : undefined}
+        userName={user?.name} lessonTitle={localizedText(lesson?.title, locale)}
+        totalQuestions={gradedCount} correctCount={Math.max(0, gradedCount - missed.size)} />
+    );
+  }
 
   const moduleColor    = mod?.color || '#1CB0F6';
   const progress       = activeDeck.length > 0 ? (qIdx / activeDeck.length) * 100 : 0;
-  const isCorrect      = selected === currentCard?.a;
-  // A wrong quiz answer will re-queue, so this is NOT the real last step even
-  // if it's the last deck slot — keep the button on "Continue", not "Finish".
-  const willRequeue    = answered && isQuiz && selected !== currentCard?.a;
+  const isCorrect      = wasCorrect === true;
+  // A wrong graded answer will re-queue, so this is NOT the real last step
+  // even if it's the last deck slot — keep the button on "Continue", not
+  // "Finish".
+  const willRequeue    = answered && isGraded && wasCorrect === false;
   const isLastCard     = qIdx === activeDeck.length - 1 && !willRequeue;
   const explanation    = localizedText(currentCard?.explanation, locale);
-
-  // Optimistic during the lesson, replaced by the server's numbers the
-  // moment the result screen mounts.
-  const liveCoins  = (state?.coins || 0) + sessionCoins;
-  // The lifetime total, not either league's score: this pill has to climb
-  // whether the points are landing on the general board or a campus one
-  // (admin-api/routes.js#awardXp).
-  const liveXp     = (state?.lifetimeXp || 0) + sessionXp;
-  const liveEnergy = computeLiveEnergy(state, dailyFreeLessons, energyRefillHours).remaining;
-
-  // The displayed counters lag the real ones by exactly the burst's flight
-  // time, then climb one unit per step. Coins go up by one per question, so
-  // that is a single beat; XP arrives ten at a time and gets a faster step so
-  // the whole run still finishes inside a second.
-  const shownCoins = useTickUp(liveCoins, { delay: BURST_MS - 140, stepMs: 95, enabled: animationsEnabled });
-  const shownXp    = useTickUp(liveXp,    { delay: BURST_MS - 140, stepMs: 52, enabled: animationsEnabled });
+  // What the footer names as the right answer when the card was missed. A
+  // match has no single answer to name — it says which of its pairs went
+  // wrong instead — so it gets its own line.
+  const correctAnswerText = currentCard?.type === 'build'
+    ? localizedText(currentCard?.sentence, locale)
+    : localizedText(currentCard?.opts?.[currentCard?.a], locale);
+  const liveEnergy     = computeLiveEnergy(state, dailyFreeLessons, energyRefillHours).remaining;
 
   const pageBg         = bright ? '#f8fafc' : '#0f172a';
   const qBlockBg       = bright ? '#eff6ff' : '#0d1626';
@@ -894,59 +1466,97 @@ export default function LessonPage() {
       </p>
       <p className="text-xs mb-5" style={{ color: counterColor }}>{t('lesson.stepCounter', { current: qIdx + 1, total: activeDeck.length })}</p>
 
-      {!isQuiz ? (
-        <AnimatePresence mode="wait">
-          <motion.div key={qIdx}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.18 }}
-            className="flex-1 flex flex-col"
-          >
-            {currentCard.type === 'media'
+      {/* ONE AnimatePresence for every card, read-through and graded alike.
+          There used to be two — one per branch — and switching between them
+          unmounted the first while its child was still playing its exit.
+          The second then mounted holding a child that never finished
+          leaving, and `mode="wait"` dutifully refused to show the card
+          behind it: the learner got a blank screen on the first card after a
+          slide. `popLayout` rather than `wait` for the same reason: `wait`
+          holds the next card back until the last one has finished leaving,
+          which is exactly the dependency that broke. `popLayout` takes the
+          outgoing card out of layout flow instead, so the new one is in
+          place immediately and the old one fades over it. */}
+      <AnimatePresence mode="popLayout">
+        <motion.div key={qIdx}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ duration: 0.18 }}
+          className={!isGraded ? 'flex-1 flex flex-col' : undefined}
+        >
+          {!isGraded ? (
+            currentCard.type === 'media'
               ? <MediaCard card={currentCard} moduleColor={moduleColor} bright={bright} onContinue={handleContinue} isLast={isLastCard} submitting={submitting} />
               : <TheoryCard card={currentCard} moduleColor={moduleColor} bright={bright} onContinue={handleContinue} isLast={isLastCard} submitting={submitting} />
-            }
-          </motion.div>
-        </AnimatePresence>
-      ) : (
+          ) : (
+            <>
+              {currentCard.type === 'match' ? (
+                <MatchCard
+                  card={currentCard}
+                  moduleColor={moduleColor}
+                  bright={bright}
+                  answered={answered}
+                  shake={shake}
+                  originRef={burstOrigin}
+                  onCommit={commitAnswer}
+                />
+              ) : currentCard.type === 'build' ? (
+                <BuildCard
+                  card={currentCard}
+                  moduleColor={moduleColor}
+                  bright={bright}
+                  answered={answered}
+                  wasCorrect={wasCorrect}
+                  shake={shake}
+                  originRef={burstOrigin}
+                  onCommit={commitAnswer}
+                  // Scopes the word tiles' shared-layout ids to this deck
+                  // slot, so a re-queued card can never animate into the
+                  // tiles of the copy that is still leaving the screen.
+                  uid={qIdx}
+                />
+              ) : (
+                <>
+                  <div
+                    ref={burstOrigin}
+                    className={`rounded-2xl p-5 mb-5 ${shake ? 'shake' : ''}`}
+                    style={{ background: qBlockBg, border: `2px solid ${qBlockBorder}` }}
+                  >
+                    {currentCard?.imageUrl && (
+                      <ZoomableImage
+                        src={currentCard.imageUrl}
+                        alt={localizedText(currentCard?.q, locale)}
+                        className="w-full rounded-xl mb-3 object-cover"
+                        style={{ maxHeight: '30dvh' }}
+                      />
+                    )}
+                    <p className="font-semibold text-base leading-relaxed" style={{ color: qTextColor }}>
+                      {localizedText(currentCard?.q, locale)}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    {(currentCard?.opts || []).map((opt, i) => {
+                      let s = 'idle';
+                      if (answered) {
+                        if (i === currentCard.a) s = 'correct';
+                        else if (i === selected) s = 'wrong';
+                      }
+                      return (
+                        <OptionBtn key={i} text={localizedText(opt, locale)} onClick={() => handleSelect(i)} state={s} index={i} bright={bright} />
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </motion.div>
+      </AnimatePresence>
+
+      {isGraded && (
         <>
-          {/* Question + Options */}
-          <AnimatePresence mode="wait">
-            <motion.div key={qIdx}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.18 }}
-            >
-              <div
-                ref={burstOrigin}
-                className={`rounded-2xl p-5 mb-5 ${shake ? 'shake' : ''}`}
-                style={{ background: qBlockBg, border: `2px solid ${qBlockBorder}` }}
-              >
-                {currentCard?.imageUrl && (
-                  <img src={currentCard.imageUrl} alt="" className="w-full rounded-xl mb-3 object-cover" style={{ maxHeight: '30dvh' }} />
-                )}
-                <p className="font-semibold text-base leading-relaxed" style={{ color: qTextColor }}>
-                  {localizedText(currentCard?.q, locale)}
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                {(currentCard?.opts || []).map((opt, i) => {
-                  let s = 'idle';
-                  if (answered) {
-                    if (i === currentCard.a) s = 'correct';
-                    else if (i === selected) s = 'wrong';
-                  }
-                  return (
-                    <OptionBtn key={i} text={localizedText(opt, locale)} onClick={() => handleSelect(i)} state={s} index={i} bright={bright} />
-                  );
-                })}
-              </div>
-            </motion.div>
-          </AnimatePresence>
-
           {/* Feedback + Continue */}
           <AnimatePresence>
             {answered && (
@@ -974,7 +1584,9 @@ export default function LessonPage() {
                     style={{ color: isCorrect ? (bright ? '#15803d' : '#58CC02') : (bright ? '#dc2626' : '#FF4B4B') }}>
                     {isCorrect
                       ? t('lesson.correct')
-                      : t('lesson.correctAnswerIs', { answer: localizedText(currentCard?.opts?.[currentCard?.a], locale) })}
+                      : currentCard?.type === 'match'
+                      ? t('lesson.matchWrong')
+                      : t('lesson.correctAnswerIs', { answer: correctAnswerText })}
                   </p>
                 </div>
 

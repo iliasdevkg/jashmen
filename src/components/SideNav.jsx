@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { Home, Trophy, ShoppingBag, User, Settings, Zap, LogOut, Flame, Coins } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
 import { useI18n } from '../i18n.jsx';
-import { energySettings, computeLiveEnergy } from '../utils.js';
+import { energySettings, computeLiveEnergy, STREAK } from '../utils.js';
 import Avatar from './Avatar.jsx';
 
 const links = [
@@ -93,9 +93,9 @@ export default function SideNav() {
         <div className="flex gap-2 mb-3">
           <div
             className="flex-1 flex flex-col items-center py-2.5 rounded-xl gap-1"
-            style={{ background: 'rgba(251,146,60,0.1)', border: '1px solid rgba(251,146,60,0.2)' }}
+            style={{ background: 'rgba(76,141,255,0.1)', border: '1px solid rgba(76,141,255,0.2)' }}
           >
-            <Flame size={14} color="#fb923c" fill="#fb923c" />
+            <Flame size={14} color={STREAK.soft} fill={STREAK.soft} />
             <span className="font-bold text-[11px]" style={{ color: badgeText }}>{streak}</span>
           </div>
           <div

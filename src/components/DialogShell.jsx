@@ -5,10 +5,11 @@
 // recognisable, so you can see you haven't left the screen.
 import { useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { X } from 'lucide-react';
 
 export const SPRING = { type: 'spring', stiffness: 300, damping: 30 };
 
-export default function DialogShell({ onDismiss, bright, children, labelledBy, maxWidth = 380 }) {
+export default function DialogShell({ onDismiss, bright, children, labelledBy, maxWidth = 380, closeLabel = 'Жабуу' }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onDismiss(); };
     window.addEventListener('keydown', onKey);
@@ -43,7 +44,7 @@ export default function DialogShell({ onDismiss, bright, children, labelledBy, m
         exit={{ opacity: 0, scale: 0.96 }}
         transition={SPRING}
         onClick={(e) => e.stopPropagation()}
-        className="w-full rounded-[18px] overflow-hidden"
+        className="w-full rounded-[18px] overflow-hidden relative"
         style={{
           maxWidth,
           maxHeight: '82vh',
@@ -56,6 +57,23 @@ export default function DialogShell({ onDismiss, bright, children, labelledBy, m
             : '0 18px 40px rgba(0,0,0,0.5)',
         }}
       >
+        {/* An explicit way out. Tapping the scrim already closes the dialog
+            and Escape has always worked, but neither is visible: someone who
+            does not know the gesture is simply stuck, and a modal with no
+            exit anyone can see is a trap. */}
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={closeLabel}
+          title={closeLabel}
+          className="absolute top-2.5 right-2.5 z-10 w-8 h-8 rounded-full flex items-center justify-center transition-colors"
+          style={{
+            background: bright ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.08)',
+            color: bright ? '#475569' : '#94a3b8',
+          }}
+        >
+          <X size={16} strokeWidth={2.5} />
+        </button>
         {children}
       </motion.div>
     </motion.div>

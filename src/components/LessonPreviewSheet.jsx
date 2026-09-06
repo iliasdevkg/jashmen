@@ -13,13 +13,13 @@ import { quizCountOf, maxLessonXp } from '../utils.js';
 // glyphs standing in for the custom GameStar/GameCap tokens (src/components/
 // icons/) while the node-type art direction is still being decided.
 
-export default function LessonPreviewSheet({ lesson, status, isCheckpoint, isGated, moduleColor, onStart, onReview, onGoShop, onClose, bright }) {
+export default function LessonPreviewSheet({ lesson, status, isCheckpoint, isGated, moduleColor, limits, onStart, onReview, onGoShop, onClose, bright }) {
   const { t, locale } = useI18n();
   if (!lesson) return null;
 
   const isCompleted = status === 'completed';
   const quizCount = quizCountOf(lesson);
-  const maxXp = maxLessonXp(lesson);
+  const maxXp = maxLessonXp(lesson, limits);
 
   // Same surface/border tokens as every other dark-mode card+dismiss-button
   // pair in this app (ShopPage's RedeemedCodeModal, LessonPage's

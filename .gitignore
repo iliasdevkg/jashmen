@@ -19,3 +19,9 @@ mobile/android/.gradle/
 mobile/android/local.properties
 mobile/android/key.properties
 mobile/.flutter-plugins-dependencies
+
+# macOS
+.DS_Store
+
+# Stray screenshots dropped next to the Flutter project while debugging.
+mobile/.*.png

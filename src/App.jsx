@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { StoreProvider, useAuth, useBrightMode } from './store.jsx';
@@ -7,7 +7,7 @@ import BottomNav from './components/BottomNav.jsx';
 import TopBar from './components/TopBar.jsx';
 import SideNav from './components/SideNav.jsx';
 import RightPanel from './components/RightPanel.jsx';
-import LandingPage from './pages/LandingPage.jsx';
+import BusinessPage from './pages/BusinessPage.jsx';
 import OnboardingPage from './pages/OnboardingPage.jsx';
 import AuthPage from './pages/AuthPage.jsx';
 import LearnPage from './pages/LearnPage.jsx';
@@ -25,7 +25,7 @@ import StreakCelebration from './components/StreakCelebration.jsx';
 const ONBOARDED_KEY = 'fl_onboarded';
 
 function AppRoutes() {
-  const { user, loading, streakEvent, dismissStreakEvent } = useAuth();
+  const { user, loading, streakEvent, dismissStreakEvent, refreshAll } = useAuth();
   const { bright } = useBrightMode();
   const location = useLocation();
   const [onboarded, setOnboarded] = useState(() => localStorage.getItem(ONBOARDED_KEY) === '1');
@@ -37,6 +37,26 @@ function AppRoutes() {
       || window.navigator.standalone === true,
     [],
   );
+
+  // Landing on a page refreshes what it is about to show — but only when
+  // that data has had time to go stale (store.jsx#STALE_AFTER_MS), so
+  // clicking between tabs costs nothing and never blanks a screen. The
+  // lesson player is left out on purpose: a refetch mid-question would
+  // remount the deck under the learner's thumb.
+  //
+  // The dependency list is deliberately just the path and whether anyone is
+  // signed in. It cannot include `user` or `refreshAll`: refreshing REPLACES
+  // the user object and rebuilds the callback, so either one in here makes
+  // the effect retrigger itself — a loop that fired thousands of requests a
+  // second the first time this shipped.
+  const path = location.pathname;
+  const signedIn = !!user;
+  const refreshRef = useRef(refreshAll);
+  useEffect(() => { refreshRef.current = refreshAll; }, [refreshAll]);
+  useEffect(() => {
+    if (!signedIn || path.startsWith('/lesson/')) return;
+    refreshRef.current?.(false);
+  }, [path, signedIn]);
 
   const isLesson      = location.pathname.startsWith('/lesson/');
   const isLeaderboard = location.pathname === '/leaderboard';
@@ -51,15 +71,34 @@ function AppRoutes() {
     );
   }
 
-  // A signed-out visitor gets the marketing site at `/` and reaches the
+  // Two public marketing pages sit outside the signed-in / signed-out split.
+  // Both carry their own nav and footer, so neither needs the app shell.
+  //
+  //   /partners  the B2B site, at the URL it shipped on. `/` is its real
+  //              home now (below); this alias keeps every link already sent
+  //              to a bank working, and index.html's canonical points both
+  //              at `/`.
+  //
+  // It does not redirect a signed-in visitor into the product: a
+  // university's own staff read it while signed in as a learner, and
+  // bouncing them to /learn would look like the page had been taken down.
+  //
+  // /app used to serve a second, student-facing marketing page. It was
+  // removed — one front door, and the two doors out of it (/start, /login)
+  // are what a student needs from it.
+  if (location.pathname === '/partners') return <BusinessPage />;
+
+  // A signed-out visitor gets the business site at `/` and reaches the
   // product through one of two doors:
   //
   //   /start — "Акысыз баштоо": onboarding first (once per browser), then
   //            the form on its sign-up tab
   //   /login — "Кирүү": straight to the form on its sign-in tab
   //
-  // Before the landing page existed, `/` WAS the onboarding, so anything
-  // else 404'd into it; now anything else comes back to the front door.
+  // Anything else — /learn, /shop, a bookmarked lesson — belongs to a
+  // student who is simply signed out. They want their account back, not a
+  // pitch, so they land on the sign-in form rather than on `/`, which would
+  // answer "where are my lessons" with "sponsor a campus".
   if (!user) {
     return (
       <Routes>
@@ -69,7 +108,7 @@ function AppRoutes() {
             // Launching from a home-screen icon is not a visit to the
             // website — that person already knows what JashMen is and
             // wants their account, not the pitch.
-            standalone ? <Navigate to="/start" replace /> : <LandingPage />
+            standalone ? <Navigate to="/start" replace /> : <BusinessPage />
           }
         />
         <Route
@@ -86,7 +125,7 @@ function AppRoutes() {
           }
         />
         <Route path="/login" element={<AuthPage initialMode="login" />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
   }

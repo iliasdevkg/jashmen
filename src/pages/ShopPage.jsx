@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, Copy, Gift, Building2, ChevronLeft, Coins, PartyPopper, CheckCircle2, XCircle, ShoppingBag } from 'lucide-react';
+import { Check, Copy, Gift, Building2, ChevronLeft, Coins, PartyPopper, CheckCircle2, XCircle, ShoppingBag, PackageX } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
 import { useI18n, localizedText } from '../i18n.jsx';
 import * as api from '../api.js';
+import ZoomableImage from '../components/ZoomableImage.jsx';
 import ShopItemIcon from '../components/icons/ShopIcons.jsx';
 
 function ItemCard({ item, onBuy, buying, owned, canAfford, bright, locale }) {
@@ -60,6 +61,13 @@ function ItemCard({ item, onBuy, buying, owned, canAfford, bright, locale }) {
 
 function PrizeCard({ prize, onRedeem, redeeming, canAfford, bright, locale }) {
   const { t } = useI18n();
+  // The server counts the stock and says so (routes.js#/public/content); the
+  // codes themselves never reach the client.
+  // Two states, and no third: it is either on sale or it is gone. A running
+  // count ("4 left") was a nudge nobody asked for — it rushes the learner
+  // and tells anyone who looks how much stock a partner has left.
+  const soldOut = !!prize.soldOut;
+  const buyable = canAfford && !soldOut;
   const title = localizedText(prize.title, locale);
   const description = localizedText(prize.description, locale);
   const cardBg   = bright ? '#ffffff' : '#1e293b';
@@ -74,7 +82,21 @@ function PrizeCard({ prize, onRedeem, redeeming, canAfford, bright, locale }) {
       style={{ background: cardBg, border: `1.5px solid ${cardBord}` }}
     >
       {prize.photoUrl ? (
-        <img src={prize.photoUrl} alt={title} className="w-full h-24 object-cover" />
+        // `contain`, not `cover`: a prize photo is the thing being sold, and
+        // cropping it hid the half of the product the learner is choosing by.
+        // The letterboxing sits on the card's own surface so the gap reads as
+        // framing rather than as a hole.
+        <div
+          className="w-full h-24 flex items-center justify-center"
+          style={{ background: bright ? '#f1f5f9' : '#0b1220', opacity: soldOut ? 0.45 : 1 }}
+        >
+          <ZoomableImage
+            src={prize.photoUrl}
+            alt={title}
+            caption={description || title}
+            className="max-w-full max-h-full object-contain"
+          />
+        </div>
       ) : (
         <div className="w-full h-24 flex items-center justify-center" style={{ background: bright ? '#f1f5f9' : '#0b1220' }}>
           <Gift size={28} color={textMut} />
@@ -86,17 +108,25 @@ function PrizeCard({ prize, onRedeem, redeeming, canAfford, bright, locale }) {
           {description && <p className="text-xs mt-0.5 leading-relaxed" style={{ color: textMut }}>{description}</p>}
         </div>
         <motion.button
-          whileTap={canAfford ? { scale: 0.95 } : {}}
-          onClick={canAfford && !redeeming ? onRedeem : undefined}
-          disabled={redeeming || !canAfford}
+          whileTap={buyable ? { scale: 0.95 } : {}}
+          onClick={buyable && !redeeming ? onRedeem : undefined}
+          disabled={redeeming || !buyable}
+          // Sold out reads differently from can't-afford: one is a wait for
+          // the partner, the other a wait for the learner's own coins, and
+          // showing a price nobody can spend would be the wrong prompt.
           className="flex items-center gap-1.5 py-2.5 px-3 rounded-xl w-full justify-center font-bold text-sm transition-all"
           style={{
-            background: canAfford ? '#58CC0220' : (bright ? '#f1f5f9' : '#1e293b'),
-            border: `1.5px solid ${canAfford ? '#58CC02' : (bright ? '#cbd5e1' : '#475569')}`,
-            color: canAfford ? '#58CC02' : (bright ? '#94a3b8' : '#475569'),
+            background: soldOut ? (bright ? '#fef2f2' : '#2a1416')
+              : canAfford ? '#58CC0220' : (bright ? '#f1f5f9' : '#1e293b'),
+            border: `1.5px solid ${soldOut ? (bright ? '#fecaca' : '#7f1d1d')
+              : canAfford ? '#58CC02' : (bright ? '#cbd5e1' : '#475569')}`,
+            color: soldOut ? (bright ? '#b91c1c' : '#f87171')
+              : canAfford ? '#58CC02' : (bright ? '#94a3b8' : '#475569'),
           }}
         >
-          {redeeming ? t('common.loading') : <><Coins size={16} /><span>{prize.priceCoins}</span></>}
+          {redeeming ? t('common.loading')
+            : soldOut ? <><PackageX size={15} /><span>{t('shop.soldOut')}</span></>
+            : <><Coins size={16} /><span>{prize.priceCoins}</span></>}
         </motion.button>
       </div>
     </motion.div>
@@ -125,7 +155,7 @@ function PartnerCard({ partner, prizeCount, onClick, bright, locale }) {
       style={{ background: cardBg, border: `1.5px solid ${cardBord}` }}
     >
       {partner.logoUrl
-        ? <img src={partner.logoUrl} alt="" className="w-12 h-12 rounded-full object-cover" />
+        ? <img src={partner.logoUrl} alt="" className="w-12 h-12 rounded-full object-contain" style={{ background: bright ? '#f1f5f9' : '#0b1220' }} />
         : (
           <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: bright ? '#f1f5f9' : '#0b1220' }}>
             <Building2 size={22} color={textMut} />
@@ -144,9 +174,14 @@ function RedeemedCodeModal({ redemption, onClose, bright }) {
   const textPri = bright ? '#0f172a' : 'white';
   const textMut = bright ? '#64748b' : '#94a3b8';
 
+  // The partner's own code when the prize carries one — that is the string
+  // the learner types at the partner's till. Ours stays visible underneath
+  // for support, but it is not the one to copy.
+  const shown = redemption.promoCode || redemption.code;
+
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(redemption.code);
+      await navigator.clipboard.writeText(shown);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch (_) {}
@@ -174,9 +209,12 @@ function RedeemedCodeModal({ redemption, onClose, bright }) {
           className="w-full rounded-2xl py-4 mb-4 flex items-center justify-center gap-2 font-mono font-extrabold text-lg tracking-wider"
           style={{ background: bright ? '#f1f5f9' : '#0b1220', color: '#1CB0F6' }}
         >
-          {redemption.code}
+          {shown}
           {copied ? <Check size={16} color="#58CC02" /> : <Copy size={15} />}
         </button>
+        <p className="text-[11px] mb-4 -mt-2" style={{ color: textMut }}>
+          {t('shop.showAtTill')}
+        </p>
         <button onClick={onClose} className="w-full py-3 rounded-2xl font-bold text-white text-sm" style={{ background: '#58CC02' }}>
           {t('common.gotIt')}
         </button>
@@ -187,7 +225,7 @@ function RedeemedCodeModal({ redemption, onClose, bright }) {
 
 export default function ShopPage() {
   const content = useContent();
-  const { token, state, updateUser } = useAuth();
+  const { token, state, updateUser, refreshContent } = useAuth();
   const { bright } = useBrightMode();
   const { t, locale } = useI18n();
   const [buying, setBuying] = useState(null);
@@ -233,9 +271,14 @@ export default function ShopPage() {
     if (coins < prize.priceCoins || redeeming) return;
     setRedeeming(prize.id);
     try {
-      const { user: u, code } = await api.redeemPrize(token, prize.id);
+      const { user: u, code, promoCode } = await api.redeemPrize(token, prize.id);
       updateUser(u);
-      setRedeemedCode({ code, title: localizedText(prize.title, locale) });
+      setRedeemedCode({ code, promoCode, title: localizedText(prize.title, locale) });
+      // The sale took a code out of the pool, so the "3 left" on the card
+      // behind this dialog is already wrong — and so is everyone else's.
+      // Refetched rather than decremented locally, because the server is the
+      // one that knows what is left after other people's purchases too.
+      refreshContent(true);
     } catch (e) {
       showToast(e.message || t('common.error'), false);
     } finally {
@@ -274,7 +317,12 @@ export default function ShopPage() {
 
           <div className="flex items-center gap-3 mb-6">
             {activePartner.logoUrl
-              ? <img src={activePartner.logoUrl} alt="" className="w-12 h-12 rounded-full object-cover" />
+              ? <ZoomableImage
+                  src={activePartner.logoUrl}
+                  alt={localizedText(activePartner.name, locale)}
+                  className="w-12 h-12 rounded-full object-contain"
+                  style={{ background: bright ? '#f1f5f9' : '#0b1220' }}
+                />
               : (
                 <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: cardBg, border: `1.5px solid ${cardBord}` }}>
                   <Building2 size={22} color={textMut} />

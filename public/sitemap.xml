@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Only the entry point is listed. / is the landing page — the one route with
-  real, crawlable content; /learn, /leaderboard, /shop etc. redirect a
-  logged-out crawler straight back to it (src/App.jsx), so listing them would
-  just hand Google a set of duplicates. Add them here if and when a public,
-  logged-out version of those pages exists.
+  The two pages with real, crawlable content:
+
+    /  the business site (src/pages/BusinessPage.jsx) — the front door,
+       and the only marketing page. The student-facing landing that briefly
+       lived at /app was removed; a signed-out student goes to /login.
+
+  /partners is deliberately absent: it renders the same page as /, as an
+  alias for links already sent to partners, and index.html's canonical
+  points it back here. /learn, /leaderboard, /shop etc. send a logged-out
+  crawler straight back to /, so listing them would hand Google duplicates.
 -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>

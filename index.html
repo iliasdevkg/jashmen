@@ -4,20 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 
-    <!-- `/` is the landing page (src/pages/LandingPage.jsx) — real, crawlable
-         copy about what JashMen is, served to every logged-out visitor. It
-         replaced the sign-in wall that used to make this <head> the only
-         thing a search engine could read, so the metadata below is now the
-         summary of a page rather than a substitute for one. Keep the two in
-         agreement: the landing copy itself is admin-editable, this is not. -->
+    <!-- `/` is the business site (src/pages/BusinessPage.jsx) — the page a
+         partner lands on, with real crawlable copy about what JashMen offers
+         an organisation. The student-facing landing moved to /app when the
+         business site took the root; both are in public/sitemap.xml.
+         Because this is a single-page app, one <head> serves every route, so
+         it describes the front door and each page sets its own document
+         title on mount. Keep this in agreement with the business copy
+         (src/components/business/copy.js) — neither is admin-editable. -->
     <!-- Google Search Console ownership proof for the https://jashmenstudio.com
          URL-prefix property. Must stay in the served HTML — removing it
          un-verifies the property and cuts off indexing requests/coverage
          reports. -->
     <meta name="google-site-verification" content="Bc58ATbmqyjfuP2bYl9-nKXUJovM2MW-jsTnpnvvzk4" />
 
-    <title>JashMen Studio — каржы сабаттуулугун оюн аркылуу үйрөн</title>
-    <meta name="description" content="JashMen — акча, каржы жана инвестиция боюнча кыргызча окуу колдонмосу. Кыска сабактар, оюн түрүндөгү тапшырмалар, күнүмдүк серия жана лига менен каржы сабаттуулугуңузду өстүрүңүз." />
+    <title>Jashmen — финансовое образование, которое меняет поведение</title>
+    <meta name="description" content="Jashmen помогает организациям вовлекать свою аудиторию в финансовое обучение через игру, создавать совместные модули и интегрировать опыт в свои платформы. Сезон на одном кампусе — восемь недель от старта до отчёта." />
     <link rel="canonical" href="https://jashmenstudio.com/" />
 
     <!-- Landing-page typography (src/components/landing/*). Onest sets the

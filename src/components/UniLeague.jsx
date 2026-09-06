@@ -7,13 +7,14 @@
 // owns the presentation.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Trophy, Users, GraduationCap, Eye, X, Pencil, Check, Zap, Heart, AlertCircle, Gift, BookOpen, ChevronRight } from 'lucide-react';
+import { Trophy, Users, GraduationCap, Eye, X, Pencil, Check, Zap, Heart, AlertCircle, Gift, BookOpen, ChevronRight, LogOut } from 'lucide-react';
 import { useI18n, localizedText, kyGenitive, formatGrouped, formatSom, formatLongDate } from '../i18n.jsx';
 import { useAuth, useContent } from '../store.jsx';
 import { energySettings, computeLiveEnergy, formatCountdown } from '../utils.js';
 import * as api from '../api.js';
 import Avatar from './Avatar.jsx';
 import MedalWreath from './icons/MedalWreath.jsx';
+import LeaguePodium from './LeaguePodium.jsx';
 import DialogShell, { BottomSheet, SPRING } from './DialogShell.jsx';
 
 // ── Campus catalogue ───────────────────────────────────────────────────
@@ -176,7 +177,7 @@ export function RoleDialog({ current, bright, onPick, onDismiss }) {
   return (
     <DialogShell onDismiss={onDismiss} bright={bright} labelledBy="uni-role-title">
       <div className="px-4 pt-5 pb-4">
-        <h2 id="uni-role-title" className="text-center text-[15px] font-black tracking-wide" style={{ color: textPri }}>
+        <h2 id="uni-role-title" className="text-center text-[15px] font-black tracking-wide px-9" style={{ color: textPri }}>
           {t('uni.roleTitle')}
         </h2>
         <p className="text-center text-[12.5px] leading-snug mt-1.5" style={{ color: textMut }}>
@@ -442,7 +443,7 @@ function ContestFactPanel({ icon: Icon, color, title, headline, rows = [], note,
                 style={i > 0 ? { borderTop: `1px solid ${line}` } : undefined}
               >
                 <span className="flex items-center gap-2 min-w-0">
-                  {rank && <MedalWreath rank={rank} size={30} glow={false} />}
+                  {rank && <MedalWreath rank={rank} size={30} glow={false} bright={bright} />}
                   <span className="text-[12.5px] font-semibold" style={{ color: textMut }}>{label}</span>
                 </span>
                 <span className="text-[13px] font-extrabold text-right shrink-0" style={{ color: textPri }}>{value}</span>
@@ -629,128 +630,37 @@ function ContestCard({ university, contest, bright, totalXp, studentCount, viewe
 }
 
 // ── Podium ─────────────────────────────────────────────────────────────────
-
-// The laurel medal that straddles the top edge of a podium card. Drawn
-// rather than shipped as three images: it has to sit on a gold, a silver and
-// a bronze card and pick up each one's tint.
-function WreathBadge({ place }) {
-  const [tint, deep] = place === 1
-    ? ['#FDE047', '#EAB308']
-    : place === 2
-      ? ['#E2E6EC', '#9AA3B2']
-      : ['#E9A87C', '#C2703A'];
-
-  const leaves = [];
-  const CX = 20, CY = 16, R = 13, N = 5;
-  // Two mirrored arcs sweeping up from the bottom, leaves tilting outward
-  // and shrinking towards the tips — the shape a real wreath makes.
-  for (const side of [-1, 1]) {
-    for (let i = 0; i < N; i++) {
-      const k = i / (N - 1);
-      const angle = Math.PI / 2 - side * (0.35 + k * 1.55);
-      const x = CX + Math.cos(angle) * R * side;
-      const y = CY + Math.sin(angle) * R;
-      leaves.push(
-        <ellipse
-          key={`${side}-${i}`}
-          cx={0}
-          cy={0}
-          rx={(7.5 - k * 2.5) / 2}
-          ry={(3.6 - k * 1.1) / 2}
-          fill={tint}
-          transform={`translate(${x} ${y}) rotate(${(side * (0.9 - k * 0.7) * 180) / Math.PI})`}
-        />,
-      );
-    }
-  }
+//
+// The campus board used to draw its own podium — a flat tinted card, no
+// metal block, no rank number. Same three places, visibly smaller occasion.
+// It renders the shared LeaguePodium now, so a campus win looks exactly like
+// a general-league win, down to the gold/silver/bronze blocks.
+//
+// The one thing the general board has no use for is the backer count, so it
+// comes in through the footer slot.
+function UniPodium({ students, bright, onPick, pickLabel }) {
+  const { t } = useI18n();
 
   return (
-    <svg width="40" height="32" viewBox="0 0 40 32" aria-hidden="true" className="shrink-0">
-      {leaves}
-      <path d="M20 1.5 L21.4 4.6 L24.8 5 L22.3 7.3 L23 10.6 L20 9 L17 10.6 L17.7 7.3 L15.2 5 L18.6 4.6 Z" fill={tint} />
-      <circle cx={CX} cy={CY} r={9.5} fill={deep} />
-      <text x={CX} y={CY + 4} textAnchor="middle" fontSize="11" fontWeight="900" fill="#ffffff">{place}</text>
-    </svg>
-  );
-}
-
-function PodiumSlot({ entry, place, bright, onPick, pickLabel }) {
-  if (!entry) return <div className="flex-1" />;
-
-  const [border, from, to] = place === 1
-    ? ['#EAB308', bright ? '#FEF9C3' : '#2A1E06', bright ? '#FDE68A' : '#15100A']
-    : place === 2
-      ? [bright ? '#CBD5E1' : '#2A3142', bright ? '#FFFFFF' : '#141B2A', bright ? '#F1F5F9' : '#0D1220']
-      : [bright ? '#FDBA74' : '#6D3617', bright ? '#FFF7ED' : '#1F1108', bright ? '#FFEDD5' : '#130C08'];
-
-  const ring    = place === 1 ? '#EAB308' : place === 2 ? '#9AA3B2' : '#C2703A';
-  const xpColor = place === 1 ? '#EAB308' : place === 2 ? (bright ? '#64748B' : '#C3C9D4') : '#F59E0B';
-  const textPri = bright ? '#0f172a' : '#ffffff';
-
-  return (
-    <motion.div
-      initial={{ y: 26, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ ...SPRING, delay: place === 1 ? 0.05 : place === 2 ? 0.14 : 0.23 }}
-      className="flex-1 min-w-0 relative flex flex-col items-center"
-    >
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 z-10">
-        <WreathBadge place={place} />
-      </div>
-      <motion.button
-        type="button"
-        disabled={!onPick}
-        onClick={onPick}
-        aria-label={pickLabel}
-        whileTap={onPick ? { scale: 0.96 } : undefined}
-        transition={SPRING}
-        className="w-full rounded-[14px] flex flex-col items-center px-1.5 pb-3 disabled:cursor-default"
-        style={{
-          marginTop: 16,
-          paddingTop: place === 1 ? 26 : 22,
-          paddingBottom: place === 1 ? 16 : 12,
-          background: `linear-gradient(180deg, ${from} 0%, ${to} 100%)`,
-          border: `${place === 1 ? 1.5 : 1}px solid ${border}`,
-        }}
-      >
-        <div className="rounded-full" style={{ boxShadow: `0 0 0 2.5px ${ring}${place === 1 ? ', 0 4px 18px rgba(234,179,8,0.4)' : ''}` }}>
-          <Avatar name={entry.name} photoUrl={entry.avatar} size={place === 1 ? 50 : 44} />
-        </div>
-        <p className="mt-2 text-[14px] font-bold truncate w-full text-center" style={{ color: textPri }}>
-          {entry.name}
-        </p>
-        <p className="mt-1 text-[12.5px] font-extrabold truncate w-full text-center" style={{ color: xpColor }}>
-          {formatGrouped(entry.xp)} XP
-        </p>
-        {entry.supporters > 0 && (
-          <span className="mt-1 flex items-center gap-1 text-[10.5px] font-bold" style={{ color: '#A855F7' }}>
+    <LeaguePodium
+      top3={students}
+      bright={bright}
+      textColor={bright ? '#0f172a' : '#ffffff'}
+      onPick={onPick}
+      pickLabel={pickLabel}
+      renderFooter={(entry) =>
+        entry.supporters > 0 ? (
+          <span
+            className="flex items-center gap-1 text-[10.5px] font-bold"
+            style={{ color: '#A855F7' }}
+            title={t('uni.supportersCount', { n: entry.supporters })}
+          >
             <Heart size={10} fill="#A855F7" color="#A855F7" />
             {entry.supporters}
           </span>
-        )}
-      </motion.button>
-    </motion.div>
-  );
-}
-
-// Top three, laid out 2–1–3. Aligned on the bottom edge, so the winner's
-// extra height is what raises it — no magic offsets.
-function UniPodium({ students, bright, onPick, pickLabel }) {
-  const slot = (entry, place) => (
-    <PodiumSlot
-      entry={entry}
-      place={place}
-      bright={bright}
-      pickLabel={pickLabel}
-      onPick={entry && onPick ? () => onPick(entry) : null}
+        ) : null
+      }
     />
-  );
-  return (
-    <div className="flex items-end gap-2.5 px-3">
-      {slot(students[1], 2)}
-      {slot(students[0], 1)}
-      {slot(students[2], 3)}
-    </div>
   );
 }
 
@@ -873,7 +783,7 @@ function SupportSheet({ student, bright, onDismiss, onSent }) {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <p className="text-[19px] font-black truncate" style={{ color: textPri }}>{student.name}</p>
-              {student.rank <= 3 && <WreathBadge place={student.rank} />}
+              {student.rank <= 3 && <MedalWreath rank={student.rank} size={32} glow={false} bright={bright} className="shrink-0" />}
             </div>
             <p className="text-[13px] font-semibold mt-0.5" style={{ color: textMut }}>
               {t('uni.supportPlace', { n: student.rank })}
@@ -1077,7 +987,7 @@ function NoContest({ university, bright, onChange }) {
   );
 }
 
-export function UniLeagueView({ university, bright, onChange }) {
+export function UniLeagueView({ university, bright, onChange, onLeave }) {
   const { t, locale } = useI18n();
   const { user, state } = useAuth();
   const contest = university.contest;
@@ -1112,7 +1022,22 @@ export function UniLeagueView({ university, bright, onChange }) {
 
   return (
     <div className="pb-4">
-      <div className="px-4 pb-2 flex justify-end">
+      <div className="px-4 pb-2 flex justify-end items-center gap-4">
+        {/* Leaving is destructive in a way changing campus is not: a student
+            forfeits the campus score they built. Red, and behind a confirm,
+            because there is no undo. */}
+        {onLeave && (
+          <motion.button
+            type="button"
+            onClick={onLeave}
+            whileTap={{ scale: 0.94 }}
+            className="flex items-center gap-1.5 py-2 text-[13px] font-semibold"
+            style={{ color: '#EF4444' }}
+          >
+            {t('uni.leave')}
+            <LogOut size={15} />
+          </motion.button>
+        )}
         <motion.button
           type="button"
           onClick={onChange}

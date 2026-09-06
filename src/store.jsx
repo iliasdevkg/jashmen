@@ -22,6 +22,13 @@ const BrightCtx = createContext(null);
 // session never suddenly 401s mid-use.
 const REFRESH_INTERVAL_MS = 12 * 60 * 1000;
 
+// How long the shop's stock, the lesson list and the limits stay
+// trustworthy without asking again. One second, so in practice every page a
+// learner opens refetches — the freshest possible reading, at the cost of a
+// request per navigation. The window is not zero because a single click can
+// still fire two renders, and one request per click is the point.
+const STALE_AFTER_MS = 1000;
+
 export function StoreProvider({ children }) {
   const [token, setToken] = useState(null);
   const [user, setUser] = useState(null);
@@ -53,9 +60,22 @@ export function StoreProvider({ children }) {
     document.body.style.color = bright ? '#0f172a' : 'white';
   }, [bright]);
 
-  useEffect(() => {
-    api.fetchContent().then(setContent).catch(console.error);
+  // Content was fetched once and then never again, so an admin edit — a new
+  // lesson, a prize whose codes have run out — stayed invisible until the
+  // tab was reloaded. It is refetched now whenever it might have gone
+  // stale, and `setContent` only ever runs on success, so a failed refresh
+  // leaves the last good copy on screen rather than blanking it.
+  const contentFetchedAt = useRef(0);
+
+  const refreshContent = useCallback((force = false) => {
+    if (!force && Date.now() - contentFetchedAt.current < STALE_AFTER_MS) return;
+    contentFetchedAt.current = Date.now();
+    api.fetchContent()
+      .then(setContent)
+      .catch(() => { contentFetchedAt.current = 0; }); // let the next attempt retry
   }, []);
+
+  useEffect(() => { refreshContent(true); }, [refreshContent]);
 
   const startRefreshTimer = useCallback(() => {
     clearInterval(refreshTimer.current);
@@ -171,6 +191,50 @@ export function StoreProvider({ children }) {
     startRefreshTimer();
   }, [startRefreshTimer]);
 
+  // Everything the current screen shows, refetched together. Exposed so a
+  // route change can ask for it (App.jsx) and so a page can force it after
+  // a write of its own.
+  //
+  // Deliberately GET /u/me and not apiRefresh(): a refresh ROTATES the
+  // session token (db.js#rotateSession revokes the old one and writes the
+  // new one to disk), so hanging it off every navigation would burn a
+  // session and a disk write per page — and a refresh that failed would log
+  // the learner out mid-browse. Token renewal stays where it belongs, on
+  // the twelve-minute timer and at mount. This just re-reads the account.
+  const meFetchedAt = useRef(0);
+
+  const refreshAll = useCallback((force = false) => {
+    refreshContent(force);
+    if (!token) return;
+    // Same staleness gate the content has, and for the same reason: a burst
+    // of navigations must not become a burst of requests. It is also the
+    // backstop if a caller ever re-enters this in a loop again.
+    if (!force && Date.now() - meFetchedAt.current < STALE_AFTER_MS) return;
+    meFetchedAt.current = Date.now();
+    const epoch = sessionEpoch.current;
+    api.fetchMe(token)
+      .then((u) => {
+        if (sessionEpoch.current !== epoch) return;
+        setUser(u);
+      })
+      .catch(() => { meFetchedAt.current = 0; }); // the screen keeps what it had
+  }, [refreshContent, token]);
+
+  // Coming back to the tab is the case that used to hurt most: a page left
+  // open overnight showed yesterday's coins, yesterday's stock and a token
+  // that had long since expired.
+  useEffect(() => {
+    const onWake = () => {
+      if (document.visibilityState === 'visible') refreshAll(true);
+    };
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('focus', onWake);
+    return () => {
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('focus', onWake);
+    };
+  }, [refreshAll]);
+
   const dismissStreakEvent = useCallback(() => setStreakEvent(null), []);
 
   return (
@@ -179,6 +243,7 @@ export function StoreProvider({ children }) {
         token, user, loading, state: user?.state || null,
         login, signup, loginWithGoogle, logout, updateUser, adoptSession,
         streakEvent, dismissStreakEvent,
+        refreshAll, refreshContent,
       }}>
         <ContentCtx.Provider value={content}>
           {children}

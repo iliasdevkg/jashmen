@@ -38,11 +38,26 @@ export function computeLiveEnergy(state, dailyFreeLessons = 3, energyRefillHours
   // allowance; energy this user gifted away is spent from it.
   const supportToday = samePeriod ? (state.supportEnergyToday || 0) : 0;
   const givenToday   = samePeriod ? (state.energyGivenToday || 0) : 0;
+  // Energy spent on something that is not a lesson — today, a streak repair.
+  const spentToday   = samePeriod ? (state.energySpentToday || 0) : 0;
 
   const cap = dailyFreeLessons + bonusToday + supportToday;
-  const remaining = Math.max(0, cap - lessonsToday - givenToday);
+  const remaining = Math.max(0, cap - lessonsToday - givenToday - spentToday);
   const resetMs = remaining <= 0 ? (period + 1) * periodMs - Date.now() : null;
   return { remaining, resetMs };
+}
+
+// The pending streak-repair offer, or null — the client mirror of
+// routes.js#streakRepairOffer. A broken run can be bought back with energy
+// on the day it broke and no later, so this reads `streakLostAt` against
+// today's UTC date rather than trusting a flag the server set hours ago.
+// An admin cost of 0 means the offer does not exist at all.
+export function streakRepairOffer(state, content) {
+  const cost = parseInt(content?.limits?.streakRepairEnergy, 10);
+  if (!Number.isFinite(cost) || cost <= 0) return null;
+  if (!state?.streakLost) return null;
+  if (state.streakLostAt !== new Date().toISOString().slice(0, 10)) return null;
+  return { lost: state.streakLost, cost };
 }
 
 // "m:ss", or "h:mm:ss" once the countdown crosses an hour. Every call site
@@ -98,17 +113,45 @@ export function cardsOf(lesson) {
   return (lesson?.questions || []).map(q => ({ type: 'quiz', ...q }));
 }
 
-export function quizCountOf(lesson) {
-  return cardsOf(lesson).filter(c => c.type === 'quiz').length;
+// Every card type the learner is GRADED on — the exact set the server pays
+// for (admin-api/contentStore.js#GRADED_CARD_TYPES). `theory` and `media`
+// are read-through, so they are worth no XP on either side.
+export const GRADED_CARD_TYPES = new Set(['quiz', 'match', 'build']);
+
+export function isGradedCard(card) {
+  return GRADED_CARD_TYPES.has(card?.type);
 }
+
+// How many cards in this lesson actually pay out. The server's
+// gradedCountOf() counts off `cards` and falls back to the legacy flat
+// `questions` array; cardsOf() already performs that same fallback (every
+// legacy question becomes a quiz card), so filtering it here gives the
+// identical number — which is the point: the "up to +N XP" preview must
+// promise exactly what completeLesson will pay.
+export function gradedCountOf(lesson) {
+  return cardsOf(lesson).filter(isGradedCard).length;
+}
+
+// The historic name. It predates `match`/`build`, so it no longer counts
+// only quizzes — but LearnPage and LessonPreviewSheet import it, and the
+// number they want is precisely the graded count, so it stays as an alias
+// rather than becoming a second, wrong definition.
+export const quizCountOf = gradedCountOf;
 
 // Mirrors admin-api/routes.js's completeLesson reward formula for the
 // ceiling case (zero mistakes, perfect bonus) — used only to preview
 // "up to +N XP" before a lesson starts. The server remains the sole
 // authority on the actual reward once the lesson is submitted.
-export function maxLessonXp(lesson) {
-  const baseXp = quizCountOf(lesson) * 10;
-  return Math.round(baseXp * 1.2);
+export function maxLessonXp(lesson, limits) {
+  // The two numbers came from the Лимиттер tab; hardcoding them here meant
+  // an admin could raise the XP per question and the preview would still
+  // promise the old figure while the server paid the new one. Defaults match
+  // routes.js's own fallbacks so a limits fetch that hasn't landed yet still
+  // previews something sane.
+  const perQuestion = limits?.xpPerQuestion ?? 10;
+  const perfectPct  = limits?.xpPerfectBonusPct ?? 20;
+  const baseXp = gradedCountOf(lesson) * perQuestion;
+  return baseXp + Math.round(baseXp * (perfectPct / 100));
 }
 
 // Mirrors admin-api/contentStore.js#evaluateAchievementRule exactly — an
@@ -146,3 +189,26 @@ export function checkNewAchievements(userState, reward, allAchievements, totalLe
   }
   return newlyEarned;
 }
+
+// ── Streak colours ─────────────────────────────────────────────────────────
+//
+// The streak burns blue. Kept in one place rather than typed into the six
+// components that draw it — the header chip, the sidebar, the right panel,
+// the league row, the profile card and the celebration screen — so that
+// "change the streak's colour" stays a single edit.
+//
+// Deliberately NOT the app's existing #1CB0F6: that blue already means
+// energy and lessons, and a streak that wears it becomes unreadable next to
+// them. This one is deeper and more saturated. The core is lighter than the
+// body for the same reason a real flame's hottest part is: it reads as fire.
+export const STREAK = {
+  main: '#2E6BFF',   // labels, the active tab, today's ring
+  soft: '#4C8DFF',   // the small chips, where a deep blue would go muddy
+  flameTop: '#3D7BFF',
+  flameBottom: '#1B4FD8',
+  coreTop: '#A8CCFF',
+  coreBottom: '#4E9BFF',
+  barFrom: '#3E8DFF',
+  barTo: '#7FB4FF',
+  ink: '#062A66',    // text sitting on a filled day
+};

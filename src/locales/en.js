@@ -9,6 +9,8 @@ export const en = {
   'common.error': 'Something went wrong',
   'common.cancel': 'Cancel',
   'common.close': 'Close',
+  'common.zoomImage': 'Enlarge image',
+  'common.zoomHint': 'Tap the image to zoom in further',
   'common.back': 'Back',
   'common.save': 'Save',
 
@@ -76,14 +78,23 @@ export const en = {
   'lesson.share': 'Share your win',
   'lesson.shareText': 'I finished "{{lesson}}" on JashMen and earned {{xp}} XP! 🏆',
 
+  // ── match / build cards ──
+  // Shown when the card carries no title/q of its own.
+  'lesson.matchTitle': 'Tap the pairs',
+  'lesson.matchProgress': '{{done}}/{{total}} pairs',
+  'lesson.matchWrong': 'Some pairs were matched incorrectly',
+  'lesson.buildTitle': 'Build the sentence',
+  'lesson.buildPlaceholder': 'Tap the words in order to build the sentence',
+  'lesson.check': 'Check',
+
   // ── lesson preview sheet (path node tap) ──
   'lesson.previewLesson': 'Lesson',
   'lesson.previewCheckpoint': 'Checkpoint',
-  'lesson.previewAvailableDesc': 'Consists of {{n}} questions. Finish it to earn up to {{xp}} XP and coins!',
+  'lesson.previewAvailableDesc': 'Consists of {{n}} exercises. Finish it to earn up to {{xp}} XP and coins!',
   'lesson.previewCompletedDesc': "You've already completed this lesson. Go through it again to reinforce what you learned.",
   'lesson.previewGatedDesc': "You've used up today's free lessons. Buy more energy in the shop, or wait until tomorrow.",
   'lesson.previewNoEnergyBadge': 'No energy',
-  'lesson.previewQuestions': '{{n}} questions',
+  'lesson.previewQuestions': '{{n}} exercises',
   'lesson.previewXpUpTo': 'up to +{{xp}} XP',
   'lesson.previewCompletedBadge': 'Completed',
   'lesson.previewStart': 'Start',
@@ -97,9 +108,12 @@ export const en = {
   'shop.partnerPrizes': 'Partner rewards',
   'shop.buySuccess': '{{title}} purchased!',
   'shop.redeemInstructions': 'Show this code to claim your prize:',
+  'shop.yourReceipt': 'Reference code: {{code}}',
+  'shop.showAtTill': 'Show this code at the till',
   'shop.partnersTitle': 'Partners',
   'shop.prizeCount': '{{n}} rewards',
   'shop.noPrizesForPartner': 'This partner has no rewards yet',
+  'shop.soldOut': 'Sold out',
 
   // ── profile ──
   'profile.leagueBadge': '{{name}} League',
@@ -113,6 +127,8 @@ export const en = {
   'profile.coupons': 'My coupons',
   'profile.couponsEmpty': 'No coupons yet. Redeem a partner reward in the shop and its code will be kept here.',
   'profile.couponTapToCopy': 'Tap to copy',
+  'profile.couponPartnerCode': 'Partner code — show this at the till',
+  'profile.couponOwnCode': 'JashMen code',
 
   // ── settings ──
   'settings.title': 'Settings',
@@ -170,6 +186,8 @@ export const en = {
   'uni.ok': 'OK',
   'uni.close': 'Close',
   'uni.change': 'Change',
+  'uni.leave': 'Leave',
+  'uni.leaveConfirm': 'Leave the university league? All XP earned on this campus will be reset and you will return to the general league. This cannot be undone.',
   'uni.organizer': 'Organizer:',
   'uni.address': 'Address:',
   'uni.prizePool': 'PRIZE POOL',
@@ -232,4 +250,20 @@ export const en = {
 
   // ── Landing (the public marketing page) ──────────────────────────────
   'landing.privacy': 'Privacy',
+  'landing.forBusiness': 'For business',
+  'lesson.nextLesson': 'Next lesson',
+  'lesson.backToPath': 'Back to the path',
+  'profile.streakSub': 'Daily streak',
+  'profile.streakWeek': 'Week',
+  'profile.streakMonth': 'Month',
+  'profile.streakNoData': 'no data',
+  'profile.streakPrevMonth': 'Previous month',
+  'profile.streakNextMonth': 'Next month',
+  'profile.streakStudied': 'Studied {{n}} of {{total}} days',
+  'profile.streakLostTitle': 'Your {{n}}-day streak broke',
+  'profile.streakLostDesc': 'Today is the only day you can buy it back — {{cost}} energy.',
+  'profile.streakRepairCta': 'Restore for {{cost}} energy',
+  'profile.streakRepairBusy': 'Restoring…',
+  'profile.streakRepairNoEnergy': 'Not enough energy — come back when it refills',
+  'profile.streakRepairDone': 'Streak restored!',
 };

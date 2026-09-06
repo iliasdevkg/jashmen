@@ -3,11 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Target, Flame, Trophy, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth, useContent, useBrightMode } from '../store.jsx';
 import { useI18n, formatDays, localizedText } from '../i18n.jsx';
-import MedalWreath from '../components/icons/MedalWreath.jsx';
-import { getCurrentLeague } from '../utils.js';
+import { getCurrentLeague, STREAK } from '../utils.js';
 import * as api from '../api.js';
 import LeagueBadge from '../components/icons/LeagueBadges.jsx';
 import Avatar from '../components/Avatar.jsx';
+import LeaguePodium from '../components/LeaguePodium.jsx';
 import {
   LeagueTabs,
   RoleDialog,
@@ -52,66 +52,6 @@ function LeagueCard({ league, isActive, locked, onClick, bright, locale }) {
         {league.minXp}+ XP
       </p>
     </motion.button>
-  );
-}
-
-function podiumFace(color) {
-  return {
-    background: `linear-gradient(180deg, color-mix(in srgb, ${color} 85%, white) 0%, ${color} 55%, color-mix(in srgb, ${color} 78%, black) 100%)`,
-    boxShadow: `inset 0 2px 0 rgba(255,255,255,0.55), inset 0 -4px 10px rgba(0,0,0,0.18), 0 12px 26px -8px ${color}90`,
-  };
-}
-
-function Podium({ top3, heroTextPri }) {
-  const order     = [top3[1], top3[0], top3[2]];
-  const heights   = ['64px', '86px', '46px'];
-  const podColors = ['#C0C0C0', '#FFD700', '#CD7F32'];
-
-  return (
-    <div className="flex items-end justify-center gap-3 px-4 pt-2">
-      {order.map((u, col) => {
-        if (!u) return <div key={col} className="w-[92px]" />;
-        const rank = col === 0 ? 2 : col === 1 ? 1 : 3;
-        const podColor = podColors[col];
-
-        return (
-          <motion.div
-            key={u.id}
-            initial={{ y: 34, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 26, delay: col === 1 ? 0.05 : col === 0 ? 0.16 : 0.27 }}
-            className="flex flex-col items-center gap-1"
-            style={{ width: 92 }}
-          >
-            {/* Every place gets its medal, not just the winner: second and
-                third are podium finishes too, and a bare avatar beside a
-                crowned one reads as "also-ran" rather than "runner-up". */}
-            <motion.span
-              className="mb-0.5"
-              animate={rank === 1 ? { rotate: [-5, 5, -5] } : undefined}
-              transition={rank === 1 ? { duration: 2.6, repeat: Infinity, ease: 'easeInOut' } : undefined}
-            >
-              <MedalWreath rank={rank} size={rank === 1 ? 52 : 40} />
-            </motion.span>
-            <div style={{ boxShadow: `0 0 0 3px ${podColor}, 0 4px 16px ${podColor}70` }} className="rounded-full">
-              <Avatar name={u.name} photoUrl={u.avatar} size={rank === 1 ? 62 : 50} />
-            </div>
-            <p className="font-bold text-xs text-center mt-1 w-full truncate" style={{ color: heroTextPri }}>
-              {u.name}
-            </p>
-            <p className="text-xs font-extrabold" style={{ color: podColor }}>
-              {u.xp.toLocaleString()} XP
-            </p>
-            <div
-              className="w-full flex items-center justify-center rounded-t-xl font-black text-xl"
-              style={{ height: heights[col], marginTop: 4, color: 'rgba(0,0,0,0.55)', ...podiumFace(podColor) }}
-            >
-              #{rank}
-            </div>
-          </motion.div>
-        );
-      })}
-    </div>
   );
 }
 
@@ -163,7 +103,7 @@ const UserRow = forwardRef(function UserRow({ user, rank, isMe, bright }, ref) {
         <p className="text-sm font-semibold truncate" style={{ color: textPri }}>{user.name}</p>
         {user.streak > 0 && (
           <div className="flex items-center gap-0.5">
-            <Flame size={11} color="#fb923c" fill="#fb923c" />
+            <Flame size={11} color={STREAK.soft} fill={STREAK.soft} />
             <span className="text-[10px]" style={{ color: textMut }}>{formatDays(user.streak, locale)}</span>
           </div>
         )}
@@ -217,6 +157,24 @@ export default function LeaguePage() {
   // "Өзгөртүү / Изменить / Change" — reopens both questions with the current
   // answers preselected.
   const startChange  = () => setFlow({ step: 'role', role: enrolment.role, mode: 'change' });
+
+  // "Чыгуу" — leaves the campus entirely and goes back to the general
+  // league. Destructive in a way changing campus is not: a student forfeits
+  // the campus score they built, and the server zeroes uniXp on the way out
+  // (routes.js#/u/me/university), so it asks first.
+  const leaveUniversity = async () => {
+    if (!window.confirm(t('uni.leaveConfirm'))) return;
+    setEnrolError('');
+    setEnrolling(true);
+    try {
+      await commit(null, null);
+      setTab('general');
+    } catch (e) {
+      setEnrolError(e.message);
+    } finally {
+      setEnrolling(false);
+    }
+  };
   const onRolePicked = (role) => setFlow(f => ({ ...f, step: 'picker', role }));
 
   // Nothing is written until both answers come back, so backing out of
@@ -326,7 +284,7 @@ export default function LeaguePage() {
       {tab === 'uni' && enrolling ? (
         <p className="py-16 text-center text-sm" style={{ color: textMut }}>{t('common.loading')}</p>
       ) : showUni ? (
-        <UniLeagueView university={university} bright={bright} onChange={startChange} />
+        <UniLeagueView university={university} bright={bright} onChange={startChange} onLeave={leaveUniversity} />
       ) : (
         <>
           {/* ── Hero: league cards, podium ── */}
@@ -402,7 +360,7 @@ export default function LeaguePage() {
                 <Trophy size={30} color={heroTextMut} className="animate-pulse" />
               </div>
             ) : top3.length > 0 ? (
-              <Podium top3={top3} heroTextPri={heroTextPri} />
+              <LeaguePodium top3={top3} textColor={heroTextPri} />
             ) : (
               <div className="relative flex flex-col items-center gap-1 py-10 px-6 text-center">
                 <Users size={30} color={heroTextMut} className="mb-1" />

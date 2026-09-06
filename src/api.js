@@ -5,8 +5,63 @@ const B = '/admin/api';
 // and same-path-proxied, so this is what actually gets it sent; the
 // short-lived access token stays in memory (store.jsx) and rides along as
 // a normal Authorization header, same as before.
+// Two things pull against each other here, and the split below is how they
+// are settled.
+//
+// SPEED. A request that never answers is worse than one that fails, and
+// `fetch` has no timeout of its own. Measured round trips to
+// jashmenstudio.com are ~280ms from a phone on 4G and ~340ms from a desktop,
+// so a read gives up after one second — fast enough that a dead connection
+// is obvious almost immediately.
+//
+// SURVIVAL. One second is about 2.5x the typical round trip, which is not
+// much margin: a weak signal, a congested cell, a cold container all take
+// longer than that legitimately. So a read that times out is simply asked
+// again with more room. The common case still resolves in under a second;
+// the bad case still resolves, just not as fast.
+const READ_BUDGETS_MS = [1_000, 3_000, 6_000];
+
+// A WRITE gets one patient attempt and is never repeated, because every
+// write this app makes would do real damage twice:
+//
+//   /u/me/redeem        pops a promo code off a finite pool and charges coins
+//   /u/me/buy           charges coins
+//   /u/me/streak/repair spends energy
+//   /u/me/lesson        awards XP and spends energy
+//   /u/refresh          burns a single-use session token (db.js#rotateSession
+//                       revokes the old one), so a repeat logs the user out
+//   /u/me/password      revokes every other session
+//
+// A timeout is not proof the server did nothing — it is only proof that the
+// answer did not arrive. Retrying on that would be gambling with the
+// learner's coins, so a write waits instead.
+const WRITE_BUDGET_MS = 10_000;
+
+/// One attempt, with its own abort budget. Rejects with `code: 'no-answer'`
+/// when nothing came back, which is the only condition a retry is allowed to
+/// act on — an HTTP error status means the server DID answer and repeating
+/// the request would not change that.
+async function attempt(url, init, budgetMs) {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), budgetMs);
+  try {
+    return await fetch(url, { ...init, signal: abort.signal });
+  } catch (e) {
+    const err = new Error(
+      e?.name === 'AbortError'
+        ? 'Сервер жооп бербей жатат. Кайра аракет кылыңыз.'
+        : 'Интернет байланышы жок окшойт.',
+    );
+    err.status = 0;
+    err.code = 'no-answer';
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function req(method, path, body, token) {
-  const res = await fetch(`${B}${path}`, {
+  const init = {
     method,
     credentials: 'include',
     headers: {
@@ -14,7 +69,23 @@ async function req(method, path, body, token) {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: body != null ? JSON.stringify(body) : undefined,
-  });
+  };
+  // GET is the only method here that is safe to send twice. Everything else
+  // is a write, and a write gets exactly one attempt — see WRITE_BUDGET_MS.
+  const budgets = method === 'GET' ? READ_BUDGETS_MS : [WRITE_BUDGET_MS];
+
+  let res;
+  for (let i = 0; i < budgets.length; i++) {
+    try {
+      res = await attempt(`${B}${path}`, init, budgets[i]);
+      break;
+    } catch (err) {
+      // Out of attempts, or something other than silence — either way the
+      // caller hears about it rather than the request being repeated.
+      if (i === budgets.length - 1 || err.code !== 'no-answer') throw err;
+    }
+  }
+
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(data.error || `Ката ${res.status}`);
@@ -32,6 +103,12 @@ export const fetchPublicConfig = () => req('GET', '/public/config');
 // Four aggregate counters for the landing page's stats band. Public and
 // anonymous by design — nothing here identifies a user.
 export const fetchPublicStats = () => req('GET', '/public/stats');
+
+// A partnership enquiry or a piece of user feedback, from the public forms.
+// Unauthenticated on purpose: a bank's marketing lead is not going to create
+// a learner account to write to us. The server validates and rate-limits it
+// (admin-api/leads.js), and the reply lands in the panel's inbox.
+export const submitEnquiry = (payload) => req('POST', '/public/enquiry', payload);
 
 // Exchanges a Google id_token for this app's own session. The server
 // verifies the token, then issues the same access JWT + refresh cookie the
@@ -51,6 +128,11 @@ export const apiRefresh = () => req('POST', '/u/refresh');
 export const apiLogout = () => req('POST', '/u/logout');
 export const fetchMe = (token) => req('GET', '/u/me', null, token);
 export const claimDaily = (token) => req('POST', '/u/me/daily', null, token);
+// Buys a broken streak back with energy, on the day it broke. Rejects with
+// a 400 once the day is over or the energy is gone — the button is hidden
+// in both cases, so a rejection here means the tab was left open past
+// midnight, and the error text says so.
+export const repairStreak = (token) => req('POST', '/u/me/streak/repair', null, token);
 export const completeLesson = (token, lessonId, mistakes, isReview) =>
   req('POST', '/u/me/lesson', { lessonId, mistakes, isReview }, token);
 export const buyItem = (token, itemId, price, kind) =>
