@@ -67,9 +67,12 @@ test('the store seeds the campuses the clients used to carry', () => {
 
 test('a campus can be created, found by slug, and removed', async () => {
   const created = await content.addUniversity(validUni());
-  // slugify keeps Cyrillic on purpose — the id stays readable to the people
-  // who actually run these contests.
-  assert.equal(created.id, 'тест-университет', 'id is a readable slug, not a UUID');
+  // Transliterated, not raw Cyrillic. The id travels as a URL path segment
+  // (/u/university/:uniId/board) and is checked against a Latin-only regex
+  // in routes.js, so a Cyrillic id made the campus impossible to join — the
+  // admin could create it and no learner could ever enrol.
+  assert.equal(created.id, 'test-universitet', 'id is a readable ASCII slug, not a UUID');
+  assert.match(created.id, /^[a-z0-9][a-z0-9_-]{0,39}$/, 'id passes the learner API validator');
   assert.equal(created.contest, null, 'a campus starts without a contest');
   assert.equal(content.findUniversity(created.id).listName, 'ТЕСТ УНИВЕРСИТЕТ');
 

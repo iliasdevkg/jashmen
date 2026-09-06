@@ -9,6 +9,12 @@
 //
 // Talks to contentStore directly — the two routes are one-liners over these
 // functions, and the contract lives in the sanitiser.
+//
+// NOTE: the page this store fed was removed — jashmenstudio.com/app no
+// longer exists, and `/` is the business site (business.seed.js). The store
+// and these tests stay because the content is still in content.json and
+// nothing has been deleted from it; if the student landing never returns,
+// this file and LANDING_SECTIONS go together.
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';

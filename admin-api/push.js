@@ -67,11 +67,17 @@ function todayUTC() {
 // can test it without waiting for midnight).
 export async function sendStreakReminders() {
   const today = todayUTC();
-  const candidates = db.listUsers().filter(u =>
-    (u.state.streak || 0) > 0 &&
-    u.state.lastActiveDate !== today &&
-    (u.state.pushSubscriptions || []).length > 0
-  );
+  // At most one reminder per learner per day. This fires from a schedule
+  // and can be triggered again by hand; nothing stopped two runs on the
+  // same day from pushing the same notification twice to the same phone.
+  let alreadyReminded = 0;
+  const candidates = db.listUsers().filter(u => {
+    if ((u.state.streak || 0) <= 0) return false;
+    if (u.state.lastActiveDate === today) return false;
+    if ((u.state.pushSubscriptions || []).length === 0) return false;
+    if (u.state.lastStreakPushDate === today) { alreadyReminded += 1; return false; }
+    return true;
+  });
 
   let sent = 0;
   let removedDead = 0;
@@ -90,11 +96,14 @@ export async function sendStreakReminders() {
     }
     if (survivors.length !== user.state.pushSubscriptions.length) {
       user.state.pushSubscriptions = survivors;
-      await db.saveUser(user);
     }
+    // Stamped even when every endpoint was dead: the learner was processed
+    // today either way, and re-running would only retry endpoints already gone.
+    user.state.lastStreakPushDate = today;
+    await db.saveUser(user);
   }
 
-  return { candidateUsers: candidates.length, sent, removedDead };
+  return { candidateUsers: candidates.length, sent, removedDead, alreadyReminded };
 }
 
 function daysBetweenUTC(fromDateStr, toDateStr) {
@@ -118,13 +127,20 @@ export async function sendRetentionReminders() {
   const rulesByDays = new Map(
     content.listRetentionRules().filter(r => r.enabled).map(r => [r.daysInactive, r])
   );
-  if (rulesByDays.size === 0) return { candidateUsers: 0, sent: 0, removedDead: 0 };
+  if (rulesByDays.size === 0) {
+    return { candidateUsers: 0, sent: 0, removedDead: 0, alreadyReminded: 0 };
+  }
 
+  // Same one-per-day guard as the streak reminder above, with its own stamp
+  // so the two campaigns don't suppress each other.
+  let alreadyReminded = 0;
   const candidates = db.listUsers().filter(u => {
     if (!u.state.lastActiveDate || u.state.lastActiveDate === today) return false;
     if ((u.state.pushSubscriptions || []).length === 0) return false;
     const inactiveDays = daysBetweenUTC(u.state.lastActiveDate, today);
-    return inactiveDays != null && rulesByDays.has(inactiveDays);
+    if (inactiveDays == null || !rulesByDays.has(inactiveDays)) return false;
+    if (u.state.lastRetentionPushDate === today) { alreadyReminded += 1; return false; }
+    return true;
   });
 
   let sent = 0;
@@ -142,9 +158,10 @@ export async function sendRetentionReminders() {
     }
     if (survivors.length !== user.state.pushSubscriptions.length) {
       user.state.pushSubscriptions = survivors;
-      await db.saveUser(user);
     }
+    user.state.lastRetentionPushDate = today;
+    await db.saveUser(user);
   }
 
-  return { candidateUsers: candidates.length, sent, removedDead };
+  return { candidateUsers: candidates.length, sent, removedDead, alreadyReminded };
 }

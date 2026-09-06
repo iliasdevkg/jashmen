@@ -13,20 +13,23 @@ import {
 } from './auth.js';
 import { setRefreshCookie, clearRefreshCookie } from './cookies.js';
 import { verifyGoogleIdToken, resolveGoogleUser, GoogleAuthError } from './googleAuth.js';
-import { authLimiter, signupLimiter, uploadLimiter } from './rateLimit.js';
+import { authLimiter, signupLimiter, uploadLimiter, leadLimiter } from './rateLimit.js';
 import * as db from './db.js';
 import {
   getContent, findLesson, findShopItem, findPrize, findPartner,
-  checkNewAchievements, totalLessons, getLimits, getUniversities,
+  checkNewAchievements, totalLessons, getLimits, getUniversities, gradedCountOf,
+  prizeStock, claimPromoCode, returnPromoCode, flushContent,
 } from './contentStore.js';
 import {
-  computeLiveEnergy, spendEnergy, grantBonusEnergy,
+  computeLiveEnergy, spendEnergy, spendEnergyOn, grantBonusEnergy,
   canGiveSupportEnergy, spendSupportEnergy, receiveSupportEnergy,
   currentPeriod, periodEndsAt, normalizeRefillHours,
 } from './energy.js';
 import { logEvent } from './events.js';
 import { getPublicKey } from './push.js';
 import { upload, saveUploadedFile } from './uploads.js';
+import * as presence from './presence.js';
+import { addLead } from './leads.js';
 
 const router = Router();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -103,6 +106,10 @@ function defaultState() {
     ownedShop: [],
     settings: { sound: true, animations: true },
     lastActiveDate: null,
+    // Set on the day a missed day ends a run, and cleared the moment the
+    // repair is bought or the day is over — see POST /u/me/streak/repair.
+    streakLost: null,
+    streakLostAt: null,
     // Trailing window of days the learner showed up, newest last — the only
     // thing the streak celebration's Su–Sa strip needs that `streak` alone
     // can't answer ("which days of THIS week did I actually study?").
@@ -126,7 +133,39 @@ function toPublicUser(user) {
 // ── Public content & leaderboard ────────────────────────────────────────────
 
 router.get('/public/content', (req, res) => {
-  res.json(getContent());
+  // Everything the clients need to render, minus the one field that is the
+  // reward itself. A prize's promo codes are the partner's real codes — the
+  // thing a learner spends coins to receive — and this endpoint takes no
+  // auth, so shipping them here would hand the whole pool to anyone who
+  // asked. A code reaches a learner exactly twice: in the response to their
+  // own redemption, and in their own coupon history.
+  //
+  // What does ship is how many are left, because the shop has to grey out a
+  // prize nobody can buy any more rather than let someone spend coins on it.
+  const { prizes, ...rest } = getContent();
+  res.json({
+    ...rest,
+    prizes: (prizes || []).map(({ promoCodes: _hidden, codesUsed: _used, ...prize }) => {
+      const stock = prizeStock({ promoCodes: _hidden, codesUsed: _used });
+      return { ...prize, stockLeft: stock.unlimited ? null : stock.left, soldOut: stock.soldOut };
+    }),
+  });
+});
+
+// ── Enquiries: partnership applications and user feedback ────────────────
+//
+// Deliberately unauthenticated: the whole point of the B2B site is that a
+// bank's head of retail can write to us without an account. Validation and
+// the size caps live in leads.js; the rate limiter above is what stops a
+// script. Both forms post here and are told apart by `kind`.
+router.post('/public/enquiry', leadLimiter, async (req, res, next) => {
+  try {
+    const result = await addLead(req.body);
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    // The id comes back so a person can quote it if they follow up — and so
+    // the client can tell a double-submit from a second, different enquiry.
+    res.status(201).json({ id: result.lead.id });
+  } catch (err) { next(err); }
 });
 
 // Public client config. The Google client ID is deliberately served at
@@ -213,6 +252,9 @@ router.post('/u/signup', signupLimiter, async (req, res, next) => {
     await db.insertUser(user);
     const refreshToken = await issueRefreshToken(user.id);
     setRefreshCookie(res, REFRESH_COOKIE_NAME, refreshToken, REFRESH_TOKEN_TTL_MS);
+    // Signing up is the most certain moment somebody is online, and it does
+    // not pass through requireAuth — so the heartbeat is stamped here too.
+    presence.touch(user.id);
     res.status(201).json({ token: signAccessToken(user.id), user: toPublicUser(user) });
   } catch (err) { next(err); }
 });
@@ -241,6 +283,7 @@ router.post('/u/login', authLimiter, async (req, res, next) => {
     }
     const refreshToken = await issueRefreshToken(user.id);
     setRefreshCookie(res, REFRESH_COOKIE_NAME, refreshToken, REFRESH_TOKEN_TTL_MS);
+    presence.touch(user.id);
     res.json({ token: signAccessToken(user.id), user: toPublicUser(user) });
   } catch (err) { next(err); }
 });
@@ -261,6 +304,7 @@ router.post('/u/auth/google', authLimiter, async (req, res, next) => {
 
     const refreshToken = await issueRefreshToken(user.id);
     setRefreshCookie(res, REFRESH_COOKIE_NAME, refreshToken, REFRESH_TOKEN_TTL_MS);
+    presence.touch(user.id);
     res.status(created ? 201 : 200).json({
       token: signAccessToken(user.id),
       user: toPublicUser(user),
@@ -341,8 +385,29 @@ router.post('/u/me/daily', requireAuth, async (req, res, next) => {
           state.streak = (state.streak || 0) + 1;
         } else if (gap > 1) {
           // A permanent streak shield (bought in the shop) absorbs missed days.
-          state.streak = state.hasStreakShield ? Math.max(1, state.streak || 0) : 1;
+          if (state.hasStreakShield) {
+            state.streak = Math.max(1, state.streak || 0);
+          } else {
+            // The run is over, and today does not quietly become day one:
+            // the counter reads 0 for the rest of the day, which is what
+            // makes the repair offer mean anything. What was lost is
+            // stashed so POST /u/me/streak/repair can hand it back for
+            // energy; tomorrow's claim starts counting again from 1.
+            if (previousStreak > 0) {
+              state.streakLost = previousStreak;
+              state.streakLostAt = today;
+            }
+            state.streak = 0;
+          }
         }
+      }
+      // The offer lives for exactly the day it appeared. Clearing it here,
+      // on the first claim of a later day, is what expires it — there is no
+      // timer, and a stale `streakLost` would otherwise let someone buy back
+      // a run they abandoned weeks ago.
+      if (state.streakLostAt && state.streakLostAt !== today) {
+        state.streakLost = null;
+        state.streakLostAt = null;
       }
       state.coins = (state.coins || 0) + 5; // small daily login bonus
       if (state.streak > 0 && state.streak % 7 === 0) state.coins += 10; // weekly milestone bonus
@@ -351,7 +416,11 @@ router.post('/u/me/daily', requireAuth, async (req, res, next) => {
       // the celebration screen to render last week too, small enough that
       // the field never grows without bound.
       const days = Array.isArray(state.activeDays) ? state.activeDays : [];
-      state.activeDays = [...new Set([...days, today])].sort().slice(-30);
+      // Just over a year. The calendar lets a learner page back through
+      // months, and 30 days meant every month before this one rendered as
+      // "missed every day" — a lie the UI had no way to detect. 400 date
+      // strings is about 4 KB per account, which buys an honest history.
+      state.activeDays = [...new Set([...days, today])].sort().slice(-400);
       claimed = true;
       await db.saveUser(user);
     }
@@ -365,8 +434,63 @@ router.post('/u/me/daily', requireAuth, async (req, res, next) => {
       streak: state.streak || 0,
       previousStreak,
       streakIncreased: claimed && (state.streak || 0) > previousStreak,
+      // Non-null only on the day a run broke: what it was worth, and what
+      // buying it back costs right now. The clients render the offer from
+      // this rather than re-deriving the window themselves.
+      streakRepair: streakRepairOffer(state),
       activeDays: state.activeDays || [],
     });
+  } catch (err) { next(err); }
+});
+
+// ── Streak repair ────────────────────────────────────────────────────────────
+//
+// A missed day ends a run. On the day that happens — and only that day —
+// the learner can buy it back with energy, which is the one currency they
+// cannot simply grind: spending it here is a lesson they do not get to do.
+// Cost is admin-editable (contentStore.js#getLimits().streakRepairEnergy);
+// 0 turns the whole offer off.
+
+function repairCost() {
+  const n = parseInt(getLimits().streakRepairEnergy, 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/// The pending offer, or null. Same shape both clients render.
+function streakRepairOffer(state) {
+  const cost = repairCost();
+  if (!cost || !state?.streakLost || state.streakLostAt !== todayUTC()) return null;
+  return { lost: state.streakLost, cost };
+}
+
+router.post('/u/me/streak/repair', requireAuth, async (req, res, next) => {
+  try {
+    const user = db.findUserById(req.userId);
+    if (!user) return res.status(401).json({ error: 'Колдонуучу табылган жок' });
+
+    const { state } = user;
+    const offer = streakRepairOffer(state);
+    if (!offer) {
+      return res.status(400).json({ error: 'Калыбына келтире турган streak жок' });
+    }
+
+    const hours = refillHours();
+    const { remaining, resetInMs } = computeLiveEnergy(
+      state, getLimits().dailyFreeLessons ?? 3, hours,
+    );
+    if (remaining < offer.cost) {
+      return res.status(400).json({ error: 'Энергия жетишсиз', resetInMs });
+    }
+
+    spendEnergyOn(state, offer.cost, hours);
+    // The lost run plus today, which the claim that detected the loss has
+    // already recorded in `activeDays` — so the number matches the calendar.
+    state.streak = offer.lost + 1;
+    state.streakLost = null;
+    state.streakLostAt = null;
+    await db.saveUser(user);
+
+    res.json({ user: toPublicUser(user), streak: state.streak, spent: offer.cost });
   } catch (err) { next(err); }
 });
 
@@ -389,11 +513,20 @@ router.post('/u/me/lesson', requireAuth, async (req, res, next) => {
     if (alreadyDone) isReview = true;
 
     const mistakes = Math.max(0, Math.min(50, parseInt(rawMistakes, 10) || 0));
-    const questionCount = found.lesson.questions.length;
+    // Counted off the cards, so the pair-matching and sentence-building
+    // cards pay out like the multiple-choice ones do — `questions` stays the
+    // quiz-only legacy array (contentStore.js#gradedCountOf).
+    const questionCount = gradedCountOf(found.lesson);
 
     let reward;
     if (isReview) {
-      reward = { xp: 0, coins: 0, perfect: false, isReview: true };
+      // A review used to pay nothing at all, which made going back over a
+      // finished lesson feel like wasted time. It pays a flat rate now —
+      // admin-editable, and deliberately not scaled by question count or
+      // accuracy, so replaying a long lesson can never out-earn new work.
+      const reviewXp = Math.max(0, getLimits().xpPerReview ?? 5);
+      if (reviewXp > 0) awardXp(state, reviewXp);
+      reward = { xp: reviewXp, coins: 0, perfect: false, isReview: true };
     } else {
       // Daily energy gate — checked once per genuine attempt, not per
       // mistake. Re-verified server-side; the client only uses this to
@@ -484,8 +617,9 @@ router.post('/u/me/buy', requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// Partner-sponsored prize redemption — Module Б's marketplace, gated by
-// Module В's daily cap (see contentStore.js#getLimits().dailyPrizeCap).
+// Partner-sponsored prize redemption — Module Б's marketplace. What limits
+// it is the prize's own stock of promo codes; there is no house-wide daily
+// ceiling any more (see db.js#addRedemption for why it went).
 router.post('/u/me/redeem', requireAuth, async (req, res, next) => {
   try {
     const user = db.findUserById(req.userId);
@@ -500,24 +634,48 @@ router.post('/u/me/redeem', requireAuth, async (req, res, next) => {
       return res.status(400).json({ error: 'Монета жетишсиз' });
     }
 
-    const { dailyPrizeCap } = getLimits();
-    const today = todayUTC();
-    const code = `JASHMEN-${randomUUID().slice(0, 8).toUpperCase()}`;
-    // Cap-check + slot-reservation happen synchronously, back to back, with
-    // no `await` in between (see db.js#reserveRedemptionSlot) — that's what
-    // makes this atomic against concurrent requests.
-    const reserved = db.reserveRedemptionSlot(
-      { id: randomUUID(), userId: user.id, prizeId: prize.id, code, date: today, ts: Date.now() },
-      dailyPrizeCap
-    );
-    if (!reserved) {
-      return res.status(403).json({ error: 'Бардык сыйлыктар бүгүнкүгө бүттү. Эртең кайра келиңиз!' });
+    const stock = prizeStock(prize);
+    if (stock.soldOut) {
+      return res.status(409).json({ error: 'Бул сыйлык түгөндү' });
     }
 
-    state.coins -= prize.priceCoins;
-    await db.saveUser(user); // persists the coin deduction and the reservation above together
+    const today = todayUTC();
+    const code = `JASHMEN-${randomUUID().slice(0, 8).toUpperCase()}`;
 
-    res.status(201).json({ user: toPublicUser(user), code });
+    // The claim and the record happen synchronously, with no `await` in
+    // between — that is what makes the sale atomic against concurrent
+    // requests, so two buyers can never take the same promo code.
+    //
+    // The partner's code is snapshotted onto the record rather than read
+    // back through the prize at display time, because a pool changes and a
+    // learner who already paid must keep the string they were handed.
+    const promoCode = claimPromoCode(prize.id);
+    const redemptionId = randomUUID();
+    db.addRedemption({
+      id: redemptionId, userId: user.id, prizeId: prize.id, code,
+      promoCode,
+      date: today, ts: Date.now(),
+    });
+    state.coins -= prize.priceCoins;
+
+    try {
+      await db.saveUser(user); // the coin deduction and the coupon together
+      if (promoCode) await flushContent(); // the pool is one code shorter now
+    } catch (err) {
+      // Nothing reached disk, so nothing may be left changed in memory
+      // either: the code goes back to the front of the queue, the coins go
+      // back to the learner, and the coupon that was never issued is
+      // dropped. Losing one of a partner's finite codes to a failed write
+      // is not recoverable by hand.
+      returnPromoCode(prize.id, promoCode);
+      state.coins += prize.priceCoins;
+      db.removeRedemption(redemptionId);
+      throw err;
+    }
+
+    // `code` is ours, for reconciling with the partner; `promoCode` is the
+    // partner's, and is what the learner actually redeems at their till.
+    res.status(201).json({ user: toPublicUser(user), code, promoCode });
   } catch (err) { next(err); }
 });
 
@@ -536,6 +694,9 @@ router.get('/u/me/redemptions', requireAuth, (req, res, next) => {
         return {
           id: r.id,
           code: r.code,
+          // Older rows predate the field; fall back to the prize's current
+          // code so a coupon issued before this shipped still shows one.
+          promoCode: r.promoCode ?? prize?.promoCode ?? null,
           date: r.date,
           ts: r.ts || null,
           prize: prize
@@ -725,10 +886,17 @@ router.put('/u/me/university', requireAuth, async (req, res, next) => {
     if (!UNI_ID_RE.test(id)) return res.status(400).json({ error: 'Университет туура эмес' });
     if (!UNI_ROLES.includes(role)) return res.status(400).json({ error: 'Роль туура эмес' });
 
-    // Every enrolment write starts the campus score at zero — a new
-    // university, a re-join of the same one, or a role switch. Nothing is
-    // carried in from the general league and nothing is kept from a
-    // previous campus: each entry is a clean run, by design.
+    // Re-committing the enrolment the account already has is a no-op, not a
+    // fresh join. The app re-sends this write every time the university tab
+    // opens (league_screen.dart#_enrol), so treating an unchanged enrolment
+    // as a new one wiped the campus score on every visit to the tab.
+    if (state.uniId === id && state.uniRole === role) {
+      return res.json(toPublicUser(user));
+    }
+
+    // A real change — a different campus or a different role — starts the
+    // campus score at zero. Nothing is carried in from the general league
+    // and nothing is kept from a previous campus: each entry is a clean run.
     state.uniId = id;
     state.uniRole = role;
     state.uniJoinedAt = Date.now();

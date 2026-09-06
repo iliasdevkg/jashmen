@@ -574,6 +574,5 @@ export const SEED_CONTENT = {
   // Module В — Daily Cap Protection + "күнүнө N акысыз сабак" энергия лимити.
   limits: {
     dailyFreeLessons: 3,
-    dailyPrizeCap: 5,
   },
 };

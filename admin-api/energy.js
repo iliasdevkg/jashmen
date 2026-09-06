@@ -86,6 +86,7 @@ function rollIfNewPeriod(state, hours) {
     }
     if (typeof state.energyGivenToday !== 'number') state.energyGivenToday = 0;
     if (typeof state.supportEnergyToday !== 'number') state.supportEnergyToday = 0;
+    if (typeof state.energySpentToday !== 'number') state.energySpentToday = 0;
     return;
   }
 
@@ -96,6 +97,7 @@ function rollIfNewPeriod(state, hours) {
     state.bonusEnergyToday = 0;
     state.energyGivenToday = 0;
     state.supportEnergyToday = 0;
+    state.energySpentToday = 0;
   }
 }
 
@@ -107,8 +109,13 @@ export function computeLiveEnergy(state, dailyFreeLessons, hours = DEFAULT_REFIL
   // separately so the two caps never eat each other.
   const cap = dailyFreeLessons + (state.bonusEnergyToday || 0) + (state.supportEnergyToday || 0);
   // Energy a viewer gifted away is spent from the same pool as a lesson —
-  // that is what makes the gift cost the giver something real.
-  const used = (state.lessonsToday || 0) + (state.energyGivenToday || 0);
+  // that is what makes the gift cost the giver something real. So is energy
+  // spent on anything else the app sells for energy (a streak repair), which
+  // is counted apart from `lessonsToday` so that number stays an honest
+  // answer to "how many lessons did they finish".
+  const used = (state.lessonsToday || 0)
+    + (state.energyGivenToday || 0)
+    + (state.energySpentToday || 0);
   const remaining = Math.max(0, cap - used);
   let resetInMs = null;
   if (remaining <= 0) resetInMs = periodEndsAt(hours) - Date.now();
@@ -119,6 +126,14 @@ export function computeLiveEnergy(state, dailyFreeLessons, hours = DEFAULT_REFIL
 export function spendEnergy(state, hours = DEFAULT_REFILL_HOURS) {
   rollIfNewPeriod(state, hours);
   state.lessonsToday = (state.lessonsToday || 0) + 1;
+}
+
+// Energy spent on something that is not a lesson and not a gift — today,
+// only a streak repair (routes.js#/u/me/streak/repair). The caller checks
+// the balance first; this just records the spend.
+export function spendEnergyOn(state, amount, hours = DEFAULT_REFILL_HOURS) {
+  rollIfNewPeriod(state, hours);
+  state.energySpentToday = (state.energySpentToday || 0) + Math.max(0, amount);
 }
 
 // Coin-bought refill, capped per period so it can't be farmed into infinite

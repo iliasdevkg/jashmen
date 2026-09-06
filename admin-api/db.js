@@ -218,31 +218,161 @@ export function overview() {
   return { totalUsers: users.length, totalXp, totalCoins, totalLessonsCompleted, activeLast7Days };
 }
 
-// ── Redemptions (Module В: Daily Cap Protection) ────────────────────────
+/// The student side of the roster, split the way the two leagues are.
+///
+/// "Student" here means someone who joined a campus AS a student — the role
+/// that competes on a campus board. A viewer picked a campus too, but their
+/// points go to the general league, so counting them among students would
+/// overstate every campus.
+///
+/// Everything is computed from the user records in one pass; the caller
+/// resolves campus ids to names, which is content the database does not hold.
+export function studentOverview({ activeCutoffDate, onlineIds = [] } = {}) {
+  const online = new Set(onlineIds);
+  const byUni = new Map();
 
-// Atomically checks the daily cap AND reserves the slot in one synchronous
-// step — no `await` between the count-check and the state.redemptions.push,
-// so two concurrent /u/me/redeem requests can't both observe the same
-// stale count before either commits. (The function this replaced,
-// addRedemption(), only pushed *after* the caller had already awaited
-// db.saveUser() — that yield was the race window: a second request's cap
-// check could run before the first request's redemption was ever pushed.)
-// Mirrors energy.js#spendEnergy's synchronous check-then-mutate pattern.
-// Persistence is the caller's job (call saveUser()/persist right after) —
-// this only guarantees the in-memory reservation itself is atomic.
-export function reserveRedemptionSlot(entry, dailyCap) {
-  const count = state.redemptions.filter(r => r.date === entry.date).length;
-  if (count >= dailyCap) return false;
-  state.redemptions.push(entry);
-  return true;
+  let students = 0, viewers = 0, general = 0;
+  let studentXp = 0, studentLessons = 0, studentsActive = 0, studentsOnline = 0;
+
+  const bump = (uniId) => {
+    if (!byUni.has(uniId)) {
+      byUni.set(uniId, {
+        uniId, students: 0, viewers: 0, xp: 0,
+        lessonsCompleted: 0, active: 0, online: 0, topXp: 0,
+        // Who they actually are, ranked, so the panel can print the roll
+        // rather than only a headcount. Students only — a viewer supports a
+        // campus but does not compete for it.
+        roster: [],
+      });
+    }
+    return byUni.get(uniId);
+  };
+
+  for (const u of state.users) {
+    const st = u.state || {};
+    const isActive = Boolean(activeCutoffDate) && st.lastActiveDate >= activeCutoffDate;
+    const isOnline = online.has(u.id);
+
+    if (st.uniId && st.uniRole === 'student') {
+      students += 1;
+      // The campus score, not the lifetime total: this is what the campus
+      // board ranks on, and it resets when somebody joins or leaves.
+      const xp = st.uniXp || 0;
+      const done = (st.completedLessons || []).length;
+      studentXp += xp;
+      studentLessons += done;
+      if (isActive) studentsActive += 1;
+      if (isOnline) studentsOnline += 1;
+
+      const row = bump(st.uniId);
+      row.students += 1;
+      row.xp += xp;
+      row.lessonsCompleted += done;
+      if (isActive) row.active += 1;
+      if (isOnline) row.online += 1;
+      if (xp > row.topXp) row.topXp = xp;
+      row.roster.push({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        avatar: u.avatar,
+        xp,
+        lessonsCompleted: done,
+        streak: st.streak || 0,
+        lastActiveDate: st.lastActiveDate || null,
+        active: isActive,
+        online: isOnline,
+        joinedAt: st.uniJoinedAt || null,
+      });
+    } else if (st.uniId && st.uniRole === 'viewer') {
+      viewers += 1;
+      bump(st.uniId).viewers += 1;
+    } else {
+      general += 1;
+    }
+  }
+
+  return {
+    // The three populations, which add up to every account.
+    students, viewers, generalOnly: general,
+    studentXp, studentLessons, studentsActive, studentsOnline,
+    byUniversity: [...byUni.values()]
+      .map(row => ({
+        ...row,
+        // Highest campus score first — the same order the learners see on
+        // the board they are competing on.
+        roster: row.roster.sort((a, b) => b.xp - a.xp),
+      }))
+      .sort((a, b) => b.students - a.students),
+  };
 }
 
-export function countRedemptionsToday(dateStr) {
-  return state.redemptions.filter(r => r.date === dateStr).length;
+// ── Redemptions ─────────────────────────────────────────────────────────
+
+// Records a redemption. Synchronous, and deliberately so: the caller
+// (routes.js#/u/me/redeem) takes the promo code out of the pool in the same
+// unbroken run, with no `await` in between, and that is what stops two
+// concurrent requests from being handed the same code.
+//
+// This used to also enforce a house-wide "N prizes a day" cap. That cap
+// predates promo-code stock: back then nothing limited how many coupons a
+// prize could issue, so a daily ceiling was the only brake. Each prize now
+// carries its own finite pool of codes (contentStore.js#prizeStock), which
+// is a real inventory rather than a guess, so the ceiling only stopped
+// people buying prizes that were genuinely in stock.
+//
+// Persistence is the caller's job (saveUser()/persist right after).
+export function addRedemption(entry) {
+  state.redemptions.push(entry);
+}
+
+/// Undoes an addRedemption that was never persisted — see
+/// routes.js#/u/me/redeem, where a failed disk write has to leave the
+/// learner's coins and the partner's code exactly as it found them.
+export function removeRedemption(id) {
+  const i = state.redemptions.findIndex(r => r.id === id);
+  if (i >= 0) state.redemptions.splice(i, 1);
 }
 
 export function listRedemptions() {
   return state.redemptions;
+}
+
+/// Every coupon issued between two dates (inclusive), oldest first.
+///
+/// The filter is on the stored `date` string rather than on `ts`, because
+/// `date` is the UTC day the sale was booked against — the same day the
+/// daily cap counted it under — and comparing "YYYY-MM-DD" strings is
+/// exactly comparing the dates they spell.
+export function redemptionsBetween(fromDate, toDate) {
+  return state.redemptions
+    .filter(r => r.date >= fromDate && r.date <= toDate)
+    .sort((a, b) => (a.ts || 0) - (b.ts || 0));
+}
+
+/// The first day a coupon was ever issued, or null. Lets the admin's range
+/// picker open on the whole history instead of a guessed window.
+export function firstRedemptionDate() {
+  let first = null;
+  for (const r of state.redemptions) {
+    if (r.date && (first === null || r.date < first)) first = r.date;
+  }
+  return first;
+}
+
+/// Marks a coupon as handed over to the partner, or takes the mark back.
+///
+/// A nullable timestamp rather than a boolean: it answers "when" for free,
+/// reads as false-y while unset, and needs no migration for the records
+/// written before the field existed. Persists here because the only other
+/// redemption writer (addRedemption) deliberately does not, and
+/// persist() is module-private.
+export async function setRedemptionFulfilled(id, fulfilled) {
+  const row = state.redemptions.find(r => r.id === id);
+  if (!row) return null;
+  row.fulfilledAt = fulfilled ? Date.now() : null;
+  await persist();
+  return row;
 }
 
 // ── University league: viewer → student energy gifts ────────────────────
@@ -329,7 +459,7 @@ function findLiveSession(token, expectedType) {
 
 // Atomically revokes the presented refresh token and mints its
 // replacement in one synchronous step (same reserve-before-persist shape
-// as reserveRedemptionSlot) — refresh-token rotation, so a stolen-and-
+// as addRedemption) — refresh-token rotation, so a stolen-and-
 // reused token is detected: once rotated, the old token's hash no longer
 // matches any live session, so a replay of it (e.g. by an attacker who
 // captured it in transit) fails findLiveSession on the *next* attempt.

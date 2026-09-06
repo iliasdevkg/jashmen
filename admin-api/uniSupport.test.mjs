@@ -25,6 +25,10 @@ let originalLimits;
 
 /** A signed-in user with a full default-shaped state. */
 async function makeUser({ name, role = 'student', xp = 0, password = null, uniId = UNI }) {
+  // routes.js#awardXp: a campus student's points go to `uniXp`, everyone
+  // else's to `xp`; `lifetimeXp` is the never-reset total behind both. The
+  // caller passes one number and the fixture puts it where the app would.
+  const competitor = Boolean(uniId) && role === 'student';
   const user = {
     id: randomUUID(),
     name,
@@ -32,7 +36,10 @@ async function makeUser({ name, role = 'student', xp = 0, password = null, uniId
     avatar: '🦅',
     passwordHash: password ? await hashPassword(password) : null,
     state: {
-      xp, coins: 50, streak: 0,
+      xp: competitor ? 0 : xp,
+      uniXp: competitor ? xp : 0,
+      lifetimeXp: xp,
+      coins: 50, streak: 0,
       lessonsToday: 0, energyDate: null, energyPeriod: null, bonusEnergyToday: 0,
       energyGivenToday: 0, supportEnergyToday: 0, supportGivenPeriod: null,
       uniId, uniRole: role, uniJoinedAt: Date.now(),
@@ -132,6 +139,34 @@ test('enrolment persists role and university, and can be cleared', async () => {
   assert.equal(user.state.uniRole, null);
 });
 
+// The app re-sends this write every time the university tab opens
+// (league_screen.dart#_enrol). While an unchanged enrolment counted as a
+// fresh join, a learner lost their whole campus score just by switching tabs
+// and switching back.
+test('re-sending an unchanged enrolment keeps the campus score', async () => {
+  const { token, user } = await makeUser({ name: 'Steady', role: 'student', xp: 340 });
+  assert.equal(user.state.uniXp, 340, 'fixture puts a student\'s points on the campus score');
+
+  const res = await call('PUT', '/u/me/university', { token, body: { universityId: UNI, role: 'student' } });
+  assert.equal(res.status, 200);
+  const after = await res.json();
+  assert.equal(after.state.uniXp, 340, 'a no-op re-commit must not reset the score');
+  assert.equal(after.state.uniJoinedAt, user.state.uniJoinedAt, 'nor restart the run');
+});
+
+test('a real enrolment change still starts a clean run', async () => {
+  const { token } = await makeUser({ name: 'Switcher', role: 'student', xp: 500 });
+
+  // Same campus, different role — still a different enrolment.
+  let res = await call('PUT', '/u/me/university', { token, body: { universityId: UNI, role: 'viewer' } });
+  assert.equal((await res.json()).state.uniXp, 0, 'a role switch resets');
+
+  res = await call('PUT', '/u/me/university', { token, body: { universityId: 'auca', role: 'student' } });
+  const moved = await res.json();
+  assert.equal(moved.state.uniId, 'auca');
+  assert.equal(moved.state.uniXp, 0, 'a new campus resets');
+});
+
 test('enrolment rejects a bad role or a bad university id', async () => {
   const { token } = await makeUser({ name: 'BadEnrol' });
   const bad = await call('PUT', '/u/me/university', { token, body: { universityId: UNI, role: 'admin' } });
@@ -155,6 +190,7 @@ test('the board ranks students by XP and counts viewers without ranking them', a
   assert.deepEqual(board.students.map(s => s.name), ['Asan', 'Usen']);
   assert.deepEqual(board.students.map(s => s.rank), [1, 2]);
   assert.equal(board.totalXp, 1400, "the viewer's 100k XP stays out of the university total");
+  assert.deepEqual(board.students.map(s => s.xp), [900, 500], 'students are ranked on their campus score');
   assert.equal(board.me.role, 'viewer');
   assert.equal(board.me.rank, null, 'a viewer is never ranked on the board');
 });

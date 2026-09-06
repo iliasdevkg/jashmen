@@ -14,6 +14,7 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import * as db from './db.js';
+import * as presence from './presence.js';
 
 // On Vercel (process.env.VERCEL is set automatically), a missing
 // JWT_SECRET is NOT a dev-friendly warning-and-continue situation — the
@@ -88,6 +89,9 @@ export function requireAuth(req, res, next) {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     req.userId = payload.sub;
+    // Every authenticated request is a heartbeat. In memory only — see
+    // presence.js for why this is not written to the database.
+    presence.touch(req.userId);
     next();
   } catch {
     return res.status(401).json({ error: 'Сессия аяктады, кайра кириңиз' });

@@ -409,4 +409,19 @@ export const SEED_LANDING = {
       en: '© JashMen Studio. All rights reserved.',
     },
   },
+
+  // The B2B page's hero video (src/pages/BusinessPage.jsx). Ships empty —
+  // there is no film yet, and the page is built so that an empty videoUrl
+  // simply removes the play button. Fill it from the panel's "Landing бет"
+  // tab, either by uploading a file or by pasting a YouTube/Vimeo link.
+  business: {
+    enabled: true,
+    videoUrl: '',
+    videoPoster: '',
+    videoLabel: {
+      ky: 'Видеону көрүү',
+      ru: 'Смотреть видео',
+      en: 'Watch the video',
+    },
+  },
 };

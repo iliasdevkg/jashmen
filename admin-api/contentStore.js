@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { put, get } from '@vercel/blob';
 import { SEED_CONTENT } from './content.seed.js';
 import { SEED_LANDING } from './landing.seed.js';
+import { SEED_BUSINESS } from './business.seed.js';
 import { LESSON_ICON_SLUGS } from '../shared/lessonIcons.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -74,6 +75,29 @@ const LEGACY_SHOP_EFFECTS = {
 function withoutEmoji(entity) {
   const { emoji: _legacy, ...rest } = entity;
   return { ...rest, iconUrl: rest.iconUrl ?? null };
+}
+
+// Which side of the lesson path a module's artwork stands on. Duolingo puts
+// its scenery on both edges of the road; ours is one tile per module, so the
+// choice is per module and belongs to whoever writes the module.
+//
+// 'left' is the default because that is where every existing tile already
+// sits — a stored module written before this field must not move.
+const MODULE_ART_SIDES = new Set(['left', 'right']);
+
+// `typeof === 'string'` rather than String(value): coercing would let
+// ['right'] through as 'right', which is a value nobody meant to send and a
+// shape that should read as "not a side" rather than as the side.
+function sanitizeArtSide(value) {
+  if (typeof value !== 'string') return 'left';
+  const v = value.trim();
+  return MODULE_ART_SIDES.has(v) ? v : 'left';
+}
+
+/// Backfills `artSide` on load, so every client can read the field without
+/// each of them having to know the default.
+function withArtSide(mod) {
+  return { ...mod, artSide: sanitizeArtSide(mod.artSide) };
 }
 
 // ── University league content (Module Г) ─────────────────────────────────
@@ -221,6 +245,97 @@ const LANDING_SECTIONS = {
   footer:       { text: ['tagline', 'rights'], url: ['instagram'], plain: ['email'] },
 };
 
+// ── The business site at `/` (src/pages/BusinessPage.jsx) ────────────────
+//
+// Every word and every picture on that page, so none of it needs a deploy
+// to change. Same five field kinds as the table above, and the same rule
+// that an empty value is a supported state rather than a missing one: a
+// blank heading removes the heading, a blank videoUrl removes the hero's
+// play button, a section with `enabled: false` disappears entirely.
+//
+// The page is trilingual like the rest of the site. It opens in Russian —
+// the reader is usually a marketing or CSR lead in Bishkek — and the
+// visitor can switch.
+//
+// Two things on that page are deliberately NOT here, because they are
+// facts rather than copy: the counters under "Продукт работает сегодня"
+// come from GET /public/stats, and the logos under "Нам доверяют" are the
+// real partners and campuses from this same store. Typing either by hand
+// is how a marketing page starts lying.
+const BUSINESS_SECTIONS = {
+  nav: {
+    text: ['solutions', 'partners', 'integration', 'impact', 'product', 'forStudents', 'cta'],
+  },
+  hero: {
+    text: ['line1', 'line2', 'line3', 'line4', 'lead', 'primaryCta', 'secondaryCta', 'videoLabel'],
+    // `imageUrl` replaces the animated artwork when set; videoUrl accepts an
+    // uploaded file (uploads.js takes mp4/webm/mov up to 25MB) or a
+    // YouTube/Vimeo link.
+    url: ['imageUrl', 'videoUrl', 'videoPoster'],
+  },
+  strip: {
+    list: { key: 'items', max: 6, icon: true, text: ['label'] },
+  },
+  trust: {
+    text: ['label', 'empty'],
+  },
+  why: {
+    text: ['title', 'note'],
+    list: { key: 'items', max: 8, icon: true, text: ['title', 'text'] },
+  },
+  solutions: {
+    text: ['title', 'note', 'cta'],
+    // Three bullets rather than a nested list: the table gives a section one
+    // repeatable list, and the rows here ARE that list. Three is what the
+    // design holds without the card growing past its illustration.
+    list: {
+      key: 'items',
+      max: 8,
+      text: ['tab', 'title', 'text', 'p1', 'p2', 'p3'],
+      url: ['imageUrl'],
+    },
+  },
+  stats: {
+    text: [
+      'title', 'note',
+      'learnersLabel', 'lessonsLabel', 'modulesLabel', 'universitiesLabel', 'xpLabel',
+    ],
+  },
+  cta: {
+    text: ['line1', 'line2', 'text', 'button'],
+    url: ['imageUrl'],
+  },
+  form: {
+    text: [
+      'title', 'note',
+      'organization', 'organizationPh', 'contact', 'contactPh',
+      'email', 'emailPh', 'phone', 'phonePh', 'optional',
+      'interest', 'iLeague', 'iModule', 'iRewards', 'iIntegration',
+      'message', 'messagePh',
+      'submit', 'sending', 'retry', 'privacy',
+      'okTitle', 'okBody', 'okAgain', 'failBody',
+    ],
+  },
+  footer: {
+    text: [
+      'tagline', 'col1', 'col2', 'col3',
+      'newsTitle', 'newsNote', 'newsPlaceholder', 'newsOk', 'newsBad', 'newsFail',
+      'apkLabel', 'rights',
+    ],
+    plain: ['email', 'instagram'],
+    // The Android build. An empty apkUrl takes the download link off the
+    // page rather than leaving one that 404s.
+    url: ['apkUrl'],
+    // One list for all three columns: `col` says which one a link belongs
+    // to. Three separate lists would need three of them per section, which
+    // the table does not carry — and a column number is something an
+    // operator can hold in their head.
+    list: { key: 'links', max: 18, text: ['label'], plain: ['href', 'col'] },
+  },
+};
+
+export const BUSINESS_SECTION_KEYS = Object.keys(BUSINESS_SECTIONS);
+
 export const LANDING_SECTION_KEYS = Object.keys(LANDING_SECTIONS);
 
 const LANDING_ITEM_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}$/;
@@ -250,7 +365,7 @@ const LANDING_ENUMS = {
   badgeStat: ['none', 'learners', 'lessons', 'universities', 'xp'],
 };
 
-function sanitizeLandingEnum(field, value, fallback) {
+function sanitizeSectionEnum(field, value, fallback) {
   const allowed = LANDING_ENUMS[field] || [];
   const v = String(value ?? '').trim();
   if (allowed.includes(v)) return v;
@@ -273,15 +388,25 @@ function sanitizeLandingItem(spec, raw, index, taken) {
 // the patch is carried over untouched, which is what lets the admin editor
 // PUT one section at a time and what lets a new seed section appear for a
 // store that predates it.
-function sanitizeLanding(patch, current) {
+// Merges `patch` over `current` section by section, against a declarative
+// table and a seed. A section absent from the patch is carried over
+// untouched, which is what lets an editor PUT one section at a time and
+// what lets a new seed section appear for a store that predates it.
+//
+// Two pages run through this: the student landing at /app (LANDING_SECTIONS
+// + SEED_LANDING) and the business site at / (BUSINESS_SECTIONS +
+// SEED_BUSINESS). They are separate stores with separate editors, but the
+// field rules — trilingual text, a url, a raw string, an icon slug, one
+// repeatable list — are identical, so there is one implementation.
+function sanitizeSections(patch, current, table, seedRoot) {
   const src = patch && typeof patch === 'object' ? patch : {};
   const base = current && typeof current === 'object' ? current : {};
   const out = {};
 
-  for (const [key, spec] of Object.entries(LANDING_SECTIONS)) {
+  for (const [key, spec] of Object.entries(table)) {
     const raw = src[key] && typeof src[key] === 'object' ? src[key] : {};
     const prev = base[key] && typeof base[key] === 'object' ? base[key] : {};
-    const seed = SEED_LANDING[key] || {};
+    const seed = seedRoot[key] || {};
     const section = {
       enabled: typeof raw.enabled === 'boolean' ? raw.enabled
         : typeof prev.enabled === 'boolean' ? prev.enabled
@@ -302,7 +427,7 @@ function sanitizeLanding(patch, current) {
     }
     for (const field of spec.enum || []) {
       const value = field in raw ? raw[field] : (field in prev ? prev[field] : seed[field]);
-      section[field] = sanitizeLandingEnum(field, value, seed[field]);
+      section[field] = sanitizeSectionEnum(field, value, seed[field]);
     }
     if (spec.list) {
       const { key: listKey, max } = spec.list;
@@ -319,6 +444,22 @@ function sanitizeLanding(patch, current) {
   return out;
 }
 
+const sanitizeLanding = (patch, current) =>
+  sanitizeSections(patch, current, LANDING_SECTIONS, SEED_LANDING);
+
+const sanitizeBusiness = (patch, current) =>
+  sanitizeSections(patch, current, BUSINESS_SECTIONS, SEED_BUSINESS);
+
+/// Limits that used to exist and no longer do. Stripped on load so an old
+/// content.json stops carrying them the next time anything is saved.
+const RETIRED_LIMITS = ['dailyPrizeCap'];
+
+function withoutRetiredLimits(limits) {
+  const out = { ...limits };
+  for (const key of RETIRED_LIMITS) delete out[key];
+  return out;
+}
+
 function withDefaults(c) {
   const achievements = (c.achievements || [])
     .map(a => (a.rule ? a : { ...a, rule: LEGACY_ACHIEVEMENT_RULES[a.id] || { type: 'lessons_completed', value: 1 } }))
@@ -331,12 +472,16 @@ function withDefaults(c) {
     .map(withoutEmoji)
     .map(i => (i.effect ? i : { ...i, effect: LEGACY_SHOP_EFFECTS[i.id] || 'xp_boost' }));
   return {
-    modules: c.modules || [],
+    modules: (c.modules || []).map(withArtSide),
     leagues: (c.leagues || []).map(withoutEmoji),
     achievements,
     shop_items,
     partners: c.partners || [],
-    prizes: c.prizes || [],
+    // A prize's promo codes used to be one shared string reused for every
+    // redemption. They are a STOCK now: one code per unit, handed out once
+    // and gone (addPrize). The old field migrates into a one-item pool,
+    // which is also what it meant for a partner who only ever printed one.
+    prizes: (c.prizes || []).map(migratePrizeCodes),
     retentionRules: c.retentionRules || [],
     // Absent (a store written before Module Г) → seeded, so the league keeps
     // rendering what the clients used to carry. An admin who deletes every
@@ -347,13 +492,19 @@ function withDefaults(c) {
     // missing a section added in a later release — picks up the new copy
     // instead of rendering a hole on the site's front door.
     landing: sanitizeLanding(c.landing || {}, SEED_LANDING),
+    // The business site's copy (BUSINESS_SECTIONS). Same shape, same
+    // sanitizer, its own editor tab in the panel.
+    business: sanitizeBusiness(c.business || {}, SEED_BUSINESS),
     // Task 12 — every previously-hardcoded gameplay/economy constant now
     // lives here, fully admin-editable. Defaults reproduce the exact
     // numbers routes.js/energy.js used to hardcode, so an existing deploy's
     // behavior is byte-identical until an admin actually changes something.
     limits: {
       dailyFreeLessons: 3,
-      dailyPrizeCap: 5,
+  // A review pays a flat, small amount: enough that going back over a
+  // finished lesson is worth doing, small enough that it can never be a
+  // faster way to earn than new material. 0 turns reviews back off.
+  xpPerReview: 5,
       maxBonusEnergyPerDay: 3,
       xpPerQuestion: 10,
       xpMistakePenalty: 3,
@@ -368,7 +519,16 @@ function withDefaults(c) {
       // University league: how much energy one viewer hands a student per gift
       // (routes.js#/u/university/support). One gift per viewer per period.
       supportEnergyAmount: 5,
-      ...(c.limits || {}),
+      // What it costs to buy a broken streak back on the day it breaks
+      // (routes.js#/u/me/streak/repair). 0 switches the offer off entirely,
+      // and a missed day then simply ends the streak.
+      streakRepairEnergy: 1,
+      // `dailyPrizeCap` is deliberately dropped rather than defaulted: it was
+      // a house-wide "N prizes a day" ceiling that promo-code stock replaced
+      // (db.js#addRedemption). A store written before that still carries the
+      // number, and spreading it back in would leave a dead key in every
+      // /limits response and in the admin's saved document forever.
+      ...withoutRetiredLimits(c.limits || {}),
     },
   };
 }
@@ -480,6 +640,28 @@ export function normalizeTrilingualOptional(value) {
   return normalizeTrilingual(value) ?? '';
 }
 
+// Cyrillic → Latin, for ids that have to survive a URL path and an
+// ASCII-only validator. Kyrgyz-specific letters (ң ө ү) included, since a
+// campus called "КӨЛ УНИВЕРСИТЕТИ" is exactly the case that used to break.
+const TRANSLIT = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'j', з: 'z',
+  и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', ң: 'ng', о: 'o', ө: 'o',
+  п: 'p', р: 'r', с: 's', т: 't', у: 'u', ү: 'u', ф: 'f', х: 'h', ц: 'ts',
+  ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+  і: 'i', һ: 'h',
+};
+
+/// An id safe to put in a URL path and to hand to an ASCII-only validator.
+/// University ids need this: they travel as `/u/university/:uniId/board` and
+/// are checked against a Latin-only regex in routes.js, so a campus created
+/// under a Cyrillic name used to be impossible for anyone to actually join.
+function asciiSlug(s) {
+  const latin = String(s || '').toLowerCase().trim()
+    .split('').map(ch => (ch in TRANSLIT ? TRANSLIT[ch] : ch)).join('');
+  const base = latin.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return base.slice(0, 40).replace(/-+$/, '');
+}
+
 function slugify(s) {
   const base = String(s || '').toLowerCase().trim()
     .replace(/[^a-z0-9а-яёіңөүһ]+/gi, '-')
@@ -563,10 +745,15 @@ export function checkNewAchievements(userState, reward, totalLessonsCount = tota
 
 // ── Module A: modules/lessons ───────────────────────────────────────────
 
-export async function addModule({ title, color, iconUrl, icon }) {
+export async function addModule({ title, color, iconUrl, icon, partnerId, artSide }) {
   const name = normalizeTrilingual(title);
   if (!name) throw new Error('Модулдун аталышы керек');
-  const mod = { id: `${slugify(kyOf(title))}-${randomUUID().slice(0, 4)}`, title: name, color: color || '#1CB0F6', partnerId: null, iconUrl: iconUrl || null, icon: sanitizeIconSlug(icon), lessons: [] };
+  // The partner picked in the create form used to be hard-coded to null
+  // here, so a new module always came back unsponsored and the admin had to
+  // reopen it and save again. Resolved against the catalogue rather than
+  // trusted, so a stale id lands as null instead of a dangling reference.
+  const partner = partnerId && findPartner(partnerId) ? partnerId : null;
+  const mod = { id: `${slugify(kyOf(title))}-${randomUUID().slice(0, 4)}`, title: name, color: color || '#1CB0F6', partnerId: partner, iconUrl: iconUrl || null, icon: sanitizeIconSlug(icon), artSide: sanitizeArtSide(artSide), lessons: [] };
   state.modules.push(mod);
   await persist();
   return mod;
@@ -582,6 +769,10 @@ export async function updateModule(id, patch) {
     safe.title = name;
   }
   if ('icon' in safe) safe.icon = sanitizeIconSlug(safe.icon);
+  // Anything other than 'left'/'right' falls back to 'left' rather than
+  // being rejected — a bad value here would only ever come from a stale
+  // client, and losing the whole save over it is the worse trade.
+  if ('artSide' in safe) safe.artSide = sanitizeArtSide(safe.artSide);
   Object.assign(mod, safe);
   await persist();
   return mod;
@@ -607,6 +798,26 @@ function hasBilingualText(v) {
   if (v == null) return false;
   if (typeof v === 'string') return v.trim() !== '';
   return String(v.ky || '').trim() !== '' || String(v.ru || '').trim() !== '';
+}
+
+/// The card types a learner is graded on — what a lesson's reward is counted
+/// from. `theory` and `media` are read-through cards and earn nothing on
+/// their own; the rest each ask the learner to commit to an answer.
+export const GRADED_CARD_TYPES = new Set(['quiz', 'match', 'build']);
+
+/// How many graded cards a lesson holds.
+///
+/// Deliberately counted off `cards`, not off `questions`: `questions` is the
+/// legacy flat quiz array that pre-card clients fall back to, and stuffing a
+/// pair-matching or sentence-building card into it would make those clients
+/// render it as a broken multiple-choice question. Lessons that predate
+/// cards have no `cards` array at all, so they still count off `questions`.
+export function gradedCountOf(lesson) {
+  const cards = lesson?.cards;
+  if (Array.isArray(cards) && cards.length > 0) {
+    return cards.filter(c => GRADED_CARD_TYPES.has(c?.type)).length;
+  }
+  return (lesson?.questions || []).length;
 }
 
 function questionsFromCards(cards) {
@@ -661,6 +872,57 @@ export async function updateLesson(lessonId, patch) {
   if (safe.cards) found.lesson.questions = questionsFromCards(safe.cards);
   await persist();
   return found.lesson;
+}
+
+/// Puts the modules in the order [orderedIds] gives.
+///
+/// Same contract as reorderLessons, and for the same reason: the module
+/// order is the shape of the learning path, so an unknown id is ignored and
+/// a module the caller forgot to mention keeps its place at the end rather
+/// than falling off the curriculum.
+export async function reorderModules(orderedIds) {
+  const byId = new Map(state.modules.map(m => [m.id, m]));
+  const next = [];
+  for (const id of Array.isArray(orderedIds) ? orderedIds : []) {
+    const mod = byId.get(id);
+    if (mod && !next.includes(mod)) next.push(mod);
+  }
+  for (const mod of state.modules) {
+    if (!next.includes(mod)) next.push(mod);
+  }
+
+  state.modules = next;
+  await persist();
+  return state.modules;
+}
+
+/// Puts a module's lessons in the order [orderedIds] gives.
+///
+/// The order IS the curriculum: a learner walks the path top to bottom and
+/// each lesson unlocks the next, so moving one is a real editorial act, not
+/// a display preference. Stored as the array order rather than as a
+/// sort-key field, because that is already how every client reads it.
+///
+/// Ids the module does not have are ignored, and any lesson the caller
+/// forgot to mention keeps its place at the end — a partial list can
+/// reshuffle the deck but can never silently delete a lesson from it.
+export async function reorderLessons(moduleId, orderedIds) {
+  const mod = state.modules.find(m => m.id === moduleId);
+  if (!mod) throw new Error('Модуль табылган жок');
+
+  const byId = new Map(mod.lessons.map(l => [l.id, l]));
+  const next = [];
+  for (const id of Array.isArray(orderedIds) ? orderedIds : []) {
+    const lesson = byId.get(id);
+    if (lesson && !next.includes(lesson)) next.push(lesson);
+  }
+  for (const lesson of mod.lessons) {
+    if (!next.includes(lesson)) next.push(lesson);
+  }
+
+  mod.lessons = next;
+  await persist();
+  return mod;
 }
 
 export async function deleteLesson(lessonId) {
@@ -785,7 +1047,7 @@ export async function addUniversity(body) {
   // A slug rather than a UUID: every enrolled learner stores this id on
   // their own record (state.uniId), so it wants to stay readable in the
   // database and in a support conversation.
-  const base = slugify(core.listName) || 'uni';
+  const base = asciiSlug(core.listName) || 'uni';
   let id = base;
   for (let n = 2; findUniversity(id); n += 1) id = `${base}-${n}`;
 
@@ -819,7 +1081,104 @@ export async function deleteUniversity(id) {
   await persist();
 }
 
-export async function addPrize({ partnerId, title, description, photoUrl, priceCoins }) {
+/// The partner's own code, typed by the operator — "MBANK20", say.
+///
+/// Optional: a prize without one still works, the learner just gets the
+/// coupon id the server mints. Uppercased and stripped of spaces because a
+/// promo code is read off a screen and typed into somebody else's checkout,
+/// where "mbank 20" and "MBANK20" are not the same string.
+// ── Promo codes: a stock, not a string ──────────────────────────────────
+//
+// One code per unit of the prize. Five coffees means five codes, and the
+// fifth redemption is the last one the shop will accept — the pool IS the
+// inventory, so there is no second number to keep in sync with it.
+//
+// A prize that has never had a code is not "sold out", it is a prize with
+// no partner code at all: it stays on unlimited sale and the learner gets
+// only JashMen's own coupon number, exactly as before this existed. That is
+// what `codesUsed` distinguishes — see prizeStock().
+
+/// Codes are matched by eye at a till, so they are stored the way they are
+/// read: upper case, no spaces.
+function normalizePromoCode(v) {
+  const code = String(v ?? '').trim().toUpperCase().replace(/\s+/g, '').slice(0, 40);
+  return code || null;
+}
+
+/// Ceiling on one prize's pool. Far above any real campaign — this is a
+/// guard against a paste going wrong, not a business limit.
+const MAX_PROMO_CODES = 5000;
+
+/// Accepts a list, or one string, or a block of text with a code per line —
+/// which is how a partner actually sends them. Duplicates are dropped: two
+/// identical codes are one code that would be handed to two people.
+export function normalizePromoCodes(v) {
+  const raw = Array.isArray(v) ? v : String(v ?? '').split(/[\r\n,;]+/);
+  const seen = new Set();
+  for (const item of raw) {
+    const code = normalizePromoCode(item);
+    if (code && !seen.has(code)) seen.add(code);
+    if (seen.size >= MAX_PROMO_CODES) break;
+  }
+  return [...seen];
+}
+
+function migratePrizeCodes(prize) {
+  if (Array.isArray(prize.promoCodes)) {
+    return { ...prize, codesUsed: Math.max(0, parseInt(prize.codesUsed, 10) || 0) };
+  }
+  const { promoCode, ...rest } = prize;
+  const legacy = normalizePromoCode(promoCode);
+  return { ...rest, promoCodes: legacy ? [legacy] : [], codesUsed: 0 };
+}
+
+/// What the shop needs to know, and all it is ever told — the codes
+/// themselves never leave the admin (routes.js#/public/content).
+///
+/// `unlimited` is the no-code-programme case: nothing to run out of.
+export function prizeStock(prize) {
+  const left = Array.isArray(prize?.promoCodes) ? prize.promoCodes.length : 0;
+  const used = Math.max(0, parseInt(prize?.codesUsed, 10) || 0);
+  const unlimited = left === 0 && used === 0;
+  return { left, used, unlimited, soldOut: !unlimited && left === 0 };
+}
+
+/// Takes one code out of the pool, or null when there is none to take.
+///
+/// Synchronous on purpose, with no await anywhere inside it: the caller
+/// (routes.js#/u/me/redeem) pairs it with db.addRedemption in one
+/// unbroken run, which is what stops two simultaneous buyers from being
+/// handed the same string. Persisting is the caller's job — see
+/// flushContent() — because the code is already spoken for the instant this
+/// returns, whether or not the disk has caught up.
+export function claimPromoCode(prizeId) {
+  const prize = findPrize(prizeId);
+  if (!prize || !Array.isArray(prize.promoCodes) || prize.promoCodes.length === 0) return null;
+  const code = prize.promoCodes.shift();
+  prize.codesUsed = (prize.codesUsed || 0) + 1;
+  return code;
+}
+
+/// Puts a claimed code back at the front of the queue, for when the step
+/// after the claim refuses the sale (the daily cap, say). Same synchronous
+/// contract as claimPromoCode.
+export function returnPromoCode(prizeId, code) {
+  const prize = findPrize(prizeId);
+  if (!prize || !code) return;
+  if (!Array.isArray(prize.promoCodes)) prize.promoCodes = [];
+  prize.promoCodes.unshift(code);
+  prize.codesUsed = Math.max(0, (prize.codesUsed || 0) - 1);
+}
+
+/// Writes the in-memory content to disk. Exported for the redemption path,
+/// which mutates a prize's pool outside the usual add/update helpers.
+export function flushContent() {
+  return persist();
+}
+
+export async function addPrize({
+  partnerId, title, description, photoUrl, priceCoins, promoCodes, promoCode,
+}) {
   const label = normalizeTrilingual(title);
   if (!label) throw new Error('Сыйлыктын аталышы керек');
   const prize = {
@@ -829,6 +1188,10 @@ export async function addPrize({ partnerId, title, description, photoUrl, priceC
     description: normalizeTrilingualOptional(description),
     photoUrl: photoUrl || null,
     priceCoins: Math.max(0, parseInt(priceCoins, 10) || 0),
+    // `promoCode` is still accepted so an older admin bundle sitting in a
+    // browser tab keeps working across the deploy that shipped this.
+    promoCodes: normalizePromoCodes(promoCodes ?? promoCode),
+    codesUsed: 0,
   };
   state.prizes.push(prize);
   await persist();
@@ -846,6 +1209,14 @@ export async function updatePrize(id, patch) {
   }
   if ('description' in safe) safe.description = normalizeTrilingualOptional(safe.description);
   if (safe.priceCoins != null) safe.priceCoins = Math.max(0, parseInt(safe.priceCoins, 10) || 0);
+  // Present-but-empty clears the pool; absent leaves it alone. That is what
+  // lets the form remove every code without also having to send them all.
+  // `codesUsed` is never patchable — it is a tally of what actually
+  // happened, and rewriting it would let the pool lie about the stock.
+  if ('promoCodes' in safe) safe.promoCodes = normalizePromoCodes(safe.promoCodes);
+  else if ('promoCode' in safe) safe.promoCodes = normalizePromoCodes(safe.promoCode);
+  delete safe.promoCode;
+  delete safe.codesUsed;
   Object.assign(prize, safe);
   await persist();
   return prize;
@@ -1092,6 +1463,16 @@ export function listRetentionRules() {
 }
 
 // ── Landing reads/writes ─────────────────────────────────────────────────
+
+export function getBusiness() {
+  return state.business;
+}
+
+export async function setBusiness(patch) {
+  state.business = sanitizeBusiness(patch, state.business);
+  await persist();
+  return state.business;
+}
 
 export function getLanding() {
   return state.landing;

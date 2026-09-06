@@ -33,6 +33,30 @@ export const authLimiter = rateLimit({
   message: { error: 'Өтө көп аракет. 15 мүнөттөн кийин кайра аракет кылыңыз.' },
 });
 
+/** Public enquiry forms — the partnership application and user feedback.
+ *
+ * Unauthenticated and it writes to disk, so it needs a brake of its own.
+ * Generous by design: a person filling in a form, mistyping their email and
+ * resubmitting must never be turned away, and a bank's enquiry is the most
+ * expensive request on this server to lose. It only has to stop a script.
+ *
+ * One page now carries two of these forms (the enquiry and the footer's
+ * newsletter box), so a single visitor can legitimately spend two of the
+ * allowance in a minute. LEAD_RATE_LIMIT raises the hourly count without a
+ * redeploy — a shared office or a university NAT puts many people behind one
+ * address, which is the case where 12 stops being generous. */
+const LEAD_LIMIT = (() => {
+  const n = Number(process.env.LEAD_RATE_LIMIT);
+  return Number.isFinite(n) && n >= 1 && n <= 1000 ? Math.floor(n) : 12;
+})();
+
+export const leadLimiter = rateLimit({
+  ...common,
+  windowMs: 60 * 60 * 1000,
+  limit: LEAD_LIMIT,
+  message: { error: 'Слишком много обращений. Попробуйте через час.' },
+});
+
 /** Account creation — tighter, since one person needs this at most once. */
 export const signupLimiter = rateLimit({
   ...common,
