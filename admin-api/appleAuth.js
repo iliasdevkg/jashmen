@@ -34,7 +34,7 @@ import * as db from './db.js';
 // ID for the web. Both mint tokens for the same user records here, so both
 // are accepted.
 //
-//   APPLE_BUNDLE_ID   com.jashmenstudio.jashmen  (the iOS app)
+//   APPLE_BUNDLE_ID   com.jashmenstudio.app  (the iOS app)
 //   APPLE_SERVICE_ID  the Service ID, only if the web ever offers this
 const AUDIENCES = [
   process.env.APPLE_BUNDLE_ID,

@@ -74,7 +74,7 @@
 	     The client ids themselves come from the server (GET /public/config),
 	     but this URL scheme cannot: iOS resolves it at launch, so it has to
 	     be in the bundle. Create an iOS OAuth client in Google Cloud Console
-	     (bundle id com.jashmenstudio.jashmen), then uncomment the block below
+	     (bundle id com.jashmenstudio.app), then uncomment the block below
 	     and paste its REVERSED client id — the one that looks like
 	     com.googleusercontent.apps.123456789-abcdef. Until then the sign-in
 	     button stays hidden on iOS and email/password carries on.

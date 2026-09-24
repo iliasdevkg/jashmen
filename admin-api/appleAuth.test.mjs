@@ -38,7 +38,7 @@ before(async () => {
   if (fs.existsSync(DATA_DIR)) fs.cpSync(DATA_DIR, BACKUP, { recursive: true });
   fs.rmSync(path.join(DATA_DIR, 'db.json'), { force: true });
 
-  process.env.APPLE_BUNDLE_ID = 'com.jashmenstudio.jashmen';
+  process.env.APPLE_BUNDLE_ID = 'com.jashmenstudio.app';
   process.env.NODE_ENV = 'test';
 
   apple = await import('./appleAuth.js');
