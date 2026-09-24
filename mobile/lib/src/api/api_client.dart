@@ -22,6 +22,8 @@ import 'dart:io';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -52,6 +54,12 @@ class ApiException implements Exception {
 
 class ApiClient {
   ApiClient._(this._dio, this._storage);
+
+  /// For tests that need to drive the token queue against a controllable
+  /// storage; production always goes through [create].
+  @visibleForTesting
+  ApiClient.forTesting(Dio dio, FlutterSecureStorage storage) : this._(dio, storage);
+
 
   final Dio _dio;
   final FlutterSecureStorage _storage;
@@ -93,7 +101,7 @@ class ApiClient {
   InterceptorsWrapper _authInterceptor() => InterceptorsWrapper(
         onRequest: (options, handler) async {
           if (options.extra['skipAuth'] != true) {
-            final token = await _storage.read(key: _accessTokenKey);
+            final token = await _readToken();
             if (token != null) {
               options.headers['Authorization'] = 'Bearer $token';
             }
@@ -143,20 +151,62 @@ class ApiClient {
       );
       final token = res.data?['token'] as String?;
       if (token == null) return null;
-      await _storage.write(key: _accessTokenKey, value: token);
+      await _saveToken(token);
       return token;
     } catch (_) {
       return null;
     }
   }
 
-  Future<void> _saveToken(String token) =>
-      _storage.write(key: _accessTokenKey, value: token);
+  /// Every access-token write and delete runs through this one queue, and
+  /// every read waits for it.
+  ///
+  /// Two things went wrong before, both from the same cause. The login
+  /// callbacks call [_saveToken] without awaiting it (they are plain
+  /// mapping functions), so the next request — the daily claim, fired the
+  /// instant the shell appears — read the token store before the write had
+  /// landed, found nothing, and got a 401. That 401 starts a refresh, which
+  /// writes the token too, while the first write is still in flight: two
+  /// concurrent adds of one Keychain item, and iOS answers the second with
+  /// -25299 "item already exists".
+  ///
+  /// On a fresh install that is a rare-looking but real path — the refresh
+  /// cookie rescues the session, so the person sees a flicker at worst — and
+  /// it is exactly the path a first-time reviewer walks. Serialising the
+  /// writes and making reads wait for them removes both halves.
+  Future<void> _tokenOps = Future<void>.value();
 
-  Future<void> clearToken() => _storage.delete(key: _accessTokenKey);
+  Future<void> _queueToken(Future<void> Function() op) {
+    final next = _tokenOps.then((_) => op());
+    // A failed write must not poison the queue for every later one.
+    _tokenOps = next.catchError((_) {});
+    return next;
+  }
 
-  Future<bool> get hasToken async =>
-      (await _storage.read(key: _accessTokenKey)) != null;
+  Future<void> _saveToken(String token) => _queueToken(() async {
+        try {
+          await _storage.write(key: _accessTokenKey, value: token);
+        } on PlatformException catch (e) {
+          // -25299: the item exists and this write was treated as an add.
+          // Replacing it is what was meant.
+          if (e.code.contains('25299') || (e.message ?? '').contains('already exists')) {
+            await _storage.delete(key: _accessTokenKey);
+            await _storage.write(key: _accessTokenKey, value: token);
+          } else {
+            rethrow;
+          }
+        }
+      });
+
+  Future<void> clearToken() =>
+      _queueToken(() => _storage.delete(key: _accessTokenKey));
+
+  Future<String?> _readToken() async {
+    await _tokenOps; // let any write in flight land first
+    return _storage.read(key: _accessTokenKey);
+  }
+
+  Future<bool> get hasToken async => (await _readToken()) != null;
 
   // ── Request helpers ────────────────────────────────────────────────────
 
@@ -484,8 +534,7 @@ class ApiClient {
         },
       );
 
-  Future<void> saveAccessToken(String token) =>
-      _storage.write(key: _accessTokenKey, value: token);
+  Future<void> saveAccessToken(String token) => _saveToken(token);
 
   // ── University league ──────────────────────────────────────────────────
 

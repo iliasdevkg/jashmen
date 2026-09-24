@@ -223,23 +223,46 @@ Apple'дын IAP талабы (3.1.1) тиешелүү эмес.
 
 ### Скриншоттор
 
-**App Store** (сөзсүз керек):
-- 6.9" iPhone (1320×2868) — **эң аз 3, көбү 10**
-- 6.5" iPhone (1242×2688) — Apple сурашы мүмкүн
+Колдонмо экрандарын өзү тартат: `integration_test/store_screenshots_test.dart`.
+Симуляторго терүү үчүн macOS'тун Accessibility уруксаты керек эмес.
 
-**Play** (сөзсүз керек):
-- Телефон: эң аз **4**, 1080×1920 же чоңураак
-- **Feature graphic: 1024×500** — ансыз чыгарууга болбойт
-- Иконка: 512×512 PNG
+Натыйжа: **1320×2868**, App Store'дун 6.9" талап кылган өлчөмү. Статус
+тилкеси Apple'дын стандарты боюнча `9:41`, батарея толук.
 
-Эмнени тартуу керек (эң жакшы 5): окуу жолу · сабактын суроосу · университет
-лигасы · дүкөн жана сыйлык · серия майрамдоо.
+**Маанилүү:** локалдык API менен иштейт, продакшн менен эмес. Скриншоттор
+чыныгы адамдын аккаунтун талап кылбашы керек.
 
-### Сүрөттөмө үчүн эскертүү
+```bash
+# 1. 6.9" симулятор (бир жолу)
+xcrun simctl create "JashMen Shots 6.9" \
+  com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max \
+  com.apple.CoreSimulator.SimRuntime.iOS-26-4
 
-Сүрөттөмөдө **«акысыз сыйлык», «утуп ал», «байге»** деген сөздөрдү
-колдонбоңуз — алар жарнамалык-кумар текшерүүсүнө түшүрөт. Анын ордуна:
-«окуп үйрөн», «монета топто», «университетиңиз үчүн упай чогулт».
+# 2. Локалдык API таза seed менен
+NODE_ENV=development JWT_SECRET=x ADMIN_PASSWORD=x PORT=3030 \
+  TRUST_PROXY_HOPS=0 SIGNUP_RATE_LIMIT=500 node admin-api/server.js &
+
+# 3. Прогресси бар колдонуучу жана лигадагы классташтар (signup + сабак бүтүрүү),
+#    жана dailyFreeLessons=10 — болбосо энергия 0 болуп сабак башталбайт
+
+# 4. Симуляторду тазалап, сааттын жазуусун коюу
+xcrun simctl erase <id> && xcrun simctl boot <id>
+xcrun simctl status_bar <id> override --time 9:41 --batteryState charged \
+  --batteryLevel 100 --cellularBars 4 --wifiBars 3
+
+# 5. Тест "SHOT:<аты>" деп жазат, хост ошондо simctl менен сүрөткө тартат
+flutter drive --driver=test_driver/integration_test.dart \
+  --target=integration_test/store_screenshots_test.dart -d <id> \
+  --dart-define=API_BASE_URL=http://localhost:3030/admin/api \
+  --dart-define=TEST_EMAIL=... --dart-define=TEST_PASSWORD=...
+```
+
+Сүрөттөр `simctl io <id> screenshot` менен, Flutter'дин өз тартуусу менен
+эмес: экинчиси статус тилкесин бош тилке кылып тартат.
+
+**Симуляторду ар жолу `erase` кылыңыз.** Мурунку сеанстан калган Keychain
+токени тестти чаташтырат.
+
 
 ---
 
