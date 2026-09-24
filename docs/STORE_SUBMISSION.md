@@ -281,3 +281,248 @@ https://jashmenstudio.com/terms
 
 Sign in with Apple is offered alongside Google, per Guideline 4.8.
 ```
+
+---
+
+# App Store: кадам-кадам менен
+
+> Бул бөлүм Apple Developer Program төлөнгөндөн кийинки так тартип.
+> Ар бир кадам мурункусу бүткөндөн кийин гана иштейт.
+
+## Кадам 1 — Xcode'го Apple ID менен кирүү ⛔ БУЛ ЖОКСУЗ ЭЧ НЕРСЕ БОЛБОЙТ
+
+Азыр машинада эсеп жок. Архив куруу так ушуга урунуп токтойт:
+
+```
+Error (Xcode): No Accounts: Add a new account in Accounts settings.
+```
+
+Кантип:
+
+1. **Xcode** → жогорку менюдан **Xcode → Settings** (же `⌘ ,`)
+2. **Accounts** кыстырмасы → ылдый сол жактагы **+** → **Apple ID**
+3. **Төлөм жасаган Apple ID** менен кириңиз (2FA коду телефонуңузга келет)
+
+> ⚠️ Машинадагы бар сертификат `akeevbelek391@gmail.com` дегенге таандык.
+> Эгер сиз башка Apple ID менен төлөгөн болсоңуз — **ошол жаңысы менен**
+> кириңиз, антпесе команда дал келбей калат.
+
+4. Киргенден кийин **Manage Certificates…** → **+** → **Apple Distribution**
+
+## Кадам 2 — Команда ID'син текшерүү
+
+Долбоордо `DEVELOPMENT_TEAM = JS7RNK46AF` деп жазылган. Кирген эсебиңиздин
+команда ID'си башка болсо, ал иштебейт.
+
+Xcode → Settings → Accounts → эсебиңиз → команданын жанында ID жазылат
+(10 белги). Башка болсо:
+
+```bash
+cd mobile
+grep -rn "JS7RNK46AF" ios/Runner.xcodeproj/project.pbxproj
+# үч жерде тең жаңы ID'ге алмаштырыңыз
+```
+
+## Кадам 3 — Sign in with Apple'ды күйгүзүү
+
+<https://developer.apple.com/account> → **Certificates, Identifiers & Profiles**
+→ **Identifiers** → `com.jashmenstudio.jashmen`
+
+**Sign in with Apple** дегенди белгилеңиз → **Save**.
+
+> Идентификатор тизмеде жок болсо, Xcode аны 4-кадамда өзү түзөт.
+
+## Кадам 4 — Архивди куруу
+
+```bash
+cd mobile
+flutter build ipa
+```
+
+Ийгиликтүү болсо: `build/ios/ipa/jashmen.ipa`
+
+Кол коюу катасы чыкса, Xcode'дон ачып туураңыз:
+
+```bash
+open ios/Runner.xcworkspace
+```
+→ **Runner** → **Signing & Capabilities** → **Automatically manage signing**
+белгиленген, **Team** тандалган болушу керек. Ал жерде **Sign in with Apple**
+да көрүнүшү керек.
+
+## Кадам 5 — App Store Connect'те колдонмо түзүү
+
+<https://appstoreconnect.apple.com> → **My Apps** → **+** → **New App**
+
+| Талаа | Мааниси |
+|---|---|
+| Platforms | iOS |
+| Name | `JashMen` |
+| Primary Language | Russian (же Kyrgyz жок болсо English) |
+| Bundle ID | `com.jashmenstudio.jashmen` |
+| SKU | `jashmen-ios-001` (каалаган уникалдуу сап) |
+| User Access | Full Access |
+
+## Кадам 6 — Жүктөө
+
+```bash
+xcrun altool --upload-app -f build/ios/ipa/jashmen.ipa \
+  -t ios -u СИЗДИН@APPLE.ID --password app-тиешелүү-сырсөз
+```
+
+App-specific password'ду <https://account.apple.com> → Sign-In and Security →
+App-Specific Passwords дегенден аласыз.
+
+**Же жөнөкөйүрөөк:** App Store Connect'тин **Transporter** колдонмосун
+Mac App Store'дон бекер жүктөп, `.ipa` файлды сүйрөп таштасаңыз болот.
+
+Жүктөлгөндөн кийин **20–40 мүнөт** иштетилет, анан билд App Store
+Connect'те көрүнөт.
+
+## Кадам 7 — Барактын маалыматын толтуруу
+
+Даяр тексттер төмөндө — көчүрүп коё бериңиз.
+
+## Кадам 8 — Текшерүүгө жөнөтүү
+
+**Add for Review** → **Submit**. Жооп адатта **24–48 сааттын** ичинде келет.
+
+---
+
+# App Store барагы үчүн даяр тексттер
+
+## Аталышы (30 белгиге чейин)
+
+```
+JashMen — каржы сабаттуулугу
+```
+
+Орусча башкы тил болсо:
+```
+JashMen: финансы для студентов
+```
+
+## Subtitle (30 белгиге чейин)
+
+```
+Учись деньгам через игру
+```
+
+## Promotional text (170 белги, качан болбосун өзгөртсө болот)
+
+```
+Короткие уроки о деньгах на кыргызском, русском и английском. Серия дней,
+монеты и лига между университетами — учись каждый день и собирай очки для
+своего вуза.
+```
+
+## Description
+
+```
+JashMen — приложение, которое учит обращаться с деньгами. Короткие уроки,
+задания и мгновенная проверка: пять минут в день вместо учебника.
+
+УРОКИ, КОТОРЫЕ ДОХОДЯТ
+Накопления, банковские карты, кредиты, защита от мошенников, основы
+инвестиций. Каждая тема — это несколько коротких уроков с примерами из
+жизни в Кыргызстане, а не абстрактные схемы.
+
+НА ТРЁХ ЯЗЫКАХ
+Кыргызский, русский и английский. Язык переключается в один тап, прогресс
+остаётся общим.
+
+СЕРИЯ, КОТОРАЯ ДЕРЖИТ
+Занимайтесь каждый день — серия растёт. Пропустили день, и она сгорает.
+Это простое правило и есть причина вернуться завтра.
+
+ЛИГА УНИВЕРСИТЕТОВ
+Выберите свой вуз, и заработанные очки идут в его общий счёт. Один студент
+тянет за собой группу, а кампусы соревнуются между собой весь сезон.
+
+МОНЕТЫ И НАГРАДЫ
+За пройденные уроки начисляются монеты. Их нельзя купить — только заработать.
+В магазине монеты обмениваются на настоящие призы от партнёров.
+
+БЕСПЛАТНО, БЕЗ РЕКЛАМЫ
+Никакой рекламы, никаких встроенных покупок, никакой слежки. Мы не продаём
+ваши данные и не подключаем аналитические SDK.
+
+—
+Уроки носят общеобразовательный характер и не являются персональной
+финансовой консультацией.
+
+Условия: https://jashmenstudio.com/terms
+Конфиденциальность: https://jashmenstudio.com/privacy
+Удаление аккаунта: https://jashmenstudio.com/delete-account
+```
+
+## Keywords (100 белги, үтүр менен, боштуксуз)
+
+```
+финансы,деньги,обучение,студент,кыргызча,накопления,бюджет,грамотность,уроки,банк,карта,инвестиции
+```
+
+## Support URL
+
+```
+https://jashmenstudio.com
+```
+
+## Marketing URL
+
+```
+https://jashmenstudio.com
+```
+
+## Copyright
+
+```
+2026 JashMen Studio
+```
+
+## Category
+
+- Primary: **Education**
+- Secondary: **Finance**
+
+## What's New (биринчи версия)
+
+```
+Первая версия JashMen.
+```
+
+---
+
+# Скриншоттор
+
+App Store сөзсүз талап кылат. **6.9" iPhone** үчүн эң аз **3**, көбү 10.
+
+Кантип алуу:
+
+```bash
+# 1. Симуляторду көтөрүү (6.9" = iPhone 17 Pro Max же 16 Pro Max)
+xcrun simctl list devices available | grep "Pro Max"
+xcrun simctl boot "iPhone 17 Pro Max"
+open -a Simulator
+
+# 2. Колдонмону иштетүү
+cd mobile && flutter run -d "iPhone 17 Pro Max"
+
+# 3. Кирип, ар бир экранды ачып, сүрөткө тартуу
+xcrun simctl io booted screenshot ~/Desktop/shot-1-learn.png
+xcrun simctl io booted screenshot ~/Desktop/shot-2-lesson.png
+xcrun simctl io booted screenshot ~/Desktop/shot-3-league.png
+xcrun simctl io booted screenshot ~/Desktop/shot-4-shop.png
+xcrun simctl io booted screenshot ~/Desktop/shot-5-streak.png
+```
+
+Эмнени тартуу керек (ушул беш экран эң жакшы сүйлөйт):
+
+1. **Окуу жолу** — модулдар жана сабактар көрүнгөн башкы экран
+2. **Сабактын суроосу** — жооп тандап жаткан учур
+3. **Университет лигасы** — таблица жана упайлар
+4. **Дүкөн** — сыйлыктар жана монеталар
+5. **Серия майрамдоо** — «3 күндүк серия!» экраны
+
+> Экрандын өлчөмү 1320×2868 болушу керек. `xcrun simctl io` так ошондой
+> берет — кол менен кесүүнүн кереги жок.
