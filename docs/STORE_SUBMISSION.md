@@ -526,3 +526,25 @@ xcrun simctl io booted screenshot ~/Desktop/shot-5-streak.png
 
 > Экрандын өлчөмү 1320×2868 болушу керек. `xcrun simctl io` так ошондой
 > берет — кол менен кесүүнүн кереги жок.
+
+
+---
+
+# Кол коюу: эмне үчүн Release колго коюлган
+
+`Release` конфигурациясы **Manual** кол коюуда: `Apple Distribution` +
+профиль `JashMen AppStore`. `Debug` автоматтык бойдон калган.
+
+**Себеби:** автоматтык кол коюу архивди *Development* профили менен жасайт,
+ал үчүн командада кеминде бир катталган iPhone керек. Дистрибуция профили
+түзмөк талап кылбайт.
+
+**Профиль жаңыртуу керек болгондо** (жылына бир жолу, 2027-09-24де бүтөт):
+developer.apple.com → Profiles → `JashMen AppStore` → Edit → Generate →
+Download → эки жолу басып орнотуңуз. Андан кийин `flutter build ipa`.
+
+**iPhone кошулса**, автоматтык кол коюуга кайтса болот: `CODE_SIGN_STYLE`
+жана `PROVISIONING_PROFILE_SPECIFIER` дегенди Release'тен алып салыңыз.
+
+Bundle id iOS үчүн `com.jashmenstudio.app` (Android: `com.jashmenstudio.jashmen`).
+Серверде `APPLE_BUNDLE_ID` ушуга дал келиши керек.
